@@ -1261,7 +1261,9 @@ class MatrixPage(QWidget):
                         _file_switching = True          # block position reads until new file confirmed
                         _expected_file  = os.path.basename(cur_next)
                         # Now load next file into the same mpv window
-                        _ipc({"command": ["loadfile", cur_next, "replace"]})
+                        # Pass start=0 explicitly so mpv begins from the beginning,
+                        # since --no-resume-playback only applies at launch, not to loadfile.
+                        _ipc({"command": ["loadfile", cur_next, "replace", 0, "start=0"]})
                         # Find the next-next episode
                         mod_n, _ = matrix_mod()
                         cur_next = None
