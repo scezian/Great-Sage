@@ -1,0 +1,468 @@
+2026-03-24 00:23:09.523  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-24 00:23:09.525  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1928-1074-brutal-battle-invincible-soul-of-the-red-sun-army
+2026-03-24 00:23:11.447  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1929-1075-the-wolf-pack-chooses-sides-black-sun-mobilizes
+2026-03-24 00:23:11.448  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-24 00:23:11.448  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-24 00:23:13.001  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1929-1075-the-wolf-pack-chooses-sides-black-sun-mobilizes  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-24 00:23:13.002  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1929
+2026-03-24 00:23:14.291  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-24 00:23:14.292  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-24 00:23:15.752  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1930-1075-wolf-pack-takes-sides-black-sun-mobilizes-2  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 00:23:15.754  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1930
+2026-03-24 00:23:18.491  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1931-1075-wolf-pack-takes-sides-black-sun-mobilizes-part-3  raw_paragraphs=26  after_filter=26  content_div_id=chr-content
+2026-03-24 00:23:18.493  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1931
+2026-03-24 00:23:21.676  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-24 00:23:21.676  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-24 00:23:21.722  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-24 00:23:24.456  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 00:23:24.458  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-24 00:23:27.110  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 00:23:27.111  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-24 00:23:30.000  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 00:23:30.002  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-24 00:23:32.846  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 00:23:32.847  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-24 00:23:35.768  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 00:23:35.769  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-24 00:23:38.531  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 00:23:38.532  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-24 00:23:41.238  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 00:23:41.239  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-24 00:23:43.911  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 00:23:43.912  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-24 00:23:46.776  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 00:23:46.778  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-24 00:23:49.509  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 00:23:49.510  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-24 00:23:52.304  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 00:23:52.305  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-24 00:23:55.115  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 00:23:55.116  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-24 00:23:57.937  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-24 00:23:57.938  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-24 00:24:00.590  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 00:24:00.597  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-24 00:24:03.373  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 00:24:03.375  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-24 00:24:06.079  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 00:24:06.081  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-24 00:24:08.805  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 00:24:08.806  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-24 00:24:11.565  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-24 00:24:11.567  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-24 00:24:14.329  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 00:24:14.330  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-24 00:24:17.086  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-24 00:24:17.088  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-24 00:24:19.848  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-24 00:24:19.849  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-24 00:24:22.305  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-24 00:24:22.306  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-24 00:24:25.082  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 00:24:25.083  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-24 00:24:27.841  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-24 00:24:27.842  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-24 00:24:30.177  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-24 00:24:30.178  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-24 00:24:32.994  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 00:24:32.996  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-24 00:24:35.795  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 00:24:35.796  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-24 00:24:38.152  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-24 00:24:38.154  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-24 00:24:40.832  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-24 00:24:40.833  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-24 00:24:44.050  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-24 00:24:44.100  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=554
+2026-03-24 06:09:53.252  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-24 06:09:56.771  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 290 [720p] [x265] [pseudo].mkv  season=2  episode=90  start=2.878
+2026-03-24 06:09:56.773  DEBUG     [great_sage.mpv]  mpv process started  pid=4076476  file=[AnimeRG] Gintama - 290 [720p] [x265] [pseudo].mkv
+2026-03-24 06:23:09.522  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-24 06:23:09.522  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-24 06:23:09.522  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-24 06:23:11.288  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-24 06:23:11.289  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['The Golem Mage']
+2026-03-24 06:23:13.983  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 06:23:13.987  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-24 06:23:16.651  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 06:23:16.653  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-24 06:23:19.309  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 06:23:19.310  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-24 06:23:23.723  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 06:23:23.726  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-24 06:23:26.325  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 06:23:26.327  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-24 06:23:28.827  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 06:23:28.829  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-24 06:23:31.493  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 06:23:31.495  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-24 06:23:34.465  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 06:23:34.467  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-24 06:23:37.231  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 06:23:37.236  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-24 06:23:40.009  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 06:23:40.014  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-24 06:23:42.704  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 06:23:42.709  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-24 06:23:45.423  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 06:23:45.424  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-24 06:23:48.093  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-24 06:23:48.096  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-24 06:23:50.970  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 06:23:50.975  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-24 06:23:53.620  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 06:23:53.622  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-24 06:23:56.899  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 06:23:56.901  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-24 06:23:59.661  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 06:23:59.662  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-24 06:24:02.419  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-24 06:24:02.420  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-24 06:24:05.077  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 06:24:05.081  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-24 06:24:07.745  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-24 06:24:07.747  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-24 06:24:10.510  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-24 06:24:10.512  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-24 06:24:13.378  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-24 06:24:13.382  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-24 06:24:16.153  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 06:24:16.158  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-24 06:24:19.016  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-24 06:24:19.021  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-24 06:24:21.673  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-24 06:24:21.674  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-24 06:24:24.563  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 06:24:24.568  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-24 06:24:27.303  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 06:24:27.305  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-24 06:24:30.157  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-24 06:24:30.159  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-24 06:24:32.944  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-24 06:24:32.946  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-24 06:24:39.855  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-24 06:24:39.974  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=584
+2026-03-24 09:52:05.160  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-24 09:52:09.718  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-24 09:52:19.036  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=277  has_url=True
+2026-03-24 09:57:17.808  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=278  has_url=True
+2026-03-24 10:03:21.192  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=279  has_url=True
+2026-03-24 10:07:40.272  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=280  has_url=True
+2026-03-24 10:07:41.447  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=281  has_url=True
+2026-03-24 10:07:46.910  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=280  has_url=False
+2026-03-24 10:13:03.536  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=281  has_url=True
+2026-03-24 10:17:45.763  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=282  has_url=True
+2026-03-24 10:23:07.683  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=283  has_url=True
+2026-03-24 10:27:23.773  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=284  has_url=True
+2026-03-24 10:31:17.125  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=285  has_url=True
+2026-03-24 10:35:06.091  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=286  has_url=True
+2026-03-24 10:38:51.882  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=287  has_url=True
+2026-03-24 10:44:06.427  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=288  has_url=True
+2026-03-24 10:48:58.633  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=289  has_url=True
+2026-03-24 10:52:27.494  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=290  has_url=True
+2026-03-24 10:56:44.018  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=291  has_url=True
+2026-03-24 11:00:15.544  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=292  has_url=True
+2026-03-24 11:05:34.004  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=293  has_url=True
+2026-03-24 11:08:06.415  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=294  has_url=True
+2026-03-24 11:11:56.954  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=295  has_url=True
+2026-03-24 11:16:00.451  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=296  has_url=True
+2026-03-24 11:20:43.534  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=297  has_url=True
+2026-03-24 11:24:11.547  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=298  has_url=True
+2026-03-24 11:26:30.579  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=299  has_url=True
+2026-03-24 11:29:23.599  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=300  has_url=True
+2026-03-24 11:31:56.770  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=301  has_url=True
+2026-03-24 11:35:12.402  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=302  has_url=True
+2026-03-24 11:38:07.674  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=303  has_url=True
+2026-03-24 11:41:59.266  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=304  has_url=True
+2026-03-24 11:45:32.891  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=305  has_url=True
+2026-03-24 11:48:26.572  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=306  has_url=True
+2026-03-24 11:53:17.917  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=307  has_url=True
+2026-03-24 11:55:32.457  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=308  has_url=True
+2026-03-24 12:00:55.921  INFO      [great_sage.legion]  Loading chapter  book=Sage Of Humanity  chapter=308  has_url=True
+2026-03-24 12:23:09.521  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-24 12:23:09.521  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-24 12:23:09.521  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-24 12:23:11.407  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-24 12:23:11.408  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['The Golem Mage']
+2026-03-24 12:23:14.984  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 12:23:14.985  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-24 12:23:17.660  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 12:23:17.662  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-24 12:23:21.683  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 12:23:21.687  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-24 12:23:25.359  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 12:23:25.361  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-24 12:23:28.502  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 12:23:28.503  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-24 12:23:31.517  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 12:23:31.521  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-24 12:23:34.448  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 12:23:34.450  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-24 12:23:37.437  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 12:23:37.439  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-24 12:23:40.839  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 12:23:40.843  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-24 12:23:43.595  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 12:23:43.600  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-24 12:23:46.296  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 12:23:46.297  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-24 12:23:49.589  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 12:23:49.590  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-24 12:23:52.656  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-24 12:23:52.669  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-24 12:23:55.641  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 12:23:55.643  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-24 12:23:58.910  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 12:23:58.914  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-24 12:24:01.664  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 12:24:01.669  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-24 12:24:04.821  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 12:24:04.823  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-24 12:24:07.624  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-24 12:24:07.627  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-24 12:24:10.315  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 12:24:10.319  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-24 12:24:13.038  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-24 12:24:13.040  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-24 12:24:16.060  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-24 12:24:16.063  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-24 12:24:18.995  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-24 12:24:18.996  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-24 12:24:21.755  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 12:24:21.757  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-24 12:24:24.443  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-24 12:24:24.445  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-24 12:24:27.167  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-24 12:24:27.168  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-24 12:24:29.856  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 12:24:29.861  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-24 12:24:32.575  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 12:24:32.580  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-24 12:24:35.369  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-24 12:24:35.374  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-24 12:24:38.101  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-24 12:24:38.106  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-24 12:24:41.300  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-24 12:24:41.394  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=614
+2026-03-24 14:42:17.777  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-24 14:42:47.702  DEBUG     [great_sage.matrix]  Fetching metadata  title=black dynamite  is_anime=False
+2026-03-24 14:42:50.984  INFO      [great_sage.matrix]  Metadata fetched  title=black dynamite  source=TMDB
+2026-03-24 14:53:32.668  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 292 [720p] [x265] [pseudo].mkv  season=2  episode=92  start=1238.571
+2026-03-24 14:53:32.669  DEBUG     [great_sage.mpv]  mpv process started  pid=2580481  file=[AnimeRG] Gintama - 292 [720p] [x265] [pseudo].mkv
+2026-03-24 15:02:51.288  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 278 [720p] [x265] [pseudo].mkv  season=2  episode=78  start=0
+2026-03-24 15:02:51.289  DEBUG     [great_sage.mpv]  mpv process started  pid=2625818  file=[AnimeRG] Gintama - 278 [720p] [x265] [pseudo].mkv
+2026-03-24 15:05:08.648  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 292 [720p] [x265] [pseudo].mkv  season=2  episode=92  start=0
+2026-03-24 15:05:08.649  DEBUG     [great_sage.mpv]  mpv process started  pid=2635524  file=[AnimeRG] Gintama - 292 [720p] [x265] [pseudo].mkv
+2026-03-24 15:05:55.971  DEBUG     [great_sage.matrix]  Fetching metadata  title=Brooklyn Nine-Nine  is_anime=False
+2026-03-24 15:05:58.361  INFO      [great_sage.matrix]  Metadata fetched  title=Brooklyn Nine-Nine  source=TMDB
+2026-03-24 16:15:30.460  INFO      [great_sage.mpv]  Launching mpv  show=Brooklyn Nine-Nine  file=Brooklyn.Nine-Nine.S01E02.720p.AMZN.WEBRip.x264-GalaxyTV.mkv  season=1  episode=2  start=0
+2026-03-24 16:15:30.462  DEBUG     [great_sage.mpv]  mpv process started  pid=2965317  file=Brooklyn.Nine-Nine.S01E02.720p.AMZN.WEBRip.x264-GalaxyTV.mkv
+2026-03-24 18:10:10.641  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-24 18:10:16.188  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-24 18:10:16.883  DEBUG     [great_sage.ui]  Navigate  page=sage
+2026-03-24 18:10:20.341  INFO      [great_sage.sage]  Sage request started  mode=shows
+2026-03-24 18:10:20.343  DEBUG     [great_sage.sage]  groq_chat request  model=llama-3.3-70b-versatile  prompt_len=3363
+2026-03-24 18:10:22.306  DEBUG     [great_sage.sage]  groq_chat success  response_len=1596
+2026-03-24 18:10:22.307  INFO      [great_sage.sage]  Sage request complete  mode=shows  response_len=1596
+2026-03-24 18:10:34.650  INFO      [great_sage.sage]  Sage request started  mode=shows
+2026-03-24 18:10:34.653  DEBUG     [great_sage.sage]  groq_chat request  model=llama-3.3-70b-versatile  prompt_len=4287
+2026-03-24 18:10:36.587  DEBUG     [great_sage.sage]  groq_chat success  response_len=1947
+2026-03-24 18:10:36.588  INFO      [great_sage.sage]  Sage request complete  mode=shows  response_len=1947
+2026-03-24 18:10:41.284  INFO      [great_sage.sage]  Sage request started  mode=similar
+2026-03-24 18:10:41.290  DEBUG     [great_sage.sage]  groq_chat request  model=llama-3.3-70b-versatile  prompt_len=5449
+2026-03-24 18:10:48.447  DEBUG     [great_sage.sage]  groq_chat success  response_len=1835
+2026-03-24 18:10:48.454  INFO      [great_sage.sage]  Sage request complete  mode=similar  response_len=1835
+2026-03-24 18:11:15.587  INFO      [great_sage.sage]  Sage request started  mode=mood_light
+2026-03-24 18:11:15.589  DEBUG     [great_sage.sage]  groq_chat request  model=llama-3.3-70b-versatile  prompt_len=6461
+2026-03-24 18:11:17.544  DEBUG     [great_sage.sage]  groq_chat success  response_len=1414
+2026-03-24 18:11:17.546  INFO      [great_sage.sage]  Sage request complete  mode=mood_light  response_len=1414
+2026-03-24 18:23:09.521  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-24 18:23:09.521  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-24 18:23:09.522  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-24 18:23:11.576  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-24 18:23:11.578  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['The Golem Mage']
+2026-03-24 18:23:14.496  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 18:23:14.497  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-24 18:23:17.363  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 18:23:17.365  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-24 18:23:20.431  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 18:23:20.432  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-24 18:23:23.853  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 18:23:23.854  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-24 18:23:26.957  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 18:23:26.959  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-24 18:23:30.633  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 18:23:30.634  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-24 18:23:33.746  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 18:23:33.747  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-24 18:23:37.225  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 18:23:37.227  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-24 18:23:40.101  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 18:23:40.102  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-24 18:23:42.879  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 18:23:42.880  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-24 18:23:46.088  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 18:23:46.089  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-24 18:23:48.888  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 18:23:48.889  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-24 18:23:52.046  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-24 18:23:52.049  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-24 18:23:54.900  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 18:23:54.902  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-24 18:23:57.782  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 18:23:57.783  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-24 18:24:00.457  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 18:24:00.458  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-24 18:24:03.648  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 18:24:03.650  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-24 18:24:07.415  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-24 18:24:07.416  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-24 18:24:11.502  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 18:24:11.503  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-24 18:24:15.162  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-24 18:24:15.163  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-24 18:24:18.570  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-24 18:24:18.571  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-24 18:24:21.823  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-24 18:24:21.824  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-24 18:24:24.763  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 18:24:24.764  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-24 18:24:27.864  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-24 18:24:27.865  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-24 18:24:30.905  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-24 18:24:30.906  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-24 18:24:33.851  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 18:24:33.852  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-24 18:24:36.794  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 18:24:36.796  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-24 18:24:39.568  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-24 18:24:39.569  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-24 18:24:42.324  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-24 18:24:42.325  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-24 18:24:46.171  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-24 18:24:46.216  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=644
+2026-03-24 18:41:47.026  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-24 20:12:55.021  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-24 20:12:55.390  INFO      [great_sage  ]  MainWindow creating
+2026-03-24 20:12:56.889  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-24 20:12:57.053  INFO      [great_sage  ]  App event loop starting
+2026-03-24 20:12:57.088  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-24 20:12:57.702  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-24 20:12:57.720  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-24 20:12:57.721  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-24 20:12:57.844  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-24 20:12:57.847  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-24 20:12:57.881  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-24 20:12:57.884  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-24 20:12:57.928  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-24 20:12:57.929  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-24 20:12:57.977  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-24 20:12:57.980  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-24 20:12:58.011  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-24 20:12:58.015  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-24 20:12:58.047  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-24 20:12:58.049  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-24 20:12:58.083  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-24 20:12:58.086  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-24 20:12:58.231  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-24 20:13:02.035  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-24 20:13:02.036  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-24 20:13:02.036  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1774-1772-whatever-you-say-goes
+2026-03-24 20:13:06.051  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/chapter-1775-1773-kid-youre-pretty-good
+2026-03-24 20:13:06.052  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1929-1075-the-wolf-pack-chooses-sides-black-sun-mobilizes
+2026-03-24 20:13:10.025  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1930-1075-wolf-pack-takes-sides-black-sun-mobilizes-2
+2026-03-24 20:13:10.030  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-24 20:13:10.030  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-24 20:13:10.727  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-1775-1773-kid-youre-pretty-good  raw_paragraphs=87  after_filter=87  content_div_id=chr-content
+2026-03-24 20:13:10.730  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=1775
+2026-03-24 20:13:13.976  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-24 20:13:13.980  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-24 20:13:14.937  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-1776-1774-illusory-blood-devils-eye  raw_paragraphs=83  after_filter=83  content_div_id=chr-content
+2026-03-24 20:13:14.939  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=1776
+2026-03-24 20:13:19.467  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-1777-1775-demon-eye-blinks  raw_paragraphs=77  after_filter=77  content_div_id=chr-content
+2026-03-24 20:13:19.473  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=1777
+2026-03-24 20:13:23.330  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-1778-1776-chong-xu  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-24 20:13:23.333  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=1778
+2026-03-24 20:13:27.051  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-1779-1777-searching  raw_paragraphs=66  after_filter=66  content_div_id=chr-content
+2026-03-24 20:13:27.055  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=1779
+2026-03-24 20:13:31.295  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-24 20:13:31.295  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-24 20:13:31.419  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-24 20:13:34.537  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1930-1075-wolf-pack-takes-sides-black-sun-mobilizes-2  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 20:13:34.555  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1930
+2026-03-24 20:13:37.822  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1931-1075-wolf-pack-takes-sides-black-sun-mobilizes-part-3  raw_paragraphs=26  after_filter=26  content_div_id=chr-content
+2026-03-24 20:13:37.824  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1931
+2026-03-24 20:13:42.290  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1932-1076-wolf-packs-surprise-attack-on-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-24 20:13:42.292  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1932
+2026-03-24 20:13:46.775  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1933-1076-wolf-packs-surprise-attack-on-the-hundred-stars-alliance  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-24 20:13:46.779  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1933
+2026-03-24 20:13:51.672  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-24 20:13:51.673  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-24 20:13:51.807  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-24 20:13:55.959  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 20:13:55.961  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-24 20:13:59.419  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-24 20:13:59.422  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-24 20:14:03.018  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 20:14:03.020  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-24 20:14:07.374  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 20:14:07.375  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-24 20:14:11.117  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-24 20:14:11.120  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-24 20:14:14.601  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 20:14:14.603  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-24 20:14:18.050  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 20:14:18.054  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-24 20:14:21.329  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 20:14:21.330  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-24 20:14:24.722  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 20:14:24.724  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-24 20:14:28.137  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 20:14:28.141  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-24 20:14:31.669  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 20:14:31.671  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-24 20:14:35.081  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 20:14:35.083  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-24 20:14:38.697  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-24 20:14:38.699  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-24 20:14:42.915  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-24 20:14:42.917  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-24 20:14:46.884  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 20:14:46.885  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-24 20:14:50.310  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-24 20:14:50.311  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-24 20:14:53.627  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-24 20:14:53.628  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-24 20:14:57.348  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-24 20:14:57.350  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-24 20:15:01.465  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 20:15:01.467  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-24 20:15:05.868  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-24 20:15:05.869  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-24 20:15:11.448  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-24 20:15:11.449  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-24 20:15:15.672  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-24 20:15:15.673  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-24 20:15:20.670  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-24 20:15:20.671  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-24 20:15:25.112  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-24 20:15:25.114  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-24 20:15:29.449  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-24 20:15:29.450  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-24 20:15:33.564  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-24 20:15:33.565  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-24 20:15:36.700  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-24 20:15:37.704  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-24 20:15:37.705  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-24 20:15:42.296  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-24 20:15:42.297  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-24 20:15:43.409  INFO      [great_sage  ]  Module loaded  mod=matrix
+2026-03-24 20:15:43.413  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 295 [720p] [x265] [pseudo].mkv  season=2  episode=95  start=260.51
+2026-03-24 20:15:43.416  DEBUG     [great_sage.mpv]  mpv process started  pid=3702431  file=[AnimeRG] Gintama - 295 [720p] [x265] [pseudo].mkv
+2026-03-24 20:15:46.458  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-24 20:15:46.461  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-24 20:15:50.828  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-24 20:15:50.873  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=674
+2026-03-24 21:00:01.844  INFO      [great_sage.mpv]  Launching mpv  show=Gintama  file=[AnimeRG] Gintama - 297 [720p] [x265] [pseudo].mkv  season=2  episode=97  start=66.692
+2026-03-24 21:00:01.845  DEBUG     [great_sage.mpv]  mpv process started  pid=3917555  file=[AnimeRG] Gintama - 297 [720p] [x265] [pseudo].mkv
+2026-03-24 22:07:28.510  INFO      [great_sage  ]  App exiting  exit_code=0

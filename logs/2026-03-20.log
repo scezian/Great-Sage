@@ -1,0 +1,315 @@
+2026-03-20 14:02:52.370  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 14:02:52.651  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 14:02:54.976  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 14:02:55.113  INFO      [great_sage  ]  App event loop starting
+2026-03-20 14:02:55.284  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 14:02:59.594  ERROR     [great_sage  ]  Failed to load module legion  exc_type=KeyError  exc_msg="Attempt to overwrite 'module' in LogRecord"  path=/home/scezian/Documents/great sage/legion.py  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 304, in _load
+    log.info("Module loaded", module=modname)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 209, in info
+    def info(self, *a, **kw):     self.root.info(*a, **kw)
+                                  ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 161, in info
+    self._log(logging.INFO, msg, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 155, in _log
+    self._logger.log(level, msg, extra=extra, exc_info=exc_info)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1590, in log
+    self._log(level, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1663, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args,
+                             exc_info, func, extra, sinfo)
+  File "/usr/lib/python3.14/logging/__init__.py", line 1637, in makeRecord
+    raise KeyError("Attempt to overwrite %r in LogRecord" % key)
+KeyError: "Attempt to overwrite 'module' in LogRecord"
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 304, in _load
+    log.info("Module loaded", module=modname)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 209, in info
+    def info(self, *a, **kw):     self.root.info(*a, **kw)
+                                  ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 161, in info
+    self._log(logging.INFO, msg, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 155, in _log
+    self._logger.log(level, msg, extra=extra, exc_info=exc_info)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1590, in log
+    self._log(level, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1663, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args,
+                             exc_info, func, extra, sinfo)
+  File "/usr/lib/python3.14/logging/__init__.py", line 1637, in makeRecord
+    raise KeyError("Attempt to overwrite %r in LogRecord" % key)
+KeyError: "Attempt to overwrite 'module' in LogRecord"
+
+2026-03-20 14:02:59.594  WARNING   [great_sage.sync]  Auto-sync skipped — legion.py unavailable  error="Attempt to overwrite 'module' in LogRecord"
+2026-03-20 14:03:12.895  DEBUG     [great_sage.ui]  Navigate  page=sage
+2026-03-20 14:03:12.936  ERROR     [great_sage  ]  Failed to load module sage  exc_type=KeyError  exc_msg="Attempt to overwrite 'module' in LogRecord"  path=/home/scezian/Documents/great sage/sage.py  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 304, in _load
+    log.info("Module loaded", module=modname)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 209, in info
+    def info(self, *a, **kw):     self.root.info(*a, **kw)
+                                  ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 161, in info
+    self._log(logging.INFO, msg, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 155, in _log
+    self._logger.log(level, msg, extra=extra, exc_info=exc_info)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1590, in log
+    self._log(level, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1663, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args,
+                             exc_info, func, extra, sinfo)
+  File "/usr/lib/python3.14/logging/__init__.py", line 1637, in makeRecord
+    raise KeyError("Attempt to overwrite %r in LogRecord" % key)
+KeyError: "Attempt to overwrite 'module' in LogRecord"
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 304, in _load
+    log.info("Module loaded", module=modname)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 209, in info
+    def info(self, *a, **kw):     self.root.info(*a, **kw)
+                                  ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 161, in info
+    self._log(logging.INFO, msg, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/scezian/Documents/great sage/gs_logger.py", line 155, in _log
+    self._logger.log(level, msg, extra=extra, exc_info=exc_info)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1590, in log
+    self._log(level, msg, args, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/logging/__init__.py", line 1663, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args,
+                             exc_info, func, extra, sinfo)
+  File "/usr/lib/python3.14/logging/__init__.py", line 1637, in makeRecord
+    raise KeyError("Attempt to overwrite %r in LogRecord" % key)
+KeyError: "Attempt to overwrite 'module' in LogRecord"
+
+2026-03-20 14:03:21.848  INFO      [great_sage.sage]  Sage request started  mode=chat
+2026-03-20 14:03:29.680  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 14:03:31.359  DEBUG     [great_sage.ui]  Navigate  page=sage
+2026-03-20 14:03:35.062  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 14:03:38.789  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 14:09:13.164  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 14:09:24.578  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 14:09:24.943  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 14:09:26.610  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 14:09:26.767  INFO      [great_sage  ]  App event loop starting
+2026-03-20 14:09:26.854  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 14:09:30.964  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 14:09:30.964  INFO      [great_sage.sync]  Auto-sync started  total_books=0
+2026-03-20 14:15:25.898  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 14:15:32.067  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 14:15:34.280  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-20 16:34:17.806  DEBUG     [great_sage.matrix]  Fetching metadata  title=Hitori no shita  is_anime=False
+2026-03-20 16:34:17.840  INFO      [great_sage  ]  Module loaded  mod=matrix
+2026-03-20 16:34:19.411  INFO      [great_sage.matrix]  Metadata fetched  title=Hitori no shita  source=TMDB
+2026-03-20 16:39:08.553  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:06:09.633  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:06:09.814  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:06:10.763  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:06:10.828  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:06:10.871  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:06:15.013  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:06:15.014  INFO      [great_sage.sync]  Auto-sync started  total_books=0
+2026-03-20 23:07:02.452  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:08:21.273  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:08:21.273  INFO      [great_sage.sync]  Fresh book queued for download  book=Sage Of Humanity
+2026-03-20 23:20:40.145  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:25:08.043  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:25:08.365  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:25:09.935  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:25:10.070  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:25:10.154  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:25:12.197  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:25:14.653  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:25:14.653  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:25:23.137  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:31:49.439  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:31:49.580  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:31:50.263  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:31:50.338  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:31:50.428  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:31:54.449  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:31:54.449  INFO      [great_sage.sync]  Auto-sync started  total_books=0
+2026-03-20 23:31:56.921  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:32:21.690  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:32:21.691  INFO      [great_sage.sync]  Fresh book queued for download  book=SageOf Humanity
+2026-03-20 23:32:25.432  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=SageOf Humanity  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  reason=Could not locate chapter content.
+2026-03-20 23:35:07.203  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:38:10.057  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:38:10.193  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:38:10.920  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:38:10.994  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:38:11.083  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:38:15.007  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:38:15.244  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:38:15.244  INFO      [great_sage.sync]  Auto-sync started  total_books=0
+2026-03-20 23:38:59.685  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:38:59.687  INFO      [great_sage.sync]  Fresh book queued for download  book=The Sage Of Humanity
+2026-03-20 23:39:03.199  ERROR     [great_sage.legion]  Could not locate chapter content div  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  page_title=no-title  has_chr_content=False  page_len=19452
+2026-03-20 23:39:03.200  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=The Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  reason=Could not locate chapter content.
+2026-03-20 23:44:31.795  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:44:43.814  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:44:43.974  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:44:44.771  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:44:44.843  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:44:44.930  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:44:48.746  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:44:48.868  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:44:48.868  INFO      [great_sage.sync]  Auto-sync started  total_books=0
+2026-03-20 23:45:10.672  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:45:10.673  INFO      [great_sage.sync]  Fresh book queued for download  book=Sage Of Humanity
+2026-03-20 23:45:14.332  ERROR     [great_sage.legion]  Could not locate chapter content div  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  page_title=no-title  has_chr_content=False  page_len=19366
+2026-03-20 23:45:14.333  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  reason=Could not locate chapter content.
+2026-03-20 23:47:14.761  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:48:49.635  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:48:51.455  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:48:51.694  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:48:53.211  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:48:53.320  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:48:53.417  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:48:57.260  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:48:57.260  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:48:58.743  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:53:31.210  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:53:32.871  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:53:33.051  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:53:33.920  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:53:34.022  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:53:34.134  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:53:35.622  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:53:38.314  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:53:38.314  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:56:41.081  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-20 23:56:43.671  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-20 23:56:44.092  INFO      [great_sage  ]  MainWindow creating
+2026-03-20 23:56:45.275  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-20 23:56:45.400  INFO      [great_sage  ]  App event loop starting
+2026-03-20 23:56:45.570  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-20 23:56:46.769  DEBUG     [great_sage.ui]  Navigate  page=legion
+2026-03-20 23:56:49.332  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-20 23:56:49.333  INFO      [great_sage.sync]  Auto-sync started  total_books=1
+2026-03-20 23:56:49.333  INFO      [great_sage.sync]  Fresh book queued for download  book=Sage Of Humanity
+2026-03-20 23:56:52.253  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-270-268-i-will-chop-people  raw_paragraphs=79  after_filter=79  content_div_id=chr-content
+2026-03-20 23:56:52.254  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=270
+2026-03-20 23:56:55.045  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-271-269-ying-ying-ying  raw_paragraphs=91  after_filter=91  content_div_id=chr-content
+2026-03-20 23:56:55.045  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=271
+2026-03-20 23:56:57.869  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-272-270-unparalleled-loyalty-and-righteousness  raw_paragraphs=70  after_filter=70  content_div_id=chr-content
+2026-03-20 23:56:57.870  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=272
+2026-03-20 23:57:00.588  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-273-271-massacre  raw_paragraphs=78  after_filter=78  content_div_id=chr-content
+2026-03-20 23:57:00.589  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=273
+2026-03-20 23:57:03.452  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-274-272-what-the-hell-is-a-mochi-ball  raw_paragraphs=84  after_filter=84  content_div_id=chr-content
+2026-03-20 23:57:03.453  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=274
+2026-03-20 23:57:06.074  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-275-273-i-have-someone-backing-me-up  raw_paragraphs=85  after_filter=85  content_div_id=chr-content
+2026-03-20 23:57:06.075  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=275
+2026-03-20 23:57:08.803  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-276-274-the-punishment-of-the-red-robed-woman  raw_paragraphs=83  after_filter=83  content_div_id=chr-content
+2026-03-20 23:57:08.805  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=276
+2026-03-20 23:57:11.664  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-277-275-saving-people  raw_paragraphs=74  after_filter=74  content_div_id=chr-content
+2026-03-20 23:57:11.666  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=277
+2026-03-20 23:57:14.456  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-278-276-counterattack  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:57:14.457  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=278
+2026-03-20 23:57:17.156  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-279-277-a-gentleman-uses-his-words-not-his-fists  raw_paragraphs=80  after_filter=80  content_div_id=chr-content
+2026-03-20 23:57:17.159  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=279
+2026-03-20 23:57:19.824  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-280-278-offense-and-defense  raw_paragraphs=74  after_filter=74  content_div_id=chr-content
+2026-03-20 23:57:19.827  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=280
+2026-03-20 23:57:23.192  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-281-279-catching-the-cat  raw_paragraphs=82  after_filter=82  content_div_id=chr-content
+2026-03-20 23:57:23.194  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=281
+2026-03-20 23:57:25.974  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-282-280-revenge  raw_paragraphs=85  after_filter=85  content_div_id=chr-content
+2026-03-20 23:57:25.975  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=282
+2026-03-20 23:57:28.883  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-283-281-the-dungeon  raw_paragraphs=79  after_filter=79  content_div_id=chr-content
+2026-03-20 23:57:28.884  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=283
+2026-03-20 23:57:31.697  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-284-282-thanks-to-fenghua-courtyard  raw_paragraphs=85  after_filter=85  content_div_id=chr-content
+2026-03-20 23:57:31.698  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=284
+2026-03-20 23:57:34.581  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-285-283-plans-fall-through  raw_paragraphs=79  after_filter=79  content_div_id=chr-content
+2026-03-20 23:57:34.582  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=285
+2026-03-20 23:57:37.579  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-286-284-giant-armors-demonic-pill  raw_paragraphs=82  after_filter=82  content_div_id=chr-content
+2026-03-20 23:57:37.580  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=286
+2026-03-20 23:57:40.368  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-287-285-city-lord-of-xianyuan-city  raw_paragraphs=93  after_filter=93  content_div_id=chr-content
+2026-03-20 23:57:40.369  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=287
+2026-03-20 23:57:43.468  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-288-286-soul-cleansing-pool  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:57:43.469  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=288
+2026-03-20 23:57:46.269  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-289-287-soul-water  raw_paragraphs=73  after_filter=73  content_div_id=chr-content
+2026-03-20 23:57:46.270  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=289
+2026-03-20 23:57:49.153  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-290-288-golden-spears-and-iron-horses  raw_paragraphs=73  after_filter=73  content_div_id=chr-content
+2026-03-20 23:57:49.154  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=290
+2026-03-20 23:57:51.973  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-291-289-leaving  raw_paragraphs=71  after_filter=71  content_div_id=chr-content
+2026-03-20 23:57:51.974  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=291
+2026-03-20 23:57:54.853  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-292-290-heaven-rank-technique  raw_paragraphs=74  after_filter=74  content_div_id=chr-content
+2026-03-20 23:57:54.855  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=292
+2026-03-20 23:57:57.667  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-293-291-research-on-array-destruction  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-20 23:57:57.669  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=293
+2026-03-20 23:58:03.558  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-294-292-research-bias  raw_paragraphs=75  after_filter=75  content_div_id=chr-content
+2026-03-20 23:58:03.559  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=294
+2026-03-20 23:58:07.076  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.me/novel-book/sage-of-humanity/chapter-295-293-sneaking-into-the-night-with-the-wind  raw_paragraphs=70  after_filter=70  content_div_id=chr-content
+2026-03-20 23:58:07.078  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=295
+2026-03-20 23:58:09.831  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-296-294-snatching-the-jade-cluster  raw_paragraphs=61  after_filter=61  content_div_id=chr-content
+2026-03-20 23:58:09.833  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=296
+2026-03-20 23:58:12.618  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-297-295-capturing-fenghua-courtyard  raw_paragraphs=71  after_filter=71  content_div_id=chr-content
+2026-03-20 23:58:12.621  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=297
+2026-03-20 23:58:15.284  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-298-296-attempt  raw_paragraphs=71  after_filter=71  content_div_id=chr-content
+2026-03-20 23:58:15.286  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=298
+2026-03-20 23:58:17.930  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-299-297-charging-the-formation  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-20 23:58:17.931  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=299
+2026-03-20 23:58:20.837  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-300-298-breaking-illuminating-sun-mountain  raw_paragraphs=63  after_filter=63  content_div_id=chr-content
+2026-03-20 23:58:20.838  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=300
+2026-03-20 23:58:23.745  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-301-299-a-prophecy-fulfilled  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:58:23.746  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=301
+2026-03-20 23:58:26.269  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-302-300-please-call-out-fellow-daoist-yiye  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:58:26.270  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=302
+2026-03-20 23:58:29.463  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-303-301-zhao-li  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:58:29.466  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=303
+2026-03-20 23:58:32.275  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-304-302-hundred-arrays-pagoda  raw_paragraphs=60  after_filter=60  content_div_id=chr-content
+2026-03-20 23:58:32.277  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=304
+2026-03-20 23:58:35.376  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-305-303-going-to-the-appointment  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-20 23:58:35.377  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=305
+2026-03-20 23:58:38.246  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-306-304-veteran-level-9  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:58:38.247  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=306
+2026-03-20 23:58:41.082  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-307-305-ambush  raw_paragraphs=70  after_filter=70  content_div_id=chr-content
+2026-03-20 23:58:41.083  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=307
+2026-03-20 23:58:43.773  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-308-306-big-trouble  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-20 23:58:43.774  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=308
+2026-03-20 23:58:46.563  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-309-307-poisoning-to-death  raw_paragraphs=83  after_filter=83  content_div_id=chr-content
+2026-03-20 23:58:46.565  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=309
+2026-03-20 23:58:49.345  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-310-308-the-poison-of-the-psyche  raw_paragraphs=79  after_filter=79  content_div_id=chr-content
+2026-03-20 23:58:49.347  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=310
+2026-03-20 23:58:52.258  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-311-309-i-am-exceptionally-gifted  raw_paragraphs=63  after_filter=63  content_div_id=chr-content
+2026-03-20 23:58:52.259  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=311
+2026-03-20 23:58:55.189  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-312-310-is-this-thing-useful  raw_paragraphs=83  after_filter=83  content_div_id=chr-content
+2026-03-20 23:58:55.191  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=312
+2026-03-20 23:58:58.110  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-313-311-return-my-junior-brothers-life  raw_paragraphs=71  after_filter=71  content_div_id=chr-content
+2026-03-20 23:58:58.114  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=313
+2026-03-20 23:59:00.810  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-314-312-cry-for-me  raw_paragraphs=70  after_filter=70  content_div_id=chr-content
+2026-03-20 23:59:00.812  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=314
+2026-03-20 23:59:03.556  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-315-313-swallowing-moonlight  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-20 23:59:03.557  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=315
+2026-03-20 23:59:06.227  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-316-314-training-square  raw_paragraphs=79  after_filter=79  content_div_id=chr-content
+2026-03-20 23:59:06.228  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=316
+2026-03-20 23:59:08.983  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-317-315-crafting-the-array-banner  raw_paragraphs=64  after_filter=64  content_div_id=chr-content
+2026-03-20 23:59:08.986  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=317
+2026-03-20 23:59:11.691  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-318-316-breaking-into-the-tower  raw_paragraphs=70  after_filter=70  content_div_id=chr-content
+2026-03-20 23:59:11.693  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=318
+2026-03-20 23:59:14.134  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-319-317-level-9  raw_paragraphs=72  after_filter=72  content_div_id=chr-content
+2026-03-20 23:59:14.135  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=319
+2026-03-20 23:59:17.094  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-320-318-consecutive-breakthrough-of-ten-floors  raw_paragraphs=74  after_filter=74  content_div_id=chr-content
+2026-03-20 23:59:17.098  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=320
+2026-03-20 23:59:19.999  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-321-319-the-sky-cleared-the-rain-stopped  raw_paragraphs=76  after_filter=76  content_div_id=chr-content
+2026-03-20 23:59:20.002  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=321
+2026-03-20 23:59:23.401  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-322-320-the-last-three-layers  raw_paragraphs=74  after_filter=74  content_div_id=chr-content
+2026-03-20 23:59:23.402  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=322
+2026-03-20 23:59:27.443  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-323-321-two-glowing-lights  raw_paragraphs=81  after_filter=81  content_div_id=chr-content
+2026-03-20 23:59:27.447  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=323
+2026-03-20 23:59:36.438  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/chapter-324-322-flood-dragon-enters-the-sea  raw_paragraphs=81  after_filter=81  content_div_id=chr-content
+2026-03-20 23:59:36.439  DEBUG     [great_sage.legion]  Chapter appended to file  book=Sage Of Humanity  chapter=324

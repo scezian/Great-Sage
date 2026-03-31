@@ -1,0 +1,779 @@
+2026-03-31 08:45:08.166  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:45:08.573  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=ImportError  exc_msg=cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 41, in <module>
+    from PyQt6.QtCore  import Qt, QTimer, QKeySequence
+ImportError: cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 41, in <module>
+    from PyQt6.QtCore  import Qt, QTimer, QKeySequence
+ImportError: cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)
+
+2026-03-31 08:45:47.944  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:45:48.204  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:45:48.490  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=NameError  exc_msg=name '_TouchScrollFilter' is not defined  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 610, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 601, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 414, in _build
+    ("legion",    LegionPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_legion_ui.py", line 69, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_legion_ui.py", line 332, in _build
+    self._touch_filter = _TouchScrollFilter(self.reader, self.reader)
+                         ^^^^^^^^^^^^^^^^^^
+NameError: name '_TouchScrollFilter' is not defined
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 610, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 601, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 414, in _build
+    ("legion",    LegionPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_legion_ui.py", line 69, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_legion_ui.py", line 332, in _build
+    self._touch_filter = _TouchScrollFilter(self.reader, self.reader)
+                         ^^^^^^^^^^^^^^^^^^
+NameError: name '_TouchScrollFilter' is not defined
+
+2026-03-31 08:46:15.924  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:46:16.199  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:46:17.782  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=NameError  exc_msg=name '_mobile_server_port' is not defined  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 610, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 601, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 417, in _build
+    ("settings",  SettingsPage()),
+                  ~~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_sage_ui.py", line 695, in __init__
+    super().__init__(); self._build()
+                        ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_sage_ui.py", line 780, in _build
+    url = f"http://{local_ip}:{_mobile_server_port}"
+                               ^^^^^^^^^^^^^^^^^^^
+NameError: name '_mobile_server_port' is not defined
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 610, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 601, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 417, in _build
+    ("settings",  SettingsPage()),
+                  ~~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_sage_ui.py", line 695, in __init__
+    super().__init__(); self._build()
+                        ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_sage_ui.py", line 780, in _build
+    url = f"http://{local_ip}:{_mobile_server_port}"
+                               ^^^^^^^^^^^^^^^^^^^
+NameError: name '_mobile_server_port' is not defined
+
+2026-03-31 08:46:47.136  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:46:47.394  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:46:49.015  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 08:46:49.016  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 08:46:49.072  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 08:46:49.073  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 08:46:49.074  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 08:46:49.076  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 08:46:49.078  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 08:46:49.079  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 08:46:49.081  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 08:46:49.082  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 08:46:49.288  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:46:49.427  INFO      [great_sage  ]  App event loop starting
+2026-03-31 08:46:49.475  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 08:46:50.229  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 08:46:50.254  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 08:46:50.287  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 08:46:50.314  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 08:46:50.332  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 08:46:50.363  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 08:46:50.396  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 08:46:50.498  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 08:46:54.212  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 08:46:54.212  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 08:46:54.212  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 08:47:02.304  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 08:47:02.306  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1941-1081-transformed-level-spirituality-river-red-sun-empires-trump-card
+2026-03-31 08:47:05.605  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:47:05.606  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 08:47:05.689  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 08:47:06.634  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 08:47:06.636  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-31 08:47:06.637  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-31 08:47:09.240  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:47:09.259  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1942
+2026-03-31 08:47:09.271  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-31 08:47:09.273  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 08:47:09.298  ERROR     [great_sage.legion]  Failed to save progress (atomic write failed), trying direct write  error=[Errno 2] No such file or directory: '/home/scezian/.great_sage_legion.json.tmp' -> '/home/scezian/.great_sage_legion.json'
+2026-03-31 08:47:11.920  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 08:47:11.921  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 08:47:14.531  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 08:47:14.532  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 08:47:17.170  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:47:17.172  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 08:47:19.337  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:47:19.939  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 08:47:19.940  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 08:47:22.586  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:47:22.588  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 08:47:25.475  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 08:47:25.476  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 08:47:28.236  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:47:28.237  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 08:47:30.898  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 08:47:30.900  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 08:47:33.563  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 08:47:33.565  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 08:47:37.606  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 08:47:37.607  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 08:47:40.216  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:47:40.219  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 08:47:42.890  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 08:47:42.892  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 08:47:46.088  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:47:46.089  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 08:47:46.171  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 08:47:48.915  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:47:48.919  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-31 08:47:51.679  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-31 08:47:51.682  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-31 08:47:54.054  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-31 08:47:54.056  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-31 08:48:01.207  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:48:01.209  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-31 08:48:04.655  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.me/novel-book/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:48:04.657  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-31 08:48:07.814  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:48:07.817  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-31 08:48:10.147  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 08:48:18.241  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:48:18.502  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:48:19.852  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 08:48:19.853  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 08:48:19.890  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 08:48:19.891  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 08:48:19.891  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 08:48:19.892  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 08:48:19.893  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 08:48:19.894  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 08:48:19.895  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 08:48:19.896  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 08:48:20.095  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:48:20.250  INFO      [great_sage  ]  App event loop starting
+2026-03-31 08:48:20.386  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 08:48:20.946  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 08:48:21.078  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 08:48:21.104  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 08:48:21.139  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 08:48:21.178  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 08:48:21.205  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 08:48:21.232  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 08:48:21.255  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 08:48:21.361  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 08:48:24.414  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 08:48:24.416  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 08:48:24.417  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 08:48:27.324  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 08:48:27.329  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1941-1081-transformed-level-spirituality-river-red-sun-empires-trump-card
+2026-03-31 08:48:30.068  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 08:48:30.069  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3
+2026-03-31 08:48:30.548  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:48:30.548  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 08:48:30.622  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 08:48:32.653  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it
+2026-03-31 08:48:32.655  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 08:48:33.366  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:48:33.368  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1942
+2026-03-31 08:48:35.988  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 08:48:35.990  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 08:48:38.575  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 08:48:38.577  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 08:48:41.251  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:48:41.254  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 08:48:43.921  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 08:48:43.923  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 08:48:46.994  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:48:46.998  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 08:48:49.708  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 08:48:49.710  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 08:48:52.300  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:48:52.302  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 08:48:54.967  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 08:48:54.969  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 08:48:57.626  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 08:48:57.628  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 08:49:01.617  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 08:49:01.619  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 08:49:04.381  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:49:04.383  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 08:49:07.042  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 08:49:07.043  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 08:49:10.149  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:49:10.150  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 08:49:10.207  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 08:49:12.901  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-31 08:49:12.903  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-31 08:49:15.648  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:49:15.649  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-31 08:49:18.321  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:49:18.324  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-31 08:49:21.384  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:49:21.386  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-31 08:49:24.068  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:49:24.072  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-31 08:49:25.323  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 08:49:58.993  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:49:59.205  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:50:00.554  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 08:50:00.557  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 08:50:00.600  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 08:50:00.601  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 08:50:00.602  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 08:50:00.602  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 08:50:00.603  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 08:50:00.604  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 08:50:00.604  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 08:50:00.605  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 08:50:00.797  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:50:00.929  INFO      [great_sage  ]  App event loop starting
+2026-03-31 08:50:01.008  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 08:50:01.620  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 08:50:01.719  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 08:50:01.746  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 08:50:01.781  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 08:50:01.808  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 08:50:01.825  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 08:50:01.849  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 08:50:01.867  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 08:50:01.970  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 08:50:05.371  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 08:50:05.371  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 08:50:05.371  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 08:50:08.715  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 08:50:08.717  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1941-1081-transformed-level-spirituality-river-red-sun-empires-trump-card
+2026-03-31 08:50:11.285  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 08:50:11.286  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches
+2026-03-31 08:50:12.305  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:50:12.306  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 08:50:12.369  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 08:50:14.016  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets
+2026-03-31 08:50:14.017  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 08:50:15.138  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:50:15.140  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1942
+2026-03-31 08:50:17.914  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 08:50:17.916  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 08:50:20.567  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 08:50:20.569  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 08:50:23.226  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:50:23.228  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 08:50:25.907  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 08:50:25.910  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 08:50:28.568  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:50:28.571  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 08:50:31.224  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 08:50:31.226  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 08:50:33.891  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:50:33.893  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 08:50:36.534  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 08:50:36.535  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 08:50:41.561  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 08:50:41.564  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 08:50:44.226  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 08:50:44.227  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 08:50:46.886  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:50:46.889  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 08:50:49.547  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 08:50:49.550  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 08:50:52.762  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:50:52.762  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 08:50:52.846  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 08:50:55.597  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:50:55.600  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-31 08:50:57.946  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-31 08:50:57.948  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-31 08:50:59.783  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:51:00.607  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:51:00.609  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-31 08:51:03.061  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:51:03.062  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-31 08:51:05.776  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:51:05.779  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-31 08:51:08.440  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:51:08.442  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-31 08:51:12.042  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-31 08:51:12.044  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-31 08:51:14.737  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:51:14.738  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-31 08:51:17.397  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-31 08:51:17.398  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-31 08:51:20.132  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-31 08:51:20.134  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-31 08:51:22.929  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-31 08:51:22.931  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-31 08:51:25.606  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:51:25.610  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-31 08:51:28.234  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-31 08:51:28.235  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-31 08:51:31.021  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-31 08:51:31.023  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-31 08:51:33.622  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-31 08:51:33.623  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-31 08:51:35.056  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:51:36.449  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-31 08:51:36.450  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-31 08:51:38.595  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:51:39.117  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-31 08:51:39.119  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-31 08:51:41.673  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:51:41.772  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:51:41.774  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-31 08:51:44.535  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1075-ice-captains-revealed  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:51:44.537  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1075
+2026-03-31 08:51:47.213  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1076-ice-captains-revealed-2  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:51:47.215  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1076
+2026-03-31 08:51:49.862  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1077-qualified  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:51:49.864  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1077
+2026-03-31 08:51:52.535  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1078-thoughts-about-the-new-team  raw_paragraphs=55  after_filter=55  content_div_id=chr-content
+2026-03-31 08:51:52.537  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1078
+2026-03-31 08:51:55.183  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1079-another-format  raw_paragraphs=45  after_filter=45  content_div_id=chr-content
+2026-03-31 08:51:55.184  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1079
+2026-03-31 08:52:00.627  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1080-the-re-match  raw_paragraphs=45  after_filter=45  content_div_id=chr-content
+2026-03-31 08:52:00.629  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1080
+2026-03-31 08:52:04.240  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.me/novel-book/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-31 08:52:04.331  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=2565
+2026-03-31 08:53:49.931  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 08:54:11.089  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:54:11.505  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:54:13.049  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 08:54:13.051  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 08:54:13.086  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 08:54:13.097  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 08:54:13.097  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 08:54:13.098  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 08:54:13.100  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 08:54:13.101  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 08:54:13.101  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 08:54:13.102  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 08:54:13.310  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:54:13.430  INFO      [great_sage  ]  App event loop starting
+2026-03-31 08:54:13.507  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 08:54:14.145  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 08:54:14.329  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 08:54:14.373  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 08:54:14.428  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 08:54:14.477  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 08:54:14.515  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 08:54:14.555  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 08:54:14.594  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 08:54:14.791  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 08:54:18.241  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 08:54:18.242  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 08:54:18.242  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 08:54:21.120  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 08:54:21.121  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1941-1081-transformed-level-spirituality-river-red-sun-empires-trump-card
+2026-03-31 08:54:23.793  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 08:54:23.798  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.me/novel-book/the-golem-mage/null
+2026-03-31 08:54:23.799  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-31 08:54:24.723  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:54:24.731  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 08:54:24.895  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 08:54:25.180  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:54:26.694  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-31 08:54:26.700  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 08:54:27.583  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:54:27.586  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1942
+2026-03-31 08:54:30.213  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 08:54:30.215  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 08:54:30.964  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:54:32.903  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 08:54:32.905  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 08:54:35.530  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:54:35.532  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 08:54:38.217  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 08:54:38.230  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 08:54:40.995  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:54:40.998  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 08:54:43.656  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 08:54:43.659  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 08:54:46.406  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 08:54:46.409  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 08:54:49.454  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 08:54:49.459  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 08:54:52.472  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 08:54:52.477  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 08:54:55.235  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 08:54:55.239  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 08:54:57.901  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:54:57.907  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 08:55:00.552  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 08:55:00.559  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 08:55:03.843  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:55:03.846  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 08:55:04.008  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 08:55:06.818  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:55:06.821  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-31 08:55:09.566  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-31 08:55:09.574  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-31 08:55:12.223  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-31 08:55:12.228  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-31 08:55:14.918  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1049-mirage-ninja  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:55:14.921  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1049
+2026-03-31 08:55:17.765  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1050-blades-2  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:55:17.771  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1050
+2026-03-31 08:55:20.517  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1051-blades-3  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:55:20.521  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1051
+2026-03-31 08:55:23.425  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1052-who-wins-it  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-31 08:55:23.428  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1052
+2026-03-31 08:55:26.165  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1053-shock-1  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:55:26.168  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1053
+2026-03-31 08:55:29.059  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1054-lucas-blade-a-man-to-look-out-for  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:55:29.062  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1054
+2026-03-31 08:55:31.811  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1055-shock-2  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:55:31.816  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1055
+2026-03-31 08:55:34.522  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1056-patches  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:55:34.524  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1056
+2026-03-31 08:55:36.891  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1057-sets  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:55:36.896  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1057
+2026-03-31 08:55:39.463  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1058-sets-2  raw_paragraphs=44  after_filter=44  content_div_id=chr-content
+2026-03-31 08:55:39.466  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1058
+2026-03-31 08:55:42.149  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1059-patches-and-beatrice-1  raw_paragraphs=36  after_filter=36  content_div_id=chr-content
+2026-03-31 08:55:42.154  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1059
+2026-03-31 08:55:44.803  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1060-patches-and-beatrice-2  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:55:44.806  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1060
+2026-03-31 08:55:47.470  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1061-patches-and-beatrice-3  raw_paragraphs=37  after_filter=37  content_div_id=chr-content
+2026-03-31 08:55:47.473  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1061
+2026-03-31 08:55:52.743  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1062-patches-and-beatrice-final  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 08:55:52.748  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1062
+2026-03-31 08:56:06.105  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1063-the-first-three-1  raw_paragraphs=34  after_filter=34  content_div_id=chr-content
+2026-03-31 08:56:06.111  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1063
+2026-03-31 08:56:13.261  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1064-the-first-three-2  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:56:13.264  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1064
+2026-03-31 08:56:15.932  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1065-he-is-back-1  raw_paragraphs=43  after_filter=43  content_div_id=chr-content
+2026-03-31 08:56:15.937  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1065
+2026-03-31 08:56:18.632  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1066-the-first-three-final  raw_paragraphs=50  after_filter=50  content_div_id=chr-content
+2026-03-31 08:56:18.650  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1066
+2026-03-31 08:56:20.308  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:56:21.450  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1067-he-is-backkk-2  raw_paragraphs=33  after_filter=33  content_div_id=chr-content
+2026-03-31 08:56:21.455  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1067
+2026-03-31 08:56:23.214  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:56:24.103  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1068-he-is-back-3  raw_paragraphs=32  after_filter=32  content_div_id=chr-content
+2026-03-31 08:56:24.104  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1068
+2026-03-31 08:56:26.890  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1069-he-is-back-4  raw_paragraphs=31  after_filter=31  content_div_id=chr-content
+2026-03-31 08:56:26.896  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1069
+2026-03-31 08:56:29.709  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1070-he-is-back-final  raw_paragraphs=40  after_filter=40  content_div_id=chr-content
+2026-03-31 08:56:29.712  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1070
+2026-03-31 08:56:32.419  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1071-the-last-loser-bracket-match  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-31 08:56:32.423  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1071
+2026-03-31 08:56:35.200  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1072-unpredictable-1  raw_paragraphs=35  after_filter=35  content_div_id=chr-content
+2026-03-31 08:56:35.203  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1072
+2026-03-31 08:56:37.840  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1073-unpredictable-2  raw_paragraphs=53  after_filter=53  content_div_id=chr-content
+2026-03-31 08:56:37.844  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1073
+2026-03-31 08:56:40.524  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1074-slow-battle  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:56:40.528  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1074
+2026-03-31 08:56:43.267  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1075-ice-captains-revealed  raw_paragraphs=41  after_filter=41  content_div_id=chr-content
+2026-03-31 08:56:43.270  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1075
+2026-03-31 08:56:45.898  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1076-ice-captains-revealed-2  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 08:56:45.903  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1076
+2026-03-31 08:56:48.625  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1077-qualified  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 08:56:48.632  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1077
+2026-03-31 08:56:51.360  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1078-thoughts-about-the-new-team  raw_paragraphs=55  after_filter=55  content_div_id=chr-content
+2026-03-31 08:56:51.367  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1078
+2026-03-31 08:56:55.876  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1079-another-format  raw_paragraphs=45  after_filter=45  content_div_id=chr-content
+2026-03-31 08:56:55.882  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1079
+2026-03-31 08:56:58.657  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1080-the-re-match  raw_paragraphs=45  after_filter=45  content_div_id=chr-content
+2026-03-31 08:56:58.667  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1080
+2026-03-31 08:57:01.857  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
+2026-03-31 08:57:02.065  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=2601
+2026-03-31 08:57:03.032  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:57:11.910  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:57:13.440  DEBUG     [great_sage.ui]  Navigate  page=plugins
+2026-03-31 08:57:17.275  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:57:18.796  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 08:57:20.297  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 08:57:20.701  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 08:57:22.570  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 08:57:22.571  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 08:57:22.608  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 08:57:22.609  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 08:57:22.609  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 08:57:22.610  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 08:57:22.611  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 08:57:22.612  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 08:57:22.613  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 08:57:22.614  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 08:57:22.813  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 08:57:22.933  INFO      [great_sage  ]  App event loop starting
+2026-03-31 08:57:23.050  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 08:57:23.651  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 08:57:23.834  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 08:57:23.877  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 08:57:23.930  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 08:57:23.977  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 08:57:24.017  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 08:57:24.054  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 08:57:24.099  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 08:57:24.284  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 08:57:27.646  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 08:57:27.647  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 08:57:27.647  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 08:57:31.271  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 08:57:31.272  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1941-1081-transformed-level-spirituality-river-red-sun-empires-trump-card
+2026-03-31 08:57:33.974  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 08:57:33.976  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-31 08:57:33.977  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-31 08:57:34.597  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 08:57:34.597  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 08:57:34.737  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 08:57:36.623  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-31 08:57:36.629  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 08:57:37.581  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card  raw_paragraphs=59  after_filter=59  content_div_id=chr-content
+2026-03-31 08:57:37.587  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1942
+2026-03-31 08:57:38.077  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 09:02:28.032  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 09:02:28.339  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=ImportError  exc_msg=cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 41, in <module>
+    from PyQt6.QtCore  import Qt, QTimer, QKeySequence
+ImportError: cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 41, in <module>
+    from PyQt6.QtCore  import Qt, QTimer, QKeySequence
+ImportError: cannot import name 'QKeySequence' from 'PyQt6.QtCore' (/usr/lib/python3.14/site-packages/PyQt6/QtCore.abi3.so)
+
+2026-03-31 09:04:21.690  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 09:04:22.208  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 09:04:24.221  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 09:04:24.223  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 09:04:24.265  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 09:04:24.266  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 09:04:24.269  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 09:04:24.271  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 09:04:24.273  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 09:04:24.274  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 09:04:24.275  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 09:04:24.276  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 09:04:24.510  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 09:04:24.652  INFO      [great_sage  ]  App event loop starting
+2026-03-31 09:04:24.710  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 09:04:25.348  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 09:04:25.542  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 09:04:25.601  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 09:04:25.661  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 09:04:25.721  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 09:04:25.754  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 09:04:25.803  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 09:04:25.849  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 09:04:26.069  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 09:04:29.526  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 09:04:29.527  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 09:04:29.528  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 09:04:32.488  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 09:04:32.492  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 09:04:35.132  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord
+2026-03-31 09:04:35.135  WARNING   [great_sage.sync]  Corrupt last_downloaded_chapter URL discarded  book=The Golem Mage  url=https://novelbin.com/b/the-golem-mage/null
+2026-03-31 09:04:35.136  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-31 09:04:35.838  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 09:04:35.839  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 09:04:35.988  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 09:04:37.484  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-31 09:04:37.498  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 09:04:38.731  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 09:04:38.734  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 09:04:41.394  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 09:04:41.398  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 09:04:44.012  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 09:04:44.014  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 09:04:46.713  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 09:04:46.715  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 09:04:49.452  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 09:04:49.454  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 09:04:52.168  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 09:04:52.177  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 09:04:54.874  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 09:04:54.882  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 09:04:57.553  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 09:04:57.555  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 09:05:00.370  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 09:05:00.372  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 09:05:03.087  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 09:05:03.089  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 09:05:05.703  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 09:05:05.706  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 09:05:08.409  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 09:05:08.412  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 09:05:12.346  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 09:05:12.347  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 09:05:12.424  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 09:05:14.925  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 09:05:15.141  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 11:30:50.703  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 11:32:01.948  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 11:32:29.363  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 11:35:07.601  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 11:35:08.301  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 11:35:10.573  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 11:35:10.575  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 11:35:10.622  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 11:35:10.623  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 11:35:10.626  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 11:35:10.627  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 11:35:10.628  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 11:35:10.629  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 11:35:10.630  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 11:35:10.631  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 11:35:10.935  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 11:35:11.138  INFO      [great_sage  ]  App event loop starting
+2026-03-31 11:35:11.230  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 11:35:11.777  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 11:35:12.022  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 11:35:12.088  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 11:35:12.174  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 11:35:12.252  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 11:35:12.323  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 11:35:12.399  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 11:35:12.480  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 11:35:12.774  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 11:35:16.423  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 11:35:16.424  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 11:35:16.424  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 11:35:19.455  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 11:35:19.678  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 11:35:19.684  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 11:36:50.956  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 11:36:51.595  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 11:36:54.416  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 11:36:54.418  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 11:36:54.471  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 11:36:54.474  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 11:36:54.474  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 11:36:54.475  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 11:36:54.477  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 11:36:54.480  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 11:36:54.481  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 11:36:54.482  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 11:36:54.842  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 11:36:55.029  INFO      [great_sage  ]  App event loop starting
+2026-03-31 11:36:55.135  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 11:36:55.705  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 11:36:55.956  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 11:36:56.047  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 11:36:56.147  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 11:36:56.247  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 11:36:56.305  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 11:36:56.397  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 11:36:56.474  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 11:36:56.822  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 11:37:00.248  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 11:37:00.250  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 11:37:00.251  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 11:37:03.121  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 11:37:03.122  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 11:37:05.731  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord
+2026-03-31 11:37:05.735  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1045-strengthening-the-clan
+2026-03-31 11:37:06.449  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/sage-of-humanity/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 11:37:06.449  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/sage-of-humanity/null  sample=Total Responses:  0
+2026-03-31 11:37:06.533  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Sage Of Humanity  url=https://novelbin.com/b/sage-of-humanity/null  reason=No content returned
+2026-03-31 11:37:08.417  INFO      [great_sage.sync]  New chapters found — queuing sync  book=The Golem Mage  next_url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion
+2026-03-31 11:37:08.418  INFO      [great_sage.sync]  Auto-sync complete — new chapters found  books=['Sage Of Humanity', 'Devouring Evolution I Reborn As An Arctic Wolf', 'The Golem Mage']
+2026-03-31 11:37:09.251  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord  raw_paragraphs=52  after_filter=52  content_div_id=chr-content
+2026-03-31 11:37:09.253  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1943
+2026-03-31 11:37:11.983  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1944-1082-crimson-sun-bloodbath-hundred-stars-encircle-the-wolf-lord-part-2  raw_paragraphs=57  after_filter=57  content_div_id=chr-content
+2026-03-31 11:37:11.994  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1944
+2026-03-31 11:37:14.089  DEBUG     [great_sage.ui]  Navigate  page=matrix
+2026-03-31 11:37:14.864  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1945-1083-the-defeat-of-the-hundred-stars-alliance  raw_paragraphs=48  after_filter=48  content_div_id=chr-content
+2026-03-31 11:37:14.869  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1945
+2026-03-31 11:37:17.756  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1946-1083-the-hundred-stars-alliance-defeated-part-2  raw_paragraphs=65  after_filter=65  content_div_id=chr-content
+2026-03-31 11:37:17.775  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1946
+2026-03-31 11:37:20.715  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1947-1084-lord-of-yangyang-meets-his-end-su-lins-bloody-massacre-of-the-hundred-stars  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 11:37:20.726  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1947
+2026-03-31 11:37:23.492  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1948-1084-lord-of-yangyang-faces-death-su-lin-slaughters-hundred-stars-part-2  raw_paragraphs=68  after_filter=68  content_div_id=chr-content
+2026-03-31 11:37:23.502  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1948
+2026-03-31 11:37:26.317  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1949-1085-three-taboo-paths-the-roach-emperors-battle-to-the-death  raw_paragraphs=54  after_filter=54  content_div_id=chr-content
+2026-03-31 11:37:26.324  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1949
+2026-03-31 11:37:29.128  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1950-1085-three-taboo-paths-roach-emperors-desperate-battle-part-2  raw_paragraphs=69  after_filter=69  content_div_id=chr-content
+2026-03-31 11:37:29.132  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1950
+2026-03-31 11:37:31.999  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1951-1086-the-roach-emperor-in-desperation-reinforcements-from-the-four-great-military-groups  raw_paragraphs=49  after_filter=49  content_div_id=chr-content
+2026-03-31 11:37:32.000  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1951
+2026-03-31 11:37:35.074  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1952-1086-the-roach-emperor-in-dire-straits-reinforcements-from-the-four-great-military-groups  raw_paragraphs=67  after_filter=67  content_div_id=chr-content
+2026-03-31 11:37:35.077  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1952
+2026-03-31 11:37:37.739  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1953-1087-wolf-lord-ambushed-a-desperate-battle  raw_paragraphs=51  after_filter=51  content_div_id=chr-content
+2026-03-31 11:37:37.750  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1953
+2026-03-31 11:37:40.635  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1954-1087-wolf-lord-ambushed-a-desperate-battle-part-2  raw_paragraphs=56  after_filter=56  content_div_id=chr-content
+2026-03-31 11:37:40.642  DEBUG     [great_sage.legion]  Chapter appended to file  book=Devouring Evolution I Reborn As An Arctic Wolf  chapter=1954
+2026-03-31 11:37:44.159  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  raw_paragraphs=1  after_filter=0  content_div_id=wrapper
+2026-03-31 11:37:44.160  ERROR     [great_sage.legion]  All paragraphs removed by watermark filter  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  sample=Total Responses:  0
+2026-03-31 11:37:44.460  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=Devouring Evolution I Reborn As An Arctic Wolf  url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/null  reason=No content returned
+2026-03-31 11:37:47.414  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1046-source-of-confusion  raw_paragraphs=42  after_filter=42  content_div_id=chr-content
+2026-03-31 11:37:47.425  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1046
+2026-03-31 11:37:50.206  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1047-double-aura  raw_paragraphs=47  after_filter=47  content_div_id=chr-content
+2026-03-31 11:37:50.214  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1047
+2026-03-31 11:37:55.811  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades  raw_paragraphs=46  after_filter=46  content_div_id=chr-content
+2026-03-31 11:37:55.824  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1048
+2026-03-31 11:38:03.266  ERROR     [great_sage.legion]  fetch_chapter failed — all mirrors exhausted  url=https://novelbin.me/novel-book/the-golem-mage/chapter-1049-mirage-ninja  error=404 Client Error: Not Found for url: https://novelfull.com/novel-book/the-golem-mage/chapter-1049-mirage-ninja
+
+  All mirrors failed. Try opening the chapter in your browser first.
+2026-03-31 11:38:03.267  ERROR     [great_sage.legion]  Chapter fetch failed during download  book=The Golem Mage  url=https://novelbin.me/novel-book/the-golem-mage/chapter-1049-mirage-ninja  reason=404 Client Error: Not Found for url: https://novelfull.com/novel-book/the-golem-mage/chapter-1049-mirage-ninja
+
+  All mirrors failed. Try opening the chapter in your browser first.
+2026-03-31 12:33:17.943  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 12:39:30.819  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 14:25:27.350  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-03-31 14:25:29.467  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-03-31 14:25:45.850  INFO      [great_sage  ]  MainWindow creating
+2026-03-31 14:25:47.480  INFO      [great_sage.plugins]  Plugin loaded  plugin=Ambient Mode  file=ambient.py
+2026-03-31 14:25:47.482  INFO      [great_sage.plugins]  Auto-activated background plugin  plugin=Ambient Mode
+2026-03-31 14:25:47.484  INFO      [great_sage.plugins]  Plugin loaded  plugin=Book Covers  file=book_covers.py
+2026-03-31 14:25:47.486  INFO      [great_sage.plugins]  Plugin loaded  plugin=Card Styler  file=card_styler.py
+2026-03-31 14:25:47.487  INFO      [great_sage.plugins]  Plugin loaded  plugin=Clock  file=clock_widget.py
+2026-03-31 14:25:47.489  INFO      [great_sage.plugins]  Plugin loaded  plugin=Now Playing  file=now_playing.py
+2026-03-31 14:25:47.491  INFO      [great_sage.plugins]  Plugin loaded  plugin=Lyrics  file=now_playing_lyrics.py
+2026-03-31 14:25:47.493  INFO      [great_sage.plugins]  Plugin loaded  plugin=Page Transitions  file=page_transitions.py
+2026-03-31 14:25:47.495  INFO      [great_sage.plugins]  Plugin loaded  plugin=Theme Engine  file=theme_engine.py
+2026-03-31 14:25:47.497  INFO      [great_sage.plugins]  Plugin loaded  plugin=Visualizer  file=visualizer.py
+2026-03-31 14:25:47.762  DEBUG     [great_sage.ui]  Navigate  page=dashboard
+2026-03-31 14:25:47.911  INFO      [great_sage  ]  App event loop starting
+2026-03-31 14:25:47.944  INFO      [great_sage.network]  Network state changed: ONLINE
+2026-03-31 14:25:48.605  INFO      [great_sage  ]  Plugin auto-activated  plugin=Ambient Mode
+2026-03-31 14:25:48.855  INFO      [great_sage  ]  Plugin auto-activated  plugin=Book Covers
+2026-03-31 14:25:48.916  INFO      [great_sage  ]  Plugin auto-activated  plugin=Card Styler
+2026-03-31 14:25:49.007  INFO      [great_sage  ]  Plugin auto-activated  plugin=Clock
+2026-03-31 14:25:49.077  INFO      [great_sage  ]  Plugin auto-activated  plugin=Now Playing
+2026-03-31 14:25:49.127  INFO      [great_sage  ]  Plugin auto-activated  plugin=Lyrics
+2026-03-31 14:25:49.195  INFO      [great_sage  ]  Plugin auto-activated  plugin=Page Transitions
+2026-03-31 14:25:49.258  INFO      [great_sage  ]  Plugin auto-activated  plugin=Theme Engine
+2026-03-31 14:25:49.621  INFO      [great_sage  ]  Plugin auto-activated  plugin=Visualizer
+2026-03-31 14:25:52.498  INFO      [great_sage  ]  Module loaded  mod=legion
+2026-03-31 14:25:52.504  INFO      [great_sage.sync]  Auto-sync started  total_books=3
+2026-03-31 14:25:52.505  DEBUG     [great_sage.sync]  Probing for new chapters  book=Sage Of Humanity  probe_url=https://novelbin.com/b/sage-of-humanity/chapter-1797-1795-finally-accomplished
+2026-03-31 14:25:55.583  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Sage Of Humanity  next_url=https://novelbin.com/b/sage-of-humanity/null
+2026-03-31 14:25:55.595  DEBUG     [great_sage.sync]  Probing for new chapters  book=Devouring Evolution I Reborn As An Arctic Wolf  probe_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1942-1081-spirituality-river-at-the-transformed-level-red-sun-empires-trump-card
+2026-03-31 14:25:58.283  INFO      [great_sage.sync]  New chapters found — queuing sync  book=Devouring Evolution I Reborn As An Arctic Wolf  next_url=https://novelbin.com/b/devouring-evolution-i-reborn-as-an-arctic-wolf/chapter-1943-1082-blood-battle-under-the-crimson-sun-hundred-stars-ensnare-the-wolf-lord
+2026-03-31 14:25:58.288  DEBUG     [great_sage.sync]  Probing for new chapters  book=The Golem Mage  probe_url=https://novelbin.com/b/the-golem-mage/chapter-1048-blades
+2026-03-31 14:25:58.482  INFO      [great_sage  ]  App exiting  exit_code=0
