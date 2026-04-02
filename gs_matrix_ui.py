@@ -352,40 +352,37 @@ class MatrixPage(QWidget):
         root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
         header_w = QWidget()
-        header_w.setFixedHeight(100)
+        header_w.setFixedHeight(64)
         def _hdr_paint(self_w, event):
             p = _mP(self_w); p.setRenderHint(_mP.RenderHint.Antialiasing)
             W, H = self_w.width(), self_w.height()
-            # Purple cyberpunk gradient
             g = _mG(0, 0, W, 0)
-            g.setColorAt(0, _mC("#1a0a2e")); g.setColorAt(0.5, _mC("#2a1a3e")); g.setColorAt(1.0, _mC("#0f0a1a"))
+            g.setColorAt(0, _mC("#0D1520")); g.setColorAt(0.4, _mC(BG2)); g.setColorAt(1.0, _mC("#0A0F18"))
             p.fillRect(0, 0, W, H, _mB(g))
-            # Purple radial glow
             rg = _mRG(0, H // 2, W * 0.5)
-            c1 = _mC("#ba68c8"); c1.setAlpha(40)
+            c1 = _mC(BLUE); c1.setAlpha(30)
             rg.setColorAt(0, c1); rg.setColorAt(1, _mC(0, 0, 0, 0))
             p.fillRect(0, 0, W, H, _mB(rg))
-            # Scanning line effect
             bl = _mG(0, 0, W, 0)
-            bl.setColorAt(0, _mC("#9c27b0").darker(200)); bl.setColorAt(0.2, _mC("#ba68c8"))
-            bl.setColorAt(0.8, _mC("#ba68c8")); bl.setColorAt(1.0, _mC("#9c27b0").darker(200))
-            p.setPen(_mPen(_mB(bl), 2)); p.drawLine(0, H - 2, W, H - 2); p.end()
+            bl.setColorAt(0, _mC(BLUE).darker(200)); bl.setColorAt(0.2, _mC(BLUE))
+            bl.setColorAt(0.8, _mC(BLUE)); bl.setColorAt(1.0, _mC(BLUE).darker(200))
+            p.setPen(_mPen(_mB(bl), 1)); p.drawLine(0, H - 1, W, H - 1); p.end()
         header_w.paintEvent = _mt.MethodType(_hdr_paint, header_w)
 
-        hv = QHBoxLayout(header_w); hv.setContentsMargins(40, 0, 40, 0); hv.setSpacing(0)
+        hv = QHBoxLayout(header_w); hv.setContentsMargins(24, 0, 24, 0); hv.setSpacing(0)
         back_b = QPushButton("⬡  HOME")
         back_b.setStyleSheet(
-            f"QPushButton{{background:transparent;border:1px solid {BORDER};color:{ACCENT2};"
-            f"font-size:10px;letter-spacing:2px;padding:10px 16px;text-transform:uppercase;}}"
-            f"QPushButton:hover{{background:{ACCENT2};color:{BG};}}")
+            f"QPushButton{{background:transparent;border:none;color:{MUTED};"
+            f"font-size:9px;letter-spacing:2px;padding:4px 10px 4px 0;}}"
+            f"QPushButton:hover{{color:{BLUE};}}")
         back_b.setCursor(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.CursorShape.PointingHandCursor)
         back_b.clicked.connect(lambda: self.window()._navigate("dashboard"))
-        sep_lbl = QLabel("›"); sep_lbl.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;padding:0 6px;")
-        ico_lbl = QLabel("▣"); ico_lbl.setStyleSheet(f"color:{ACCENT2};font-size:24px;background:transparent;padding-right:16px;")
+        sep_lbl = QLabel(">"); sep_lbl.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;padding:0 6px;")
+        ico_lbl = QLabel("▣"); ico_lbl.setStyleSheet(f"color:{BLUE};font-size:18px;background:transparent;padding-right:10px;")
         title_l = QLabel("MATRIX")
-        title_l.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:20px;font-weight:bold;color:{TEXT};letter-spacing:8px;background:transparent;text-transform:uppercase;")
-        sub_l = QLabel("PSYCHIC NET")
-        sub_l.setStyleSheet(f"color:{ACCENT2};font-size:10px;letter-spacing:4px;background:transparent;margin-left:20px;margin-top:4px;text-transform:uppercase;")
+        title_l.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;color:{TEXT};letter-spacing:5px;background:transparent;")
+        sub_l = QLabel("MEDIA MANAGER")
+        sub_l.setStyleSheet(f"color:{MUTED};font-size:8px;letter-spacing:3px;background:transparent;margin-left:14px;margin-top:2px;")
         hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
         hv.addWidget(title_l); hv.addWidget(sub_l); hv.addStretch()
         root.addWidget(header_w)
@@ -393,12 +390,12 @@ class MatrixPage(QWidget):
         tabs = QTabWidget()
         tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border: none; background: {BG}; }}
-            QTabBar {{ background: {BG2}; border-bottom: 1px solid {BORDER}; }}
+            QTabBar {{ background: {BG2}; }}
             QTabBar::tab {{ background: transparent; color: {MUTED}; border: none;
-                border-bottom: 3px solid transparent; padding: 20px 40px;
-                font-size: 11px; letter-spacing: 3px; font-weight: bold; text-transform: uppercase; }}
-            QTabBar::tab:selected {{ color: {ACCENT2}; border-bottom: 3px solid {ACCENT2}; background: rgba(186, 104, 200, 0.05); }}
-            QTabBar::tab:hover {{ color: {TEXT}; background: rgba(186, 104, 200, 0.1); }}
+                border-bottom: 2px solid transparent; padding: 14px 28px;
+                font-size: 9px; letter-spacing: 2.5px; font-weight: bold; }}
+            QTabBar::tab:selected {{ color: {BLUE}; border-bottom: 2px solid {BLUE}; }}
+            QTabBar::tab:hover {{ color: {TEXT}; background: {BG3}; }}
         """)
         tabs.addTab(self._build_watchlist(),  "WATCHLIST")
         tabs.addTab(self._build_browser(),    "BROWSE")
@@ -422,57 +419,59 @@ class MatrixPage(QWidget):
         add_bar = QWidget()
         add_bar.setStyleSheet(
             f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 {BG3},stop:0.5 {PANEL},stop:1 {BG3});"
-            f"border:1px solid {BORDER};border-radius:8px;")
-        add_bar.setFixedHeight(80)
-        add_row = QHBoxLayout(add_bar); add_row.setContentsMargins(20,0,20,0); add_row.setSpacing(16)
+            f"stop:0 {BG2},stop:0.5 {BG3},stop:1 {BG2});"
+            f"border-bottom:1px solid {BORDER2};")
+        add_bar.setFixedHeight(56)
+        add_row = QHBoxLayout(add_bar); add_row.setContentsMargins(16,0,16,0); add_row.setSpacing(10)
         self.wl_input = QLineEdit()
-        self.wl_input.setPlaceholderText("ADD TITLE TO PSYCHIC NET...")
+        self.wl_input.setPlaceholderText("Add a title to your list...")
         self.wl_input.setStyleSheet(
-            f"QLineEdit{{background:{BG};border:1px solid {BORDER};"
-            f"border-radius:4px;color:{TEXT};font-size:14px;padding:12px 20px;}}"
-            f"QLineEdit:focus{{border-color:{ACCENT2};}}")
+            f"QLineEdit{{background:{BG};border:1px solid {BORDER2};"
+            f"border-radius:4px;color:{TEXT};font-size:12px;padding:6px 12px;}}"
+            f"QLineEdit:focus{{border-color:{BLUE};}}")
         self.wl_input.returnPressed.connect(self._wl_add)
         self.wl_target = QComboBox()
         self.wl_target.setStyleSheet(
-            f"QComboBox{{background:{BG};border:1px solid {BORDER};"
-            f"color:{TEXT};font-size:12px;padding:12px 16px;border-radius:4px;}}"
+            f"QComboBox{{background:{BG};border:1px solid {BORDER2};"
+            f"color:{TEXT2};font-size:11px;padding:5px 10px;border-radius:4px;}}"
             f"QComboBox::drop-down{{border:none;}}")
         for n in ("planning","watching","dropped","completed"): self.wl_target.addItem(n.capitalize(),n)
-        self.wl_anime = QCheckBox("ANIME")
-        self.wl_anime.setStyleSheet(f"color:{TEXT2};font-size:11px;background:transparent;text-transform:uppercase;")
+        self.wl_anime = QCheckBox("Anime")
+        self.wl_anime.setStyleSheet(f"color:{TEXT2};font-size:11px;background:transparent;")
         add_row.addWidget(self.wl_input, 1)
         add_row.addWidget(self.wl_target)
         add_row.addWidget(self.wl_anime)
-        add_row.addWidget(btn("+ ADD","accent",self._wl_add))
+        add_row.addWidget(btn("+ Add","accent",self._wl_add))
         root.addWidget(add_bar)
 
         # ── Splitter: list | detail ───────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle{background:#6a1b9a;width:1px;}")
+        splitter.setStyleSheet("QSplitter::handle{background:#1E2D3D;width:1px;}")
 
         # Left: tabs + lists
         left = QWidget()
-        left.setStyleSheet(f"background:{BG2};border-radius:12px;border:1px solid {BORDER};")
+        left.setStyleSheet(f"background:{BG2};")
         lv = QVBoxLayout(left); lv.setContentsMargins(0,0,0,0); lv.setSpacing(0)
         self.wl_tabs = QTabWidget()
         self.wl_tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border:none; background:{BG}; }}
-            QTabBar {{ background:{BG3}; border-bottom:1px solid {BORDER}; }}
+            QTabBar {{ background:{BG}; border-bottom:1px solid {BORDER}; }}
             QTabBar::tab {{ background:transparent; color:{MUTED};
                 border:none; border-bottom:2px solid transparent;
-                padding:16px;font-size:10px; letter-spacing:2px; text-transform:uppercase; }}
-            QTabBar::tab:selected {{ color:{ACCENT2}; border-bottom:2px solid {ACCENT2}; background: rgba(186, 104, 200, 0.05); }}
-            QTabBar::tab:hover {{ color:{ACCENT2}; background: rgba(186, 104, 200, 0.1); }}
+                padding:10px 20px; font-size:9px; letter-spacing:1.5px; }}
+            QTabBar::tab:selected {{ color:{BLUE}; border-bottom:2px solid {BLUE}; }}
+            QTabBar::tab:hover {{ color:{TEXT}; background:{BG3}; }}
         """)
         self.wl_lists = {}
         for n in ("planning","watching","dropped","completed"):
             lw = QListWidget()
             lw.setStyleSheet(
-                f"QListWidget{{background:transparent;border:none;padding:16px;}}"
-                f"QListWidget::item{{background:{BG3};border:1px solid {BORDER};border-radius:6px;color:{TEXT2};padding:16px 20px;margin-bottom:12px;font-size:13px;}}"
-                f"QListWidget::item:hover{{background:{PANEL};border-color:{ACCENT2};color:{ACCENT2};}}"
-                f"QListWidget::item:selected{{background:{PANEL};border-color:{ACCENT2};color:{ACCENT2};border-left:3px solid {ACCENT2};}}")
+                f"QListWidget{{background:transparent;border:none;padding:6px;}}"
+                f"QListWidget::item{{color:{TEXT2};padding:10px 16px;"
+                f"border-bottom:1px solid {BORDER};font-size:13px;}}"
+                f"QListWidget::item:hover{{color:{TEXT};background:{BG2};}}"
+                f"QListWidget::item:selected{{color:{BLUE};background:{BG3};"
+                f"border-left:3px solid {BLUE};}}")
             lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             lw.customContextMenuRequested.connect(lambda pos, lw=lw, n=n: self._wl_ctx(pos,lw,n))
             lw.itemDoubleClicked.connect(lambda item, n=n: self._wl_meta(item,n))
@@ -483,11 +482,11 @@ class MatrixPage(QWidget):
 
         # Right: detail panel
         right = QWidget()
-        right.setStyleSheet(f"background:linear-gradient(135deg, {BG2}, {BG3});border-radius:12px;border:1px solid {BORDER};padding:40px;")
-        rv = QVBoxLayout(right); rv.setContentsMargins(40,40,40,40); rv.setSpacing(0)
+        right.setStyleSheet(f"background:{BG};")
+        rv = QVBoxLayout(right); rv.setContentsMargins(32,28,32,28); rv.setSpacing(0)
 
         self.wl_placeholder = QLabel("Click any title to see details")
-        self.wl_placeholder.setStyleSheet(f"color:{MUTED};font-size:16px;letter-spacing:2px;text-transform:uppercase;")
+        self.wl_placeholder.setStyleSheet(f"color:{MUTED};font-size:13px;letter-spacing:.5px;")
         self.wl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rv.addWidget(self.wl_placeholder, 1)
 
@@ -496,26 +495,29 @@ class MatrixPage(QWidget):
 
         self.wl_d_title = QLabel("")
         self.wl_d_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:32px;font-weight:bold;color:{TEXT};letter-spacing:2px;text-transform:uppercase;")
+            f"font-family:{FONT_DISPLAY};font-size:26px;font-weight:bold;color:{TEXT};letter-spacing:1px;")
         self.wl_d_title.setWordWrap(True)
-        dv.addWidget(self.wl_d_title); dv.addSpacing(16)
+        dv.addWidget(self.wl_d_title); dv.addSpacing(6)
 
         self.wl_d_meta = QLabel("")
-        self.wl_d_meta.setStyleSheet(f"color:{ACCENT2};font-size:12px;letter-spacing:1px;")
-        dv.addWidget(self.wl_d_meta); dv.addSpacing(30)
+        self.wl_d_meta.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:.5px;")
+        dv.addWidget(self.wl_d_meta); dv.addSpacing(16)
+
+        div = QFrame(); div.setFrameShape(QFrame.Shape.HLine)
+        div.setStyleSheet(f"color:{BORDER};"); dv.addWidget(div); dv.addSpacing(16)
 
         self.wl_d_synopsis = QLabel("")
         self.wl_d_synopsis.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:16px;color:{TEXT2};line-height:1.8;padding:20px;background:rgba(0,0,0,0.3);border-radius:8px;border-left:3px solid {ACCENT2};")
+            f"font-family:{FONT_DISPLAY};font-size:15px;color:{TEXT2};line-height:1.8;")
         self.wl_d_synopsis.setWordWrap(True)
         self.wl_d_synopsis.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        dv.addWidget(self.wl_d_synopsis, 1); dv.addSpacing(30)
+        dv.addWidget(self.wl_d_synopsis, 1); dv.addSpacing(20)
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(16)
-        self.wl_d_trailer_btn = QPushButton("▶ WATCH TRAILER")
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        self.wl_d_trailer_btn = QPushButton("▶  WATCH TRAILER")
         self.wl_d_trailer_btn.setStyleSheet(
-            f"background:linear-gradient(135deg, {ACCENT2}, {NEON});color:{BG};border:none;font-size:12px;font-weight:700;"
-            f"letter-spacing:2px;padding:16px 32px;border-radius:6px;text-transform:uppercase;")
+            f"background:{BLUE};color:{BG};border:none;font-size:10px;font-weight:700;"
+            f"letter-spacing:1.5px;padding:10px 20px;border-radius:3px;")
         self.wl_d_trailer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.wl_d_trailer_btn.clicked.connect(self._trailer_btn_clicked)
         self.wl_d_trailer_btn.hide()
@@ -528,7 +530,7 @@ class MatrixPage(QWidget):
         splitter.addWidget(right)
 
         # 40% list, 60% detail
-        splitter.setSizes([500, 700])
+        splitter.setSizes([420, 630])
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         root.addWidget(splitter, 1)

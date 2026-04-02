@@ -8,27 +8,27 @@ Import everything with:  from gs_theme import *
 # ── Runtime constants ───────────────────────────────────────────────────────────
 MPV_SOCKET_PATH = "/tmp/mpvsocket_gs"  # Unix socket for mpv IPC
 
-# ── Design tokens — Psychic Purple Cyberpunk ───────────────────────────────
-# Deep purple palette: near-black backgrounds, purple neon accents,
-# mystical violet highlights, sharp contrast hierarchy.
+# ── Design tokens — Ink & Amber ────────────────────────────────────────────────
+# Deep editorial palette: near-black backgrounds, warm amber accents,
+# cool slate text, sharp contrast hierarchy.
 
-BG      = "#0a0015"   # near-black, purple undertone
-BG2     = "#1a0a2e"   # cards / elevated surfaces
-BG3     = "#2a1a3e"   # inputs / list rows
-PANEL   = "#0f0a1a"   # panels
-BORDER  = "#6a1b9a"   # subtle borders
-BORDER2 = "#9c27b0"   # active borders
+BG      = "#0C0C0E"   # near-black, warm undertone
+BG2     = "#111116"   # cards / elevated surfaces
+BG3     = "#17171D"   # inputs / list rows
+PANEL   = "#1C1C24"   # panels
+BORDER  = "#252530"   # subtle borders
+BORDER2 = "#32324A"   # active borders
 
-ACCENT  = "#ba68c8"   # violet purple — primary CTA
-ACCENT2 = "#e1bee7"   # light purple — secondary highlights
-NEON    = "#f3e5f5"   # bright lavender
-RED     = "#e91e63"
-BLUE    = "#ba68c8"   # repurposed as purple
-PURPLE  = "#4a148c"
+ACCENT  = "#C9A84C"   # amber gold — primary CTA
+ACCENT2 = "#4EC9A4"   # seafoam — secondary highlights
+NEON    = "#5DDFCC"   # bright teal
+RED     = "#E05A6A"
+BLUE    = "#4A90D9"
+PURPLE  = "#8B6FD4"
 
-TEXT    = "#ffffff"   # pure white — primary text
-TEXT2   = "#e1bee7"   # light purple — secondary text
-MUTED   = "#ce93d8"   # muted purple — hints, labels
+TEXT    = "#E8E4DC"   # warm off-white — primary text
+TEXT2   = "#A0A0B4"   # cool slate — secondary text
+MUTED   = "#606070"   # muted — hints, labels
 
 FONT_BODY    = "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif"
 FONT_UI      = "JetBrains Mono, Fira Code, Consolas, monospace"
@@ -48,33 +48,30 @@ QPushButton {{
     background: transparent;
     color: {TEXT2};
     border: 1px solid {BORDER};
-    border-radius: 4px;
-    padding: 8px 16px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
+    border-radius: 3px;
+    padding: 6px 14px;
+    letter-spacing: 0.5px;
 }}
 QPushButton:hover {{
     background: {BG3};
-    border-color: {ACCENT2};
-    color: {ACCENT2};
-    box-shadow: 0 0 10px rgba(186, 104, 200, 0.3);
+    border-color: {ACCENT};
+    color: {ACCENT};
 }}
 QPushButton:pressed {{ background: {PANEL}; }}
 QPushButton#accent {{
-    background: linear-gradient(135deg, {ACCENT2}, {NEON});
+    background: {ACCENT};
     color: {BG};
     border: none;
     font-weight: bold;
-    letter-spacing: 2px;
-    text-transform: uppercase;
+    letter-spacing: 1px;
 }}
-QPushButton#accent:hover {{ background: linear-gradient(135deg, {NEON}, {ACCENT2}); }}
+QPushButton#accent:hover {{ background: #D4B460; }}
 QPushButton#danger {{
     background: transparent;
     color: {RED};
-    border: 1px solid {RED};
+    border: 1px solid #3D1A20;
 }}
-QPushButton#danger:hover {{ background: rgba(233, 30, 99, 0.1); border-color: {RED}; }}
+QPushButton#danger:hover {{ background: #2A0E14; border-color: {RED}; }}
 
 /* ── Nav rail buttons ── */
 QPushButton#nav {{
@@ -102,15 +99,12 @@ QPushButton#nav[active=true] {{
 QLineEdit {{
     background: {BG3};
     border: 1px solid {BORDER};
-    border-radius: 4px;
-    padding: 10px 16px;
+    border-radius: 3px;
+    padding: 7px 12px;
     color: {TEXT};
-    selection-background-color: {ACCENT2};
+    selection-background-color: {ACCENT};
 }}
-QLineEdit:focus {{ 
-    border-color: {ACCENT2};
-    box-shadow: 0 0 10px rgba(186, 104, 200, 0.3);
-}}
+QLineEdit:focus {{ border-color: {ACCENT}; }}
 
 QTextEdit {{
     background: {BG};
@@ -153,23 +147,18 @@ QListWidget {{
     outline: none;
 }}
 QListWidget::item {{
-    background: {BG3};
-    border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin: 4px;
+    padding: 9px 14px;
+    border-bottom: 1px solid {BG3};
     color: {TEXT2};
 }}
 QListWidget::item:hover {{
-    background: {PANEL};
-    border-color: {ACCENT2};
-    color: {ACCENT2};
+    background: {BG2};
+    color: {TEXT};
 }}
 QListWidget::item:selected {{
-    background: {PANEL};
-    border-color: {ACCENT2};
-    color: {ACCENT2};
-    border-left: 3px solid {ACCENT2};
+    background: {BG3};
+    color: {ACCENT};
+    border-left: 2px solid {ACCENT};
 }}
 
 /* ── Tabs ── */
@@ -178,13 +167,12 @@ QTabBar::tab {{
     background: transparent;
     color: {MUTED};
     border: none;
-    border-bottom: 2px solid transparent;
-    padding: 12px 24px;
+    border-bottom: 1px solid transparent;
+    padding: 8px 20px;
     font-size: 11px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
+    letter-spacing: 1.5px;
 }}
-QTabBar::tab:selected {{ color: {ACCENT2}; border-bottom: 2px solid {ACCENT2}; }}
+QTabBar::tab:selected {{ color: {ACCENT}; border-bottom: 1px solid {ACCENT}; }}
 QTabBar::tab:hover {{ color: {TEXT2}; }}
 
 /* ── Combo ── */
