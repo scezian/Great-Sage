@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix UI - Cyberpunk Green Variant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000a00;
+            --bg2: #001a0a;
+            --bg3: #002a1a;
+            --panel: #000f0a;
+            --border: #006b1a;
+            --border2: #00c41c;
+            --accent: #00a652;
+            --accent2: #00ff41;
+            --neon: #7fff00;
+            --red: #ff1744;
+            --blue: #00ff41;
+            --purple: #004d00;
+            --text: #ffffff;
+            --text2: #b3ffb3;
+            --muted: #66ff66;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(0, 255, 65, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 166, 82, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 107, 26, 0.2) 0%, transparent 50%);
+            animation: bgShift 10s ease-in-out infinite;
+            z-index: -1;
+        }
+
+        @keyframes bgShift {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.1); }
+        }
+
+        /* Matrix rain effect */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 255, 65, 0.03) 2px,
+                    rgba(0, 255, 65, 0.03) 4px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 255, 65, 0.03) 2px,
+                    rgba(0, 255, 65, 0.03) 4px
+                );
+            animation: matrixRain 8s linear infinite;
+            z-index: -1;
+        }
+
+        @keyframes matrixRain {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(20px); }
+        }
+
+        /* Header */
+        .header {
+            height: 100px;
+            background: linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 50%, var(--panel) 100%);
+            border-bottom: 2px solid var(--accent2);
+            display: flex;
+            align-items: center;
+            padding: 0 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+            animation: scan 3s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 1;
+        }
+
+        .nav-back {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--accent2);
+            font-size: 10px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            padding: 10px 16px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+
+        .nav-back:hover {
+            background: var(--accent2);
+            color: var(--bg);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+        }
+
+        .nav-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-icon {
+            font-size: 32px;
+            color: var(--accent2);
+            text-shadow: 0 0 30px rgba(0, 255, 65, 0.8);
+            animation: glitch 4s ease-in-out infinite;
+        }
+
+        @keyframes glitch {
+            0%, 100% { text-shadow: 0 0 30px rgba(0, 255, 65, 0.8); }
+            25% { text-shadow: -2px 0 30px rgba(255, 23, 68, 0.8); }
+            50% { text-shadow: 2px 0 30px rgba(0, 166, 82, 0.8); }
+            75% { text-shadow: 0 0 30px rgba(0, 255, 65, 0.8); }
+        }
+
+        .nav-text h1 {
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            color: var(--text);
+            margin: 0;
+            text-transform: uppercase;
+        }
+
+        .nav-text p {
+            font-size: 10px;
+            letter-spacing: 4px;
+            color: var(--accent2);
+            margin: 0;
+            margin-left: 20px;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+
+        /* Tabs */
+        .tabs {
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            padding: 0;
+            position: relative;
+        }
+
+        .tabs::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--accent2), var(--neon), var(--accent2));
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .tab {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 20px 40px;
+            font-size: 11px;
+            letter-spacing: 3px;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+            text-transform: uppercase;
+        }
+
+        .tab:hover {
+            color: var(--text);
+            background: rgba(0, 255, 65, 0.1);
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+        }
+
+        .tab.active {
+            color: var(--accent2);
+            border-bottom-color: var(--accent2);
+            background: rgba(0, 255, 65, 0.05);
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent2);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.8);
+        }
+
+        /* Content */
+        .content {
+            padding: 40px;
+            min-height: calc(100vh - 200px);
+        }
+
+        /* Watchlist */
+        .watchlist {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            height: calc(100vh - 200px);
+        }
+
+        .add-bar {
+            background: linear-gradient(135deg, var(--bg3), var(--panel));
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 255, 65, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .add-bar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.1), transparent);
+            animation: sweep 3s ease-in-out infinite;
+        }
+
+        @keyframes sweep {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .add-input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 12px 20px;
+            color: var(--text);
+            font-size: 14px;
+            transition: all 0.3s ease;
+            font-family: 'Courier New', monospace;
+        }
+
+        .add-input:focus {
+            outline: none;
+            border-color: var(--accent2);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+        }
+
+        .add-select, .add-checkbox {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 12px 16px;
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .add-btn {
+            background: linear-gradient(135deg, var(--accent2), var(--blue));
+            color: var(--bg);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .add-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .add-btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .add-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 255, 65, 0.4);
+        }
+
+        .lists-panel {
+            background: var(--bg2);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .lists-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--accent2), var(--neon), var(--accent2));
+            animation: scan 4s linear infinite;
+        }
+
+        .list-tabs {
+            background: var(--bg3);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+        }
+
+        .list-tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 16px;
+            font-size: 10px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+
+        .list-tab:hover {
+            color: var(--accent2);
+            background: rgba(0, 255, 65, 0.1);
+        }
+
+        .list-tab.active {
+            color: var(--accent2);
+            border-bottom-color: var(--accent2);
+            background: rgba(0, 255, 65, 0.05);
+        }
+
+        .list-content {
+            padding: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .list-item {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            color: var(--text2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .list-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--accent2);
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+
+        .list-item:hover {
+            background: var(--panel);
+            border-color: var(--accent2);
+            transform: translateX(8px);
+            box-shadow: 0 4px 20px rgba(0, 255, 65, 0.2);
+        }
+
+        .list-item:hover::before {
+            transform: translateX(0);
+        }
+
+        .list-item.selected {
+            background: var(--panel);
+            border-color: var(--accent2);
+            color: var(--accent2);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+        }
+
+        .list-item.selected::before {
+            transform: translateX(0);
+        }
+
+        .list-item-icon {
+            font-size: 20px;
+            opacity: 0.8;
+        }
+
+        .detail-panel {
+            background: linear-gradient(135deg, var(--bg2), var(--bg3));
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 40px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .detail-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--accent2), var(--neon), var(--accent2));
+            animation: scan 5s linear infinite;
+        }
+
+        .detail-placeholder {
+            text-align: center;
+            color: var(--muted);
+            font-size: 16px;
+            letter-spacing: 2px;
+            margin: auto;
+            text-transform: uppercase;
+        }
+
+        .detail-content {
+            display: none;
+        }
+
+        .detail-title {
+            font-family: 'Courier New', monospace;
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--text);
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+            line-height: 1.2;
+            text-transform: uppercase;
+            text-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+        }
+
+        .detail-meta {
+            color: var(--accent2);
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-bottom: 30px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .detail-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: rgba(0, 255, 65, 0.1);
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 65, 0.3);
+        }
+
+        .detail-synopsis {
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            color: var(--text2);
+            line-height: 1.8;
+            margin-bottom: 30px;
+            flex: 1;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent2);
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-top: auto;
+        }
+
+        .trailer-btn {
+            background: linear-gradient(135deg, var(--accent2), var(--neon));
+            color: var(--bg);
+            border: none;
+            padding: 16px 32px;
+            border-radius: 6px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .trailer-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .trailer-btn:hover::before {
+            width: 400px;
+            height: 400px;
+        }
+
+        .trailer-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 255, 65, 0.5);
+        }
+
+        .detail-source {
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 1px;
+            margin-left: auto;
+            text-transform: uppercase;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--accent2);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--neon);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <button class="nav-back">⬡ HOME</button>
+            <div class="nav-title">
+                <div class="nav-icon">▣</div>
+                <div class="nav-text">
+                    <h1>MATRIX</h1>
+                    <p>DIGITAL JUNGLE</p>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active">WATCHLIST</button>
+        <button class="tab">BROWSE</button>
+        <button class="tab">CONTINUE</button>
+        <button class="tab">STREAM</button>
+    </div>
+
+    <!-- Content -->
+    <main class="content">
+        <div class="watchlist">
+            <div>
+                <!-- Add Bar -->
+                <div class="add-bar">
+                    <input type="text" class="add-input" placeholder="ADD TITLE TO DIGITAL JUNGLE...">
+                    <select class="add-select">
+                        <option>Planning</option>
+                        <option>Watching</option>
+                        <option>Dropped</option>
+                        <option>Completed</option>
+                    </select>
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--text2); font-size: 11px;">
+                        <input type="checkbox" class="add-checkbox">
+                        ANIME
+                    </label>
+                    <button class="add-btn">+ ADD</button>
+                </div>
+
+                <!-- Lists Panel -->
+                <div class="lists-panel">
+                    <div class="list-tabs">
+                        <button class="list-tab active">PLANNING</button>
+                        <button class="list-tab">WATCHING</button>
+                        <button class="list-tab">DROPPED</button>
+                        <button class="list-tab">COMPLETED</button>
+                    </div>
+                    <div class="list-content">
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Breaking Bad</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>The Matrix</span>
+                        </div>
+                        <div class="list-item selected">
+                            <span class="list-item-icon">🎭</span>
+                            <span>Inception</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Stranger Things</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>Interstellar</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail Panel -->
+            <div class="detail-panel">
+                <div class="detail-placeholder">
+                    Click any title to see details
+                </div>
+                <div class="detail-content" style="display: block;">
+                    <h2 class="detail-title">Inception</h2>
+                    <div class="detail-meta">
+                        <div class="detail-meta-item">📅 2010</div>
+                        <div class="detail-meta-item">⭐ 8.8</div>
+                        <div class="detail-meta-item">🎭 Sci-Fi, Thriller</div>
+                    </div>
+                    <div class="detail-synopsis">
+                        A thief who steals corporate secrets through the use of dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O., but his tragic past may doom the project and his team to disaster.
+                    </div>
+                    <div class="detail-actions">
+                        <button class="trailer-btn">
+                            ▶ WATCH TRAILER
+                        </button>
+                        <div class="detail-source">via TMDB</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List tab switching
+        document.querySelectorAll('.list-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.list-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List item selection
+        document.querySelectorAll('.list-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.list-item').forEach(i => i.classList.remove('selected'));
+                this.classList.add('selected');
+                
+                // Show detail content
+                document.querySelector('.detail-placeholder').style.display = 'none';
+                document.querySelector('.detail-content').style.display = 'block';
+            });
+        });
+
+        // Add button animation
+        document.querySelector('.add-btn').addEventListener('click', function() {
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = '';
+            }, 100);
+        });
+    </script>
+</body>
+</html>

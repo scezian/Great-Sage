@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix UI - Redesign Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0C0C0E;
+            --bg2: #111116;
+            --bg3: #17171D;
+            --panel: #1C1C24;
+            --border: #252530;
+            --border2: #32324A;
+            --accent: #C9A84C;
+            --accent2: #4EC9A4;
+            --neon: #5DDFCC;
+            --red: #E05A6A;
+            --blue: #4A90D9;
+            --purple: #8B6FD4;
+            --text: #E8E4DC;
+            --text2: #A0A0B4;
+            --muted: #606070;
+        }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            height: 80px;
+            background: linear-gradient(135deg, #0D1520 0%, var(--bg2) 40%, #0A0F18 100%);
+            border-bottom: 2px solid var(--blue);
+            display: flex;
+            align-items: center;
+            padding: 0 32px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(74, 144, 217, 0.1) 0%, transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            z-index: 1;
+        }
+
+        .nav-back {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-back:hover {
+            color: var(--blue);
+            background: rgba(74, 144, 217, 0.1);
+        }
+
+        .nav-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .nav-icon {
+            font-size: 24px;
+            color: var(--blue);
+            text-shadow: 0 0 20px rgba(74, 144, 217, 0.5);
+        }
+
+        .nav-text h1 {
+            font-family: 'Palatino Linotype', serif;
+            font-size: 20px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            color: var(--text);
+            margin: 0;
+        }
+
+        .nav-text p {
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: var(--muted);
+            margin: 0;
+            margin-left: 16px;
+            margin-top: 2px;
+        }
+
+        /* Tabs */
+        .tabs {
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            padding: 0 32px;
+        }
+
+        .tab {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 16px 32px;
+            font-size: 10px;
+            letter-spacing: 2.5px;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab:hover {
+            color: var(--text);
+            background: var(--bg3);
+        }
+
+        .tab.active {
+            color: var(--blue);
+            border-bottom-color: var(--blue);
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--blue), transparent);
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        /* Content */
+        .content {
+            padding: 32px;
+            min-height: calc(100vh - 180px);
+        }
+
+        /* Watchlist */
+        .watchlist {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 24px;
+            height: calc(100vh - 200px);
+        }
+
+        .add-bar {
+            background: linear-gradient(90deg, var(--bg2), var(--bg3), var(--bg2));
+            border: 1px solid var(--border2);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .add-input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 16px;
+            color: var(--text);
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        .add-input:focus {
+            outline: none;
+            border-color: var(--blue);
+            box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.1);
+        }
+
+        .add-select, .add-checkbox {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 16px;
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .add-btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .add-btn:hover {
+            background: #D4B460;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(201, 168, 76, 0.3);
+        }
+
+        .lists-panel {
+            background: var(--bg2);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .list-tabs {
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+        }
+
+        .list-tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 12px;
+            font-size: 9px;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .list-tab:hover {
+            color: var(--text);
+            background: var(--bg3);
+        }
+
+        .list-tab.active {
+            color: var(--blue);
+            border-bottom-color: var(--blue);
+        }
+
+        .list-content {
+            padding: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .list-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            color: var(--text2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .list-item:hover {
+            background: var(--bg3);
+            border-color: var(--blue);
+            transform: translateX(4px);
+        }
+
+        .list-item.selected {
+            background: var(--bg3);
+            border-left: 3px solid var(--blue);
+            color: var(--blue);
+        }
+
+        .list-item-icon {
+            font-size: 18px;
+            opacity: 0.7;
+        }
+
+        .detail-panel {
+            background: var(--bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 32px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-placeholder {
+            text-align: center;
+            color: var(--muted);
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            margin: auto;
+        }
+
+        .detail-content {
+            display: none;
+        }
+
+        .detail-title {
+            font-family: 'Palatino Linotype', serif;
+            font-size: 28px;
+            font-weight: bold;
+            color: var(--text);
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+
+        .detail-meta {
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .detail-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .detail-synopsis {
+            font-family: 'Palatino Linotype', serif;
+            font-size: 16px;
+            color: var(--text2);
+            line-height: 1.8;
+            margin-bottom: 24px;
+            flex: 1;
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-top: auto;
+        }
+
+        .trailer-btn {
+            background: linear-gradient(135deg, var(--blue), var(--purple));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: bold;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .trailer-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(74, 144, 217, 0.4);
+        }
+
+        .detail-source {
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            margin-left: auto;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .watchlist {
+                grid-template-columns: 1fr;
+            }
+            
+            .lists-panel {
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <button class="nav-back">⬡ HOME</button>
+            <div class="nav-title">
+                <div class="nav-icon">▣</div>
+                <div class="nav-text">
+                    <h1>MATRIX</h1>
+                    <p>MEDIA MANAGER</p>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active">WATCHLIST</button>
+        <button class="tab">BROWSE</button>
+        <button class="tab">CONTINUE</button>
+        <button class="tab">STREAM</button>
+    </div>
+
+    <!-- Content -->
+    <main class="content">
+        <div class="watchlist">
+            <div>
+                <!-- Add Bar -->
+                <div class="add-bar">
+                    <input type="text" class="add-input" placeholder="Add a title to your list...">
+                    <select class="add-select">
+                        <option>Planning</option>
+                        <option>Watching</option>
+                        <option>Dropped</option>
+                        <option>Completed</option>
+                    </select>
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--text2); font-size: 11px;">
+                        <input type="checkbox" class="add-checkbox">
+                        Anime
+                    </label>
+                    <button class="add-btn">+ Add</button>
+                </div>
+
+                <!-- Lists Panel -->
+                <div class="lists-panel">
+                    <div class="list-tabs">
+                        <button class="list-tab active">PLANNING</button>
+                        <button class="list-tab">WATCHING</button>
+                        <button class="list-tab">DROPPED</button>
+                        <button class="list-tab">COMPLETED</button>
+                    </div>
+                    <div class="list-content">
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Breaking Bad</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>The Matrix</span>
+                        </div>
+                        <div class="list-item selected">
+                            <span class="list-item-icon">🎭</span>
+                            <span>Inception</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Stranger Things</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>Interstellar</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail Panel -->
+            <div class="detail-panel">
+                <div class="detail-placeholder">
+                    Click any title to see details
+                </div>
+                <div class="detail-content" style="display: block;">
+                    <h2 class="detail-title">Inception</h2>
+                    <div class="detail-meta">
+                        <div class="detail-meta-item">📅 2010</div>
+                        <div class="detail-meta-item">⭐ 8.8</div>
+                        <div class="detail-meta-item">🎭 Sci-Fi, Thriller</div>
+                    </div>
+                    <div class="detail-synopsis">
+                        A thief who steals corporate secrets through the use of dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O., but his tragic past may doom the project and his team to disaster.
+                    </div>
+                    <div class="detail-actions">
+                        <button class="trailer-btn">
+                            ▶ WATCH TRAILER
+                        </button>
+                        <div class="detail-source">via TMDB</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List tab switching
+        document.querySelectorAll('.list-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.list-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List item selection
+        document.querySelectorAll('.list-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.list-item').forEach(i => i.classList.remove('selected'));
+                this.classList.add('selected');
+                
+                // Show detail content
+                document.querySelector('.detail-placeholder').style.display = 'none';
+                document.querySelector('.detail-content').style.display = 'block';
+            });
+        });
+
+        // Add button animation
+        document.querySelector('.add-btn').addEventListener('click', function() {
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = '';
+            }, 100);
+        });
+    </script>
+</body>
+</html>
