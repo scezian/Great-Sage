@@ -631,3 +631,88 @@
 2026-04-02 19:37:20.483  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=1081
 2026-04-02 19:37:23.721  DEBUG     [great_sage.legion]  fetch_chapter parsed  url=https://novelbin.com/b/the-golem-mage/null  raw_paragraphs=7  after_filter=6  content_div_id=wrapper
 2026-04-02 19:37:23.768  DEBUG     [great_sage.legion]  Chapter appended to file  book=The Golem Mage  chapter=2964
+2026-04-02 19:42:52.810  INFO      [great_sage  ]  App exiting  exit_code=0
+2026-04-02 19:43:32.575  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-04-02 19:43:36.712  INFO      [great_sage  ]  MainWindow creating
+2026-04-02 19:43:36.949  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=NameError  exc_msg=name 'sep_lbl' is not defined  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 597, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 588, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 402, in _build
+    ("matrix",    MatrixPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 344, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 388, in _build
+    hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
+                                       ^^^^^^^
+NameError: name 'sep_lbl' is not defined
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 597, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 588, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 402, in _build
+    ("matrix",    MatrixPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 344, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 388, in _build
+    hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
+                                       ^^^^^^^
+NameError: name 'sep_lbl' is not defined
+
+2026-04-02 19:44:23.646  INFO      [great_sage  ]  Great Sage started  python=3.14.3  platform=linux  log_dir=/home/scezian/Documents/great sage/logs  old_logs_deleted=0
+2026-04-02 19:44:27.756  INFO      [great_sage  ]  MainWindow creating
+2026-04-02 19:44:28.026  CRITICAL  [great_sage  ]  Unhandled exception — app crashed  exc_type=NameError  exc_msg=name 'sep_lbl' is not defined  traceback_str=Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 597, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 588, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 402, in _build
+    ("matrix",    MatrixPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 344, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 388, in _build
+    hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
+                                       ^^^^^^^
+NameError: name 'sep_lbl' is not defined
+
+Traceback (most recent call last):
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 597, in <module>
+    main()
+    ~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 588, in main
+    win = MainWindow()
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 319, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/great_sage_gui.py", line 402, in _build
+    ("matrix",    MatrixPage()),
+                  ~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 344, in __init__
+    self._build()
+    ~~~~~~~~~~~^^
+  File "/home/scezian/Documents/great sage/gs_matrix_ui.py", line 388, in _build
+    hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
+                                       ^^^^^^^
+NameError: name 'sep_lbl' is not defined
+

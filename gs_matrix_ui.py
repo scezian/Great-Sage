@@ -385,7 +385,7 @@ class MatrixPage(QWidget):
         title_l.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:20px;font-weight:300;color:{TEXT};letter-spacing:1px;background:transparent;")
         sub_l = QLabel("AURORA")
         sub_l.setStyleSheet(f"color:{ACCENT2};font-size:10px;font-weight:400;background:transparent;margin-left:12px;margin-top:2px;")
-        hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
+        hv.addWidget(back_b); hv.addWidget(ico_lbl)
         hv.addWidget(title_l); hv.addWidget(sub_l); hv.addStretch()
         root.addWidget(header_w)
 
