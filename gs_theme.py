@@ -8,27 +8,27 @@ Import everything with:  from gs_theme import *
 # ── Runtime constants ───────────────────────────────────────────────────────────
 MPV_SOCKET_PATH = "/tmp/mpvsocket_gs"  # Unix socket for mpv IPC
 
-# ── Design tokens — Ink & Amber ────────────────────────────────────────────────
-# Deep editorial palette: near-black backgrounds, warm amber accents,
-# cool slate text, sharp contrast hierarchy.
+# ── Design tokens — Aurora Borealis ───────────────────────────────────
+# Deep blue palette: near-black backgrounds, cyan accents,
+# northern lights effects, cool ethereal hierarchy.
 
-BG      = "#0C0C0E"   # near-black, warm undertone
-BG2     = "#111116"   # cards / elevated surfaces
-BG3     = "#17171D"   # inputs / list rows
-PANEL   = "#1C1C24"   # panels
-BORDER  = "#252530"   # subtle borders
-BORDER2 = "#32324A"   # active borders
+BG      = "#000511"   # deep midnight blue
+BG2     = "#001d3d"   # dark ocean blue
+BG3     = "#003459"   # deep sea blue
+PANEL   = "#002855"   # navy panel
+BORDER  = "#0077b6"   # bright cyan border
+BORDER2 = "#00a8cc"   # light cyan border
 
-ACCENT  = "#C9A84C"   # amber gold — primary CTA
-ACCENT2 = "#4EC9A4"   # seafoam — secondary highlights
-NEON    = "#5DDFCC"   # bright teal
-RED     = "#E05A6A"
-BLUE    = "#4A90D9"
-PURPLE  = "#8B6FD4"
+ACCENT  = "#00d4ff"   # electric blue — primary CTA
+ACCENT2 = "#5599ff"   # sky blue — secondary highlights
+NEON    = "#99ccff"   # ice blue
+RED     = "#ff6b6b"
+BLUE    = "#00d4ff"   # electric blue
+PURPLE  = "#9b59b6"
 
-TEXT    = "#E8E4DC"   # warm off-white — primary text
-TEXT2   = "#A0A0B4"   # cool slate — secondary text
-MUTED   = "#606070"   # muted — hints, labels
+TEXT    = "#ffffff"   # pure white — primary text
+TEXT2   = "#ccd6f6"   # light cyan — secondary text
+MUTED   = "#64748b"   # muted blue — hints, labels
 
 FONT_BODY    = "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif"
 FONT_UI      = "JetBrains Mono, Fira Code, Consolas, monospace"
@@ -48,30 +48,31 @@ QPushButton {{
     background: transparent;
     color: {TEXT2};
     border: 1px solid {BORDER};
-    border-radius: 3px;
-    padding: 6px 14px;
-    letter-spacing: 0.5px;
+    border-radius: 6px;
+    padding: 8px 16px;
+    letter-spacing: 1px;
 }}
 QPushButton:hover {{
     background: {BG3};
     border-color: {ACCENT};
     color: {ACCENT};
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
 }}
 QPushButton:pressed {{ background: {PANEL}; }}
 QPushButton#accent {{
     background: {ACCENT};
     color: {BG};
     border: none;
-    font-weight: bold;
+    font-weight: 500;
     letter-spacing: 1px;
 }}
-QPushButton#accent:hover {{ background: #D4B460; }}
+QPushButton#accent:hover {{ background: {ACCENT2}; }}
 QPushButton#danger {{
     background: transparent;
     color: {RED};
-    border: 1px solid #3D1A20;
+    border: 1px solid {RED};
 }}
-QPushButton#danger:hover {{ background: #2A0E14; border-color: {RED}; }}
+QPushButton#danger:hover {{ background: rgba(220, 53, 69, 0.1); border-color: {RED}; }}
 
 /* ── Nav rail buttons ── */
 QPushButton#nav {{
@@ -99,12 +100,15 @@ QPushButton#nav[active=true] {{
 QLineEdit {{
     background: {BG3};
     border: 1px solid {BORDER};
-    border-radius: 3px;
-    padding: 7px 12px;
+    border-radius: 8px;
+    padding: 10px 16px;
     color: {TEXT};
     selection-background-color: {ACCENT};
 }}
-QLineEdit:focus {{ border-color: {ACCENT}; }}
+QLineEdit:focus {{ 
+    border-color: {ACCENT};
+    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+}}
 
 QTextEdit {{
     background: {BG};
@@ -147,18 +151,24 @@ QListWidget {{
     outline: none;
 }}
 QListWidget::item {{
-    padding: 9px 14px;
-    border-bottom: 1px solid {BG3};
+    background: {BG};
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 6px;
     color: {TEXT2};
 }}
 QListWidget::item:hover {{
-    background: {BG2};
-    color: {TEXT};
+    background: {PANEL};
+    border-color: {ACCENT};
+    transform: translateX(4px);
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.2);
 }}
 QListWidget::item:selected {{
-    background: {BG3};
+    background: {PANEL};
+    border-color: {ACCENT};
     color: {ACCENT};
-    border-left: 2px solid {ACCENT};
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
 }}
 
 /* ── Tabs ── */
@@ -167,13 +177,13 @@ QTabBar::tab {{
     background: transparent;
     color: {MUTED};
     border: none;
-    border-bottom: 1px solid transparent;
-    padding: 8px 20px;
+    border-bottom: 2px solid transparent;
+    padding: 16px 32px;
     font-size: 11px;
-    letter-spacing: 1.5px;
+    font-weight: 400;
 }}
-QTabBar::tab:selected {{ color: {ACCENT}; border-bottom: 1px solid {ACCENT}; }}
-QTabBar::tab:hover {{ color: {TEXT2}; }}
+QTabBar::tab:selected {{ color: {ACCENT}; border-bottom: 2px solid {ACCENT}; background: rgba(0, 212, 255, 0.02); }}
+QTabBar::tab:hover {{ color: {TEXT}; background: rgba(0, 212, 255, 0.05); }}
 
 /* ── Combo ── */
 QComboBox {{

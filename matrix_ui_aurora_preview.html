@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix UI - Aurora Borealis Design</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #000511;
+            --bg2: #001d3d;
+            --bg3: #003459;
+            --panel: #002855;
+            --border: #0077b6;
+            --border2: #00a8cc;
+            --accent: #00d4ff;
+            --accent2: #5599ff;
+            --neon: #99ccff;
+            --red: #ff6b6b;
+            --blue: #4ecdc4;
+            --purple: #9b59b6;
+            --text: #ffffff;
+            --text2: #ccd6f6;
+            --muted: #64748b;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* Aurora background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at 20% 30%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 70%, rgba(85, 153, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 40% 80%, rgba(153, 204, 255, 0.08) 0%, transparent 50%);
+            animation: auroraShift 12s ease-in-out infinite;
+            z-index: -1;
+        }
+
+        @keyframes auroraShift {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            33% { transform: rotate(120deg) scale(1.1); }
+            66% { transform: rotate(240deg) scale(0.9); }
+        }
+
+        /* Northern lights effect */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(45deg, transparent 30%, rgba(0, 212, 255, 0.03) 50%, transparent 70%),
+                linear-gradient(135deg, transparent 30%, rgba(85, 153, 255, 0.02) 50%, transparent 70%),
+                linear-gradient(225deg, transparent 30%, rgba(153, 204, 255, 0.01) 50%, transparent 70%);
+            animation: northernLights 20s linear infinite;
+            z-index: -1;
+        }
+
+        @keyframes northernLights {
+            0% { transform: translateY(0) rotate(0deg); }
+            100% { transform: translateY(-100vh) rotate(360deg); }
+        }
+
+        /* Header */
+        .header {
+            height: 80px;
+            background: linear-gradient(180deg, var(--bg2) 0%, var(--bg3) 100%);
+            border-bottom: 1px solid var(--accent);
+            display: flex;
+            align-items: center;
+            padding: 0 32px;
+            position: relative;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent));
+            animation: auroraFlow 4s linear infinite;
+        }
+
+        @keyframes auroraFlow {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .nav-back {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--accent2);
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-back:hover {
+            background: var(--accent2);
+            color: var(--bg);
+            box-shadow: 0 0 20px rgba(85, 153, 255, 0.4);
+        }
+
+        .nav-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-icon {
+            font-size: 28px;
+            color: var(--accent);
+            text-shadow: 0 0 30px rgba(0, 212, 255, 0.8);
+            animation: auroraGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes auroraGlow {
+            0%, 100% { text-shadow: 0 0 30px rgba(0, 212, 255, 0.8); }
+            50% { text-shadow: 0 0 40px rgba(85, 153, 255, 0.6); }
+        }
+
+        .nav-text h1 {
+            font-size: 22px;
+            font-weight: 300;
+            color: var(--text);
+            margin: 0;
+            letter-spacing: 4px;
+        }
+
+        .nav-text p {
+            font-size: 10px;
+            color: var(--accent2);
+            margin: 0;
+            margin-left: 16px;
+            margin-top: 2px;
+            font-weight: 400;
+        }
+
+        /* Tabs */
+        .tabs {
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            padding: 0;
+            position: relative;
+        }
+
+        .tabs::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent));
+            animation: auroraFlow 3s linear infinite;
+        }
+
+        .tab {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 20px 32px;
+            font-size: 11px;
+            font-weight: 400;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab:hover {
+            color: var(--text);
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: rgba(0, 212, 255, 0.02);
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
+        }
+
+        /* Content */
+        .content {
+            padding: 32px;
+            min-height: calc(100vh - 180px);
+        }
+
+        /* Watchlist */
+        .watchlist {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 24px;
+            height: calc(100vh - 180px);
+        }
+
+        .add-bar {
+            background: linear-gradient(135deg, var(--bg3), var(--panel));
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 32px rgba(0, 212, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .add-bar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.05), transparent);
+            animation: auroraSweep 5s ease-in-out infinite;
+        }
+
+        @keyframes auroraSweep {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .add-input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 20px;
+            color: var(--text);
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .add-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+        }
+
+        .add-select, .add-checkbox {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .add-btn {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: var(--bg);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .add-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .add-btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .add-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3);
+        }
+
+        .lists-panel {
+            background: var(--bg2);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .list-tabs {
+            background: var(--bg3);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+        }
+
+        .list-tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 16px;
+            font-size: 10px;
+            font-weight: 400;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .list-tab:hover {
+            color: var(--accent);
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .list-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: rgba(0, 212, 255, 0.02);
+        }
+
+        .list-content {
+            padding: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .list-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 8px;
+            color: var(--text2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .list-item:hover {
+            background: var(--panel);
+            border-color: var(--accent);
+            transform: translateX(4px);
+            box-shadow: 0 4px 16px rgba(0, 212, 255, 0.2);
+        }
+
+        .list-item.selected {
+            background: var(--panel);
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .list-item-icon {
+            font-size: 18px;
+            opacity: 0.8;
+        }
+
+        .detail-panel {
+            background: linear-gradient(180deg, var(--bg2), var(--bg3));
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 32px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-placeholder {
+            text-align: center;
+            color: var(--muted);
+            font-size: 15px;
+            margin: auto;
+            font-weight: 300;
+        }
+
+        .detail-content {
+            display: none;
+        }
+
+        .detail-title {
+            font-size: 28px;
+            font-weight: 200;
+            color: var(--text);
+            margin-bottom: 12px;
+            line-height: 1.2;
+        }
+
+        .detail-meta {
+            color: var(--accent2);
+            font-size: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .detail-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: rgba(0, 212, 255, 0.1);
+            border-radius: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .detail-synopsis {
+            font-size: 15px;
+            color: var(--text2);
+            line-height: 1.7;
+            margin-bottom: 24px;
+            flex: 1;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-top: auto;
+        }
+
+        .trailer-btn {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: var(--bg);
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .trailer-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .trailer-btn:hover::before {
+            width: 400px;
+            height: 400px;
+        }
+
+        .trailer-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3);
+        }
+
+        .detail-source {
+            color: var(--muted);
+            font-size: 11px;
+            margin-left: auto;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent2);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <button class="nav-back">← Home</button>
+            <div class="nav-title">
+                <div class="nav-icon">▣</div>
+                <div class="nav-text">
+                    <h1>MATRIX</h1>
+                    <p>AURORA</p>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active">Watchlist</button>
+        <button class="tab">Browse</button>
+        <button class="tab">Continue</button>
+        <button class="tab">Stream</button>
+    </div>
+
+    <!-- Content -->
+    <main class="content">
+        <div class="watchlist">
+            <div>
+                <!-- Add Bar -->
+                <div class="add-bar">
+                    <input type="text" class="add-input" placeholder="Add title to aurora...">
+                    <select class="add-select">
+                        <option>Planning</option>
+                        <option>Watching</option>
+                        <option>Dropped</option>
+                        <option>Completed</option>
+                    </select>
+                    <label style="display: flex; align-items: center; gap: 8px; color: var(--text2); font-size: 12px;">
+                        <input type="checkbox" class="add-checkbox">
+                        Anime
+                    </label>
+                    <button class="add-btn">+ Add</button>
+                </div>
+
+                <!-- Lists Panel -->
+                <div class="lists-panel">
+                    <div class="list-tabs">
+                        <button class="list-tab active">Planning</button>
+                        <button class="list-tab">Watching</button>
+                        <button class="list-tab">Dropped</button>
+                        <button class="list-tab">Completed</button>
+                    </div>
+                    <div class="list-content">
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Breaking Bad</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>The Matrix</span>
+                        </div>
+                        <div class="list-item selected">
+                            <span class="list-item-icon">🎭</span>
+                            <span>Inception</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">📺</span>
+                            <span>Stranger Things</span>
+                        </div>
+                        <div class="list-item">
+                            <span class="list-item-icon">🎬</span>
+                            <span>Interstellar</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail Panel -->
+            <div class="detail-panel">
+                <div class="detail-placeholder">
+                    Click any title to see details
+                </div>
+                <div class="detail-content" style="display: block;">
+                    <h2 class="detail-title">Inception</h2>
+                    <div class="detail-meta">
+                        <div class="detail-meta-item">📅 2010</div>
+                        <div class="detail-meta-item">⭐ 8.8</div>
+                        <div class="detail-meta-item">🎭 Sci-Fi, Thriller</div>
+                    </div>
+                    <div class="detail-synopsis">
+                        A thief who steals corporate secrets through use of dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O., but his tragic past may doom the project and his team to disaster.
+                    </div>
+                    <div class="detail-actions">
+                        <button class="trailer-btn">
+                            ▶ Watch Trailer
+                        </button>
+                        <div class="detail-source">via TMDB</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List tab switching
+        document.querySelectorAll('.list-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.list-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // List item selection
+        document.querySelectorAll('.list-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.list-item').forEach(i => i.classList.remove('selected'));
+                this.classList.add('selected');
+                
+                // Show detail content
+                document.querySelector('.detail-placeholder').style.display = 'none';
+                document.querySelector('.detail-content').style.display = 'block';
+            });
+        });
+
+        // Add button animation
+        document.querySelector('.add-btn').addEventListener('click', function() {
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = '';
+            }, 100);
+        });
+    </script>
+</body>
+</html>
