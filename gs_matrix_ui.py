@@ -1275,7 +1275,9 @@ class MatrixPage(QWidget):
                         # Update the Lua script's has_next flag
                         _ipc({"command": ["script-message", "next-episode-has-next",
                                           "yes" if cur_next else "no"]})
-                        track_event("episode_finished", {"show": show})
+                        
+                        genre = _detect_show_genre(show)
+                        track_event("episode_finished", {"show": show, "genre": genre})
 
                 # Get position — skip reads while mpv is switching files to avoid
                 # capturing a stale position from the previous episode
@@ -1374,7 +1376,8 @@ class MatrixPage(QWidget):
 
             # Exit 10 = Play Next accepted via exit (fallback for non-IPC)
             if exit_code == 10:
-                track_event("episode_finished", {"show": show})
+                genre = _detect_show_genre(show)
+                track_event("episode_finished", {"show": show, "genre": genre})
             if exit_code == 10 and cur_next and os.path.exists(cur_next):
                 next_filename = os.path.basename(cur_next)
 

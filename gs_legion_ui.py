@@ -808,6 +808,24 @@ class LegionPage(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, e)
                 item.setForeground(QColor(TEXT)); lw.addItem(item)
 
+        # If HTML Legion requested to open a specific book in the native UI, do it once.
+        try:
+            mw = self.window()
+            pending = getattr(mw, "_pending_legion_book", "") if mw else ""
+        except Exception:
+            pending = ""
+        if pending:
+            try:
+                mw._pending_legion_book = ""
+            except Exception:
+                pass
+            for i in range(self.jumpin_list.count()):
+                it = self.jumpin_list.item(i)
+                if it and it.data(Qt.ItemDataRole.UserRole) == pending:
+                    self.jumpin_list.setCurrentItem(it)
+                    self._book_clicked(it)
+                    break
+
     def _book_clicked(self, item):
         name = item.data(Qt.ItemDataRole.UserRole)
         if not name: return
@@ -1634,7 +1652,12 @@ class LegionPage(QWidget):
                 b["words_read"]    = b.get("words_read", 0) + words_just_read
                 save_json(LEGION_PROGRESS, ld)
                 self._book_data[self._current_book] = b
-            track_event("chapter_finished", {"book": self._current_book, "ch": self._current_ch_num})
+            genre = _detect_genre(self._current_book, b) if b else ""
+            track_event("chapter_finished", {
+                "book": self._current_book, 
+                "ch": self._current_ch_num,
+                "genre": genre
+            })
 
             # Look up actual next story chapter number from the file
             next_num = None
@@ -2443,6 +2466,7 @@ class WrappedDialog(QDialog):
         year = dt.datetime.now().year
 
         # Filter sessions by period
+        cutoff = 0
         if self._period == "year":
             cutoff = dt.datetime(year, 1, 1).timestamp()
             sessions = [s for s in sessions if s.get("timestamp", 0) >= cutoff]
@@ -2451,14 +2475,23 @@ class WrappedDialog(QDialog):
         watching = md.get("watching", {})
         wl = md.get("watchlist", {})
 
-        # Compute stats
-        chapters_read = sum(b.get("chapters_read", 0) for b in books.values())
-        words_read = sigs.get("total_words", 0) if self._period == "alltime" else sum(
-            s.get("data",{}).get("words",0) for s in sessions if s.get("type")=="words_read")
-        watch_mins = sigs.get("total_watch_minutes", 0) if self._period == "alltime" else sum(
-            s.get("data",{}).get("minutes",0) for s in sessions if s.get("type")=="watch_time")
-        eps_finished = sigs.get("episodes_finished", 0) if self._period == "alltime" else sum(
-            1 for s in sessions if s.get("type")=="episode_finished")
+        # Compute stats from filtered sessions
+        chapters_read = sum(1 for s in sessions if s.get("type") == "chapter_finished")
+        words_read    = sum(s.get("data",{}).get("words",0) for s in sessions if s.get("type")=="words_read")
+        watch_mins    = sum(s.get("data",{}).get("minutes",0) for s in sessions if s.get("type")=="watch_time")
+        eps_finished  = sum(1 for s in sessions if s.get("type")=="episode_finished")
+
+        # If all-time, merge with cumulative signals (since sessions are capped)
+        if self._period == "alltime":
+            # For chapters_read, words_read, etc., we want the maximum of (sessions_sum, sigs_total)
+            # because sigs_total is cumulative all-time, while sessions is capped.
+            # However, sigs is more reliable for all-time.
+            chapters_read = max(chapters_read, sigs.get("chapters_finished", 0))
+            words_read    = max(words_read, sigs.get("total_words", 0))
+            eps_finished  = max(eps_finished, sigs.get("episodes_finished", 0))
+            watch_mins    = max(watch_mins, sigs.get("total_watch_minutes", 0))
+
+        # Completed / Abandoned shows from watchlist (not period-filtered yet, usually okay)
         completed = len(wl.get("completed", []))
         abandoned = len(wl.get("dropped", []))
 
@@ -2473,20 +2506,33 @@ class WrappedDialog(QDialog):
                            "evening" if peak < 21 else "night")
             busiest_hour = f"{peak:02d}:00 ({period_name})"
 
-        # Top genres from behaviour
-        gc = sigs.get("genre_counts", {})
+        # Top genres from behavior
+        # For year view, we need to count genres from the filtered sessions
+        if self._period == "year":
+            gc = {}
+            for s in sessions:
+                g = s.get("data", {}).get("genre")
+                if g: gc[g] = gc.get(g, 0) + 1
+        else:
+            gc = sigs.get("genre_counts", {})
+        
         top_genre = sorted(gc.items(), key=lambda x: -x[1])[0][0] if gc else "—"
 
         # Finish rate
-        fin = sigs.get("chapters_finished", 0)
-        abd = sigs.get("chapters_abandoned", 0)
+        if self._period == "year":
+            fin = sum(1 for s in sessions if s.get("type") == "chapter_finished")
+            abd = sum(1 for s in sessions if s.get("type") == "chapter_abandoned")
+        else:
+            fin = sigs.get("chapters_finished", 0)
+            abd = sigs.get("chapters_abandoned", 0)
+        
         finish_rate = f"{int(fin/(fin+abd)*100)}%" if fin+abd > 0 else "—"
 
         stats = [
             ("📖  Chapters read",        chapters_read,  NEON),
-            ("📝  Words read",           f"{words_read:,}" if words_read else "—", TEXT),
+            ("📝  Words read",           f"{int(words_read):,}" if words_read else "—", TEXT),
             ("🎬  Episodes watched",     eps_finished,   BLUE),
-            ("⏱  Hours watched",        f"{watch_mins//60}h {watch_mins%60}m" if watch_mins else "—", BLUE),
+            ("⏱  Hours watched",        f"{int(watch_mins)//60}h {int(watch_mins)%60}m" if watch_mins else "—", BLUE),
             ("✅  Shows completed",      completed,      ACCENT2),
             ("❌  Shows dropped",        abandoned,      RED),
             ("💪  Chapter finish rate",  finish_rate,    ACCENT),

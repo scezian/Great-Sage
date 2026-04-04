@@ -112,8 +112,25 @@ def load_json(path: str, default=None) -> dict:
         log.exc("Failed to load JSON", e, path=path)
     return default or {}
 
+_json_cache: dict[str, tuple[float, dict]] = {}
+
+def load_json_cached(path: str, default=None) -> dict:
+    """Load JSON only if the file has changed since last read."""
+    p_str = str(path)
+    try:
+        mtime = os.path.getmtime(p_str)
+        if p_str in _json_cache and _json_cache[p_str][0] == mtime:
+            return _json_cache[p_str][1]
+        data = load_json(p_str, default if default is not None else {})
+        _json_cache[p_str] = (mtime, data)
+        return data
+    except FileNotFoundError:
+        return default if default is not None else {}
+    except Exception:
+        return load_json(p_str, default if default is not None else {})
+
 def save_json(path: str, data: dict):
-    """Atomically write data to path as JSON. Thread-safe per path."""
+    """Atomically write data to path as JSON. Thread-safe per path. Invalidates cache."""
     with _save_locks_lock:
         lock = _save_locks.setdefault(path, threading.Lock())
     with lock:
@@ -124,15 +141,16 @@ def save_json(path: str, data: dict):
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=2)
             os.replace(tmp, path)
+            _json_cache.pop(str(path), None)
         except Exception as e:
             log.exc("Failed to save JSON", e, path=path)
 
 # ── Data accessors ─────────────────────────────────────────────────────────────
 def legion_data() -> dict:
-    return load_json(LEGION_PROGRESS, {"books": {}})
+    return load_json_cached(LEGION_PROGRESS, {"books": {}})
 
 def matrix_data() -> dict:
-    d = load_json(MATRIX_PROGRESS, {
+    d = load_json_cached(MATRIX_PROGRESS, {
         "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
         "watching": {}, "completed": {}})
     wl = d.get("watchlist", {})
@@ -143,16 +161,24 @@ def matrix_data() -> dict:
     return d
 
 def bookmarks_data() -> dict:
-    return load_json(LEGION_BOOKMARKS,
+    return load_json_cached(LEGION_BOOKMARKS,
         {"planning": [], "reading": [], "dropped": [], "completed": []})
 
 # ── Sage persistent memory ─────────────────────────────────────────────────────
 from sage_memory_db import SageMemoryDB
-_sage_memory_db = SageMemoryDB()
+_sage_memory_db_instance = None
+
+def _get_memory_db():
+    global _sage_memory_db_instance
+    if _sage_memory_db_instance is None:
+        from sage_memory_db import SageMemoryDB
+        _sage_memory_db_instance = SageMemoryDB()
+    return _sage_memory_db_instance
+
 
 def sage_memory_load() -> str:
     try:
-        texts = _sage_memory_db.dump_all()
+        texts = _get_memory_db().dump_all()
         return "\n".join(texts[-20:])
     except Exception as e:
         log.warning("sage_memory_load failed", error=str(e))
@@ -165,7 +191,7 @@ def sage_memory_append(fact: str):
             return
         import datetime as _dt
         stamp = _dt.datetime.now().strftime("%Y-%m-%d")
-        _sage_memory_db.add_memory(f"[{stamp}] {fact}")
+        _get_memory_db().add_memory(f"[{stamp}] {fact}")
     except Exception as e:
         log.warning("sage_memory_append failed", error=str(e))
 
@@ -191,17 +217,38 @@ def track_event(event_type: str, data=None):
     def _write():
         try:
             bd = behaviour_data()
-            bd["sessions"].append({
-                "type":      event_type,
-                "data":      data or {},
-                "timestamp": time.time(),
-                "hour":      __import__("datetime").datetime.now().hour,
-                "weekday":   __import__("datetime").datetime.now().weekday(),
-            })
-            bd["sessions"] = bd["sessions"][-500:]
+            # Consolidate watch_time events to prevent log flooding
+            if event_type == "watch_time" and bd["sessions"]:
+                last = bd["sessions"][-1]
+                # If last event was watch_time and within the same hour, merge it
+                if last.get("type") == "watch_time" and (time.time() - last.get("timestamp", 0)) < 300:
+                    last["data"]["minutes"] = last["data"].get("minutes", 0) + (data or {}).get("minutes", 0)
+                    last["timestamp"] = time.time()
+                else:
+                    bd["sessions"].append({
+                        "type":      event_type,
+                        "data":      data or {},
+                        "timestamp": time.time(),
+                        "hour":      __import__("datetime").datetime.now().hour,
+                        "weekday":   __import__("datetime").datetime.now().weekday(),
+                    })
+            else:
+                bd["sessions"].append({
+                    "type":      event_type,
+                    "data":      data or {},
+                    "timestamp": time.time(),
+                    "hour":      __import__("datetime").datetime.now().hour,
+                    "weekday":   __import__("datetime").datetime.now().weekday(),
+                })
+
+            bd["sessions"] = bd["sessions"][-10000:]
             sigs = bd.setdefault("signals", {})
             if event_type == "chapter_finished":
                 sigs["chapters_finished"] = sigs.get("chapters_finished", 0) + 1
+                genre = (data or {}).get("genre", "")
+                if genre:
+                    gc = sigs.setdefault("genre_counts", {})
+                    gc[genre] = gc.get(genre, 0) + 1
             elif event_type == "chapter_abandoned":
                 sigs["chapters_abandoned"] = sigs.get("chapters_abandoned", 0) + 1
             elif event_type == "episode_finished":
@@ -349,6 +396,22 @@ def _detect_genre(book_name: str, book_data: dict) -> str:
         return "fantasy"
     return "default"
 
+def _detect_show_genre(title: str, is_anime: bool = False) -> str:
+    t = title.lower()
+    if is_anime:
+        if any(k in t for k in ["shonen", "shounen", "battle", "fight", "action"]): return "shonen"
+        if any(k in t for k in ["isekai", "reborn", "another world"]): return "isekai"
+        if any(k in t for k in ["slice", "life", "school", "comedy"]): return "slice-of-life"
+        return "anime"
+    
+    if any(k in t for k in ["thriller", "mystery", "crime", "detective"]): return "thriller"
+    if any(k in t for k in ["horror", "scary", "ghost", "dark"]): return "horror"
+    if any(k in t for k in ["comedy", "funny", "sitcom"]): return "comedy"
+    if any(k in t for k in ["sci-fi", "science", "space", "future"]): return "sci-fi"
+    if any(k in t for k in ["fantasy", "magic", "dragon"]): return "fantasy"
+    if any(k in t for k in ["documentary", "history", "real"]): return "documentary"
+    return "live-action"
+
 # ── Book file search ───────────────────────────────────────────────────────────
 def _grep_book_for_term(book_name: str, term: str, up_to_chapter: int,
                          max_excerpts: int = 60) -> str:
@@ -424,8 +487,10 @@ class FetchChapterWorker(QThread):
 
 
 class SageWorker(QThread):
-    done  = pyqtSignal(str)
-    error = pyqtSignal(str)
+    chunk_ready = pyqtSignal(str)
+    finished    = pyqtSignal()
+    done        = pyqtSignal(str)
+    error       = pyqtSignal(str)
 
     def __init__(self, mode: str, user_msg: str = "", extra: str = "", history=None):
         super().__init__()
@@ -454,7 +519,7 @@ class SageWorker(QThread):
             mem_ctx      = mod.memory_to_context(memory) if hasattr(mod, "memory_to_context") else ""
             
             # Use semantic vector search for precision
-            relevant_memories = _sage_memory_db.search(self.user_msg, k=5)
+            relevant_memories = _get_memory_db().search(self.user_msg, k=5)
             if relevant_memories:
                 pers_mem = "\n".join(relevant_memories)
                 mem_ctx = (mem_ctx + "\n\n[Relevant Past Memories]\n" + pers_mem).strip()
@@ -469,21 +534,6 @@ class SageWorker(QThread):
             seen_s = ("Avoid recommending these (already seen): " +
                       ", ".join(seen[-30:])) if seen else ""
 
-            if self.mode == "chat":
-                if hasattr(mod, "chat_with_sage"):
-                    response, error = mod.chat_with_sage(profile_text, self.user_msg, self.history)
-                else:
-                    response, error = mod.groq_chat(self.user_msg)
-                if error:
-                    self.error.emit(error)
-                    return
-                if hasattr(mod, "trigger_memory_update"):
-                    mod.trigger_memory_update("chat", self.user_msg[:500], (response or "")[:800])
-                for fact in sage_memory_extract(response or "", self.user_msg):
-                    sage_memory_append(fact)
-                self.done.emit(response or "")
-                return
-
             prompts = {
                 "novels":     f"Recommend 6 web novels or light novels I haven't read yet. {seen_s}",
                 "shows":      f"Recommend 6 TV shows or anime I haven't watched. {seen_s}",
@@ -496,6 +546,7 @@ class SageWorker(QThread):
                 "priority":   "__PRIORITY__",
                 "profile":    "Summarise my media taste profile in 3-4 paragraphs.",
                 "chapter_summary": "__CHAPTER_SUMMARY__",
+                "chat":       self.user_msg,
             }
             user_msg = prompts.get(self.mode, self.user_msg)
 
@@ -555,53 +606,48 @@ class SageWorker(QThread):
             if stream_ctx:
                 enriched = f"{profile_text}\n\n[Live streaming history]\n{stream_ctx}"
             full_prompt = f"{enriched}\n\nUser request: {user_msg}"
-            resp_max    = 4096 if self.mode == "chapter_summary" else 2048
-
-            if self.mode in ("novels", "shows", "similar"):
-                # Multi-Agent Chain-of-Thought Pipeline
-                
-                # Phase 1: Analyst
-                analyst_prompt = f"{enriched}\n\nAnalyze the user's profile and output exactly 3 core recurring narrative tropes or themes they are heavily engaged with right now."
-                tropes, error = mod.groq_chat(analyst_prompt, system=mem_ctx if mem_ctx else None)
-                if error:
-                    self.error.emit(error)
-                    return
-                
-                # Phase 2: Generator
-                gen_prompt = f"Based on the following tropes the user loves:\n{tropes}\n\nGenerate exactly 12 bold, specific candidate titles that strongly match these tropes. Give a one-line pitch for each. {seen_s}"
-                candidates, error = mod.groq_chat(gen_prompt, system=mem_ctx if mem_ctx else None)
-                if error:
-                    self.error.emit(error)
-                    return
-                    
-                # Phase 3: Critic
-                critic_prompt = f"Here are 12 candidate titles:\n{candidates}\n\nEnsure none of these match the user's completed or dropped lists from their profile. Filter out any that don't fit well. Then format the absolute top 6 remaining titles perfectly as numbered items (e.g. 1. Title - Pitch).\n\nUser Profile as reference:\n{profile_text}"
-                response, error = mod.groq_chat(critic_prompt, system=mem_ctx if mem_ctx else None)
+            
+            # Streaming implementation
+            full_resp = ""
+            if hasattr(mod, "groq_stream_chat"):
+                for chunk, error in mod.groq_stream_chat(full_prompt, system=mem_ctx if mem_ctx else None):
+                    if error:
+                        self.error.emit(error)
+                        return
+                    if chunk:
+                        full_resp += chunk
+                        self.chunk_ready.emit(chunk)
             else:
-                response, error = mod.groq_chat(
-                    full_prompt, system=mem_ctx if mem_ctx else None)
-                    
-            if error:
-                log.sage.error("Sage API error", mode=self.mode, error=error)
-                self.error.emit(error)
-                return
+                # Fallback to non-streaming if mod doesn't have groq_stream_chat
+                full_resp, error = mod.groq_chat(full_prompt, system=mem_ctx if mem_ctx else None)
+                if error:
+                    self.error.emit(error)
+                    return
+                self.chunk_ready.emit(full_resp)
 
             if self.mode in ("novels", "shows", "similar", "mood_light", "mood_heavy", "quick", "whats_next"):
                 try:
-                    titles = re.findall(r'\d+\.\s+(.+?)(?:\s+[-\u2014]|\n|$)', response)
+                    titles = re.findall(r'\d+\.\s+(.+?)(?:\s+[-\u2014]|\n|$)', full_resp)
                     if titles and hasattr(mod, "add_seen_recs"):
                         mod.add_seen_recs(titles[:8])
                 except Exception as e:
                     log.sage.warning("Failed to update seen recs", error=str(e))
 
             if hasattr(mod, "trigger_memory_update"):
-                mod.trigger_memory_update(self.mode, user_msg[:500], (response or "")[:800])
+                mod.trigger_memory_update(self.mode, user_msg[:500], (full_resp or "")[:800])
 
-            log.sage.info("Sage request complete", mode=self.mode, response_len=len(response or ""))
-            self.done.emit(response or "")
+            if self.mode == "chat":
+                for fact in sage_memory_extract(full_resp or "", self.user_msg):
+                    sage_memory_append(fact)
+
+            log.sage.info("Sage request complete", mode=self.mode, response_len=len(full_resp or ""))
+            self.done.emit(full_resp or "")
+            self.finished.emit()
+
         except Exception as e:
             log.sage.exc("SageWorker unhandled exception", e, mode=self.mode)
             self.error.emit(str(e))
+
 
 
 class MetadataWorker(QThread):

@@ -1,10 +1,9 @@
 import os
 import numpy as np
 
+HAS_ML = True
 try:
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity
-    HAS_ML = True
+    import numpy as np
 except ImportError:
     HAS_ML = False
 
@@ -17,8 +16,13 @@ class SageMemoryDB:
         self._load()
 
     def _init_model(self):
+        global HAS_ML
         if self.model is None and HAS_ML:
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            except ImportError:
+                HAS_ML = False
 
     def _load(self):
         if os.path.exists(self.db_path):
@@ -60,6 +64,7 @@ class SageMemoryDB:
             return []
             
         self._init_model()
+        from sklearn.metrics.pairwise import cosine_similarity
         q_vec = self.model.encode(query)
         
         sims = cosine_similarity([q_vec], self.embeddings)[0]

@@ -64,11 +64,30 @@ TAVILY_API_KEY   = "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"
 TAVILY_API       = "https://api.tavily.com/search"
 
 # Data file paths (must match legion.py and matrix.py)
-LEGION_PROGRESS  = os.path.expanduser("~/.great_sage_legion.json")
-MATRIX_PROGRESS  = os.path.expanduser("~/.config/matrix/progress.json")
+# ── Core Imports & Paths ───────────────────────────────────────────────────────
+try:
+    from great_sage_core import (
+        LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS,
+        load_json, save_json
+    )
+except ImportError:
+    # Fallback paths if core isn't found (for standalone CLI runs)
+    LEGION_PROGRESS  = os.path.expanduser("~/.great_sage_legion.json")
+    MATRIX_PROGRESS  = os.path.expanduser("~/.config/matrix/progress.json")
+    LEGION_BOOKMARKS = os.path.expanduser("~/.great_sage_bookmarks.json")
+    def load_json(path, default=None):
+        try:
+            if os.path.exists(path):
+                with open(path, "r") as f: return json.load(f)
+        except Exception: pass
+        return default or {}
+    def save_json(path, data):
+        try:
+            with open(path, "w") as f: json.dump(data, f, indent=2)
+        except Exception: pass
+
 SAGE_CACHE_FILE  = os.path.expanduser("~/.great_sage_sage_cache.json")
 SAGE_SEEN_FILE   = os.path.expanduser("~/.great_sage_seen_recs.json")
-LEGION_BOOKMARKS = os.path.expanduser("~/.great_sage_bookmarks.json")
 MATRIX_SYNC_CFG  = os.path.expanduser("~/.config/matrix/sync_config.json")
 
 # Legion saves book .txt files in os.getcwd() — wherever it was launched from.
@@ -123,23 +142,10 @@ console = Console(theme=SAGE_THEME) if RICH else None
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_seen_recs() -> list:
-    """Load previously recommended titles so we don't repeat them."""
-    try:
-        if os.path.exists(SAGE_SEEN_FILE):
-            with open(SAGE_SEEN_FILE, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        log.warning("Failed to load seen recs", error=str(e))
-    return []
-
+    return load_json(SAGE_SEEN_FILE, [])
 
 def save_seen_recs(seen: list):
-    try:
-        with open(SAGE_SEEN_FILE, "w") as f:
-            json.dump(seen[-100:], f, indent=2)
-    except Exception as e:
-        log.warning("Failed to save seen recs", error=str(e))
-
+    save_json(SAGE_SEEN_FILE, seen[-100:])
 
 def add_seen_recs(titles: list):
     seen = load_seen_recs()
@@ -149,59 +155,25 @@ def add_seen_recs(titles: list):
             seen.append(t)
     save_seen_recs(seen)
 
-
 def load_legion_data() -> dict:
-    try:
-        if os.path.exists(LEGION_PROGRESS):
-            with open(LEGION_PROGRESS, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        log.error("Failed to load legion data", path=LEGION_PROGRESS, error=str(e))
-    return {"books": {}}
-
+    return load_json(LEGION_PROGRESS, {"books": {}})
 
 def load_matrix_data() -> dict:
-    try:
-        if os.path.exists(MATRIX_PROGRESS):
-            with open(MATRIX_PROGRESS, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        log.error("Failed to load matrix data", path=MATRIX_PROGRESS, error=str(e))
-    return {"watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
-            "watching": {}, "completed": {}}
-
+    return load_json(MATRIX_PROGRESS, {
+        "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
+        "watching": {}, "completed": {}})
 
 def save_matrix_data(data: dict) -> bool:
-    """Write updated data back to Matrix's progress file."""
-    try:
-        os.makedirs(os.path.dirname(MATRIX_PROGRESS), exist_ok=True)
-        with open(MATRIX_PROGRESS, "w") as f:
-            json.dump(data, f, indent=2)
-        return True
-    except Exception as e:
-        log.error("Failed to save matrix data", path=MATRIX_PROGRESS, error=str(e))
-        return False
-
+    save_json(MATRIX_PROGRESS, data)
+    return True
 
 def load_bookmarks_data() -> dict:
-    """Load Legion bookmarks."""
-    try:
-        if os.path.exists(LEGION_BOOKMARKS):
-            with open(LEGION_BOOKMARKS, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        log.error("Failed to load bookmarks data", path=LEGION_BOOKMARKS, error=str(e))
-    return {"planning": [], "reading": [], "dropped": [], "completed": []}
+    return load_json(LEGION_BOOKMARKS, {"planning": [], "reading": [], "dropped": [], "completed": []})
 
 
 def save_bookmarks_data(data: dict) -> bool:
-    try:
-        with open(LEGION_BOOKMARKS, "w") as f:
-            json.dump(data, f, indent=2)
-        return True
-    except Exception as e:
-        log.error("Failed to save bookmarks data", path=LEGION_BOOKMARKS, error=str(e))
-        return False
+    save_json(LEGION_BOOKMARKS, data)
+    return True
 
 
 def _matrix_wl(data: dict) -> dict:
@@ -771,6 +743,65 @@ def groq_chat(prompt: str, system: str = None, model: str = None) -> tuple:
     except Exception as e:
         log.error("groq_chat exception", error=str(e))
         return None, str(e)
+
+
+def groq_stream_chat(prompt: str, system: str = None, model: str = None):
+    """Yields (chunk_text, error_string). error_string is None on success."""
+    if not GROQ_API_KEY or GROQ_API_KEY == "your-api-key-here":
+        yield None, "GROQ_API_KEY not set."
+        return
+
+    model    = model or GROQ_MODEL
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model":       model,
+        "messages":    messages,
+        "temperature": 0.7,
+        "max_tokens":  2048,
+        "top_p":       0.9,
+        "stream":      True,
+    }
+
+    log.debug("groq_stream_chat request", model=model, prompt_len=len(prompt))
+    try:
+        r = requests.post(f"{GROQ_BASE}/chat/completions",
+                          headers=headers, json=payload, timeout=REQUEST_TIMEOUT, stream=True)
+        if r.status_code != 200:
+            msg = f"Groq API error ({r.status_code})"
+            try:
+                err = r.json().get("error", {})
+                msg += f": {err.get('message', '')}"
+            except Exception:
+                pass
+            yield None, msg
+            return
+
+        for line in r.iter_lines():
+            if not line:
+                continue
+            line_str = line.decode("utf-8")
+            if line_str.startswith("data: "):
+                data_str = line_str[6:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        yield content, None
+                except Exception:
+                    continue
+
+    except requests.exceptions.Timeout:
+        yield None, f"Request timed out ({REQUEST_TIMEOUT}s)."
+    except Exception as e:
+        yield None, str(e)
 
 
 # ── AI prompts ────────────────────────────────────────────────────────────────
