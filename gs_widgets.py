@@ -96,6 +96,7 @@ class NavRail(QFrame):
         ("legion",    "◎", "LEGION"),
         ("matrix",    "▣", "MATRIX"),
         ("sage",      "✦", "SAGE"),
+        ("editor",    "✎", "EDITOR"),
         ("plugins",   "⬡", "PLUGINS"),
     ]
 

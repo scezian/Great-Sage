@@ -35,6 +35,7 @@ from gs_widgets import (
 from gs_legion_ui import LegionPage, HighlightsDialog, CalendarDialog, WrappedDialog
 from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
+from artemis      import EditorPage
 
 # ── Core ─────────────────────────────────────────────────────────────────────
 from great_sage_core import (
@@ -136,12 +137,14 @@ class DashboardPage(QWidget):
         self._card_legion  = self._make_card("◎", "LEGION ○ READING",  "legion")
         self._card_matrix  = self._make_card("▣", "MATRIX ○ WATCHING", "matrix")
         self._card_sage    = self._make_card("✦", "SAGE ○ AI",          "sage")
+        self._card_editor  = self._make_card("✎", "EDITOR ○ WRITE",     "editor")
         self._card_plugins = self._make_card("⬡", "PLUGINS",            "plugins")
         
         self._card_widgets = {
             "legion":  self._card_legion,
             "matrix":  self._card_matrix,
             "sage":    self._card_sage,
+            "editor":  self._card_editor,
             "plugins": self._card_plugins
         }
         
@@ -325,6 +328,22 @@ class DashboardPage(QWidget):
 
             self._card_sage._val_lbl.setText("Ready")
             self._card_sage._sub_lbl.setText("Chat ● Analyse ● Discover")
+            
+            # Editor stats
+            from pathlib import Path
+            docs_dir = Path.home() / "Documents" / "artemis"
+            if docs_dir.exists():
+                art_files = list(docs_dir.glob("*.art"))
+                self._card_editor._val_lbl.setText(f"{len(art_files)} document{'s' if len(art_files) != 1 else ''}")
+                if art_files:
+                    latest = max(art_files, key=lambda p: p.stat().st_mtime)
+                    self._card_editor._sub_lbl.setText(f"Latest: {latest.stem[:20]}{'…' if len(latest.stem) > 20 else ''}")
+                else:
+                    self._card_editor._sub_lbl.setText("Click to write")
+            else:
+                self._card_editor._val_lbl.setText("Ready")
+                self._card_editor._sub_lbl.setText("Click to write")
+            
             self._card_plugins._val_lbl.setText(
                 f"{n_enabled} plugin{'s' if n_enabled != 1 else ''} enabled"
                 if n_enabled else "No plugins installed yet")
@@ -406,6 +425,7 @@ class MainWindow(QMainWindow):
             ("legion",    LegionPage()),
             ("matrix",    MatrixPage()),
             ("sage",      SagePage()),
+            ("editor",    EditorPage()),
             ("settings",  SettingsPage()),
         ]
         for key, page in pages:
@@ -432,7 +452,7 @@ class MainWindow(QMainWindow):
         root.addWidget(right, 1)
 
         for i, key in enumerate(
-                ("dashboard", "legion", "matrix", "sage", "plugins"), 1):
+                ("dashboard", "legion", "matrix", "sage", "editor", "plugins"), 1):
             QShortcut(QKeySequence(f"Ctrl+{i}"), self).activated.connect(
                 lambda k=key: self._navigate(k))
         QShortcut(QKeySequence("Ctrl+R"), self).activated.connect(self._refresh_current)
