@@ -23,6 +23,10 @@ import time
 import textwrap
 import requests
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 try:
@@ -56,11 +60,11 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-GROQ_API_KEY = "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"  # Set your Groq API key in Settings
+GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
 GROQ_BASE        = "https://api.groq.com/openai/v1"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL       = "llama-3.3-70b-versatile"
 REQUEST_TIMEOUT  = 120
-TAVILY_API_KEY   = "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"
+TAVILY_API_KEY   = os.getenv("TAVILY_API_KEY")
 TAVILY_API       = "https://api.tavily.com/search"
 
 # Data file paths (must match legion.py and matrix.py)
@@ -79,12 +83,12 @@ except ImportError:
         try:
             if os.path.exists(path):
                 with open(path, "r") as f: return json.load(f)
-        except Exception: pass
+        except Exception: pass  # Ignored
         return default or {}
     def save_json(path, data):
         try:
             with open(path, "w") as f: json.dump(data, f, indent=2)
-        except Exception: pass
+        except Exception: pass  # Ignored
 
 SAGE_CACHE_FILE  = os.path.expanduser("~/.great_sage_sage_cache.json")
 SAGE_SEEN_FILE   = os.path.expanduser("~/.great_sage_seen_recs.json")
@@ -155,10 +159,10 @@ def add_seen_recs(titles: list):
             seen.append(t)
     save_seen_recs(seen)
 
-def load_legion_data() -> dict:
+def get_legion_data() -> dict:
     return load_json(LEGION_PROGRESS, {"books": {}})
 
-def load_matrix_data() -> dict:
+def get_matrix_data() -> dict:
     return load_json(MATRIX_PROGRESS, {
         "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
         "watching": {}, "completed": {}})
@@ -167,7 +171,7 @@ def save_matrix_data(data: dict) -> bool:
     save_json(MATRIX_PROGRESS, data)
     return True
 
-def load_bookmarks_data() -> dict:
+def get_bookmarks_data() -> dict:
     return load_json(LEGION_BOOKMARKS, {"planning": [], "reading": [], "dropped": [], "completed": []})
 
 
@@ -176,15 +180,15 @@ def save_bookmarks_data(data: dict) -> bool:
     return True
 
 
-def _matrix_wl(data: dict) -> dict:
+def _get_matrix_watchlist(data: dict) -> dict:
     """Return the 4-list watchlist dict, handling both old (list) and new (dict) formats."""
-    wl = data.get("watchlist", {})
-    if isinstance(wl, list):
+    watchlist = data.get("watchlist", {})
+    if isinstance(watchlist, list):
         # Old flat list — treat all as planning
-        return {"planning": wl, "watching": [], "dropped": [], "completed": []}
+        return {"planning": watchlist, "watching": [], "dropped": [], "completed": []}
     for key in ("planning", "watching", "dropped", "completed"):
-        wl.setdefault(key, [])
-    return wl
+        watchlist.setdefault(key, [])
+    return watchlist
 
 
 def all_listed_titles() -> set:
@@ -194,22 +198,22 @@ def all_listed_titles() -> set:
     """
     titles = set()
     # Matrix watchlist
-    mx = load_matrix_data()
-    for lst in _matrix_wl(mx).values():
-        for e in lst:
-            t = e.get("title", "") if isinstance(e, dict) else str(e)
-            if t:
-                titles.add(t.lower())
+    matrix_data = get_matrix_data()
+    for wl_list in _get_matrix_watchlist(matrix_data).values():
+        for entry in wl_list:
+            title = entry.get("title", "") if isinstance(entry, dict) else str(entry)
+            if title:
+                titles.add(title.lower())
     # Also titles in continue-watching
-    for t in mx.get("watching", {}).keys():
-        titles.add(t.lower())
+    for title in matrix_data.get("watching", {}).keys():
+        titles.add(title.lower())
     # Legion bookmarks
-    bm = load_bookmarks_data()
-    for lst in bm.values():
-        for e in lst:
-            t = e.get("title", "") if isinstance(e, dict) else str(e)
-            if t:
-                titles.add(t.lower())
+    bookmarks_data = get_bookmarks_data()
+    for wl_list in bookmarks_data.values():
+        for entry in wl_list:
+            title = entry.get("title", "") if isinstance(entry, dict) else str(entry)
+            if title:
+                titles.add(title.lower())
     return titles
 
 
@@ -232,32 +236,35 @@ def load_external_profile() -> dict:
     except Exception as e:
         log.warning("Failed to load external profile config", error=str(e))
     return {}
+
+
+def add_to_matrix_watchlist_list(title: str, list_name: str) -> str:
     """
     Add a title to a specific Matrix watchlist sub-list.
     Returns 'added', 'duplicate', or 'error'.
     """
-    data = load_matrix_data()
-    wl = _matrix_wl(data)
+    matrix_data = get_matrix_data()
+    watchlist = _get_matrix_watchlist(matrix_data)
 
     # Duplicate check across ALL lists
-    for lst in wl.values():
-        for e in lst:
-            if e.get("title", "").lower() == title.lower():
+    for wl_list in watchlist.values():
+        for entry in wl_list:
+            if entry.get("title", "").lower() == title.lower():
                 return "duplicate"
 
     # Remove from other lists if present
     for key in ("planning", "watching", "dropped", "completed"):
         if key == list_name:
             continue
-        wl[key] = [e for e in wl[key] if e.get("title", "").lower() != title.lower()]
+        watchlist[key] = [e for e in watchlist[key] if e.get("title", "").lower() != title.lower()]
 
-    wl[list_name].append({
+    watchlist[list_name].append({
         "title": title, "watched": list_name == "completed",
         "added": time.time(), "is_anime": False,
         "notes": "Added via Sage recommendation",
     })
-    data["watchlist"] = wl
-    ok = save_matrix_data(data)
+    matrix_data["watchlist"] = watchlist
+    ok = save_matrix_data(matrix_data)
     return "added" if ok else "error"
 
 
@@ -272,12 +279,12 @@ def add_to_legion_bookmarks(title: str, list_name: str) -> str:
     No URL since this comes from Sage — user can add URL later in Legion.
     Returns 'added', 'duplicate', or 'error'.
     """
-    data = load_bookmarks_data()
+    bookmarks_data = get_bookmarks_data()
 
     # Duplicate check across all lists
-    for lst in data.values():
-        for e in lst:
-            t = e.get("title", "") if isinstance(e, dict) else str(e)
+    for wl_list in bookmarks_data.values():
+        for entry in wl_list:
+            t = entry.get("title", "") if isinstance(entry, dict) else str(entry)
             if t.lower() == title.lower():
                 return "duplicate"
 
@@ -285,15 +292,15 @@ def add_to_legion_bookmarks(title: str, list_name: str) -> str:
     for key in ("planning", "reading", "dropped", "completed"):
         if key == list_name:
             continue
-        data[key] = [e for e in data.get(key, [])
+        bookmarks_data[key] = [e for e in bookmarks_data.get(key, [])
                      if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
 
-    data.setdefault(list_name, []).append({
+    bookmarks_data.setdefault(list_name, []).append({
         "title": title, "url": "",
         "metadata": {}, "added": time.time(),
         "notes": "Added via Sage recommendation — add URL in Legion",
     })
-    ok = save_bookmarks_data(data)
+    ok = save_bookmarks_data(bookmarks_data)
     return "added" if ok else "error"
 
 
@@ -466,8 +473,8 @@ def read_chapters_around(book_name: str, current_chapter: int, n: int = 5) -> st
 # ── Profile builder ───────────────────────────────────────────────────────────
 
 def build_profile() -> dict:
-    legion  = load_legion_data()
-    matrix  = load_matrix_data()
+    legion_data  = get_legion_data()
+    matrix_data  = get_matrix_data()
     profile = {
         "novels":    [],
         "watching":  [],
@@ -477,15 +484,15 @@ def build_profile() -> dict:
     }
 
     # Legion: books
-    books      = legion.get("books", {})
-    total_ch   = 0
-    total_mins = 0
+    books          = legion_data.get("books", {})
+    total_chapters = 0
+    total_minutes  = 0
     for name, book in books.items():
-        ch    = book.get("chapters_read", 0)
-        mins  = book.get("minutes_read", 0)
-        words = book.get("words_read", 0)
-        total_ch   += ch
-        total_mins += mins
+        chapters = book.get("chapters_read", 0)
+        minutes  = book.get("minutes_read", 0)
+        words    = book.get("words_read", 0)
+        total_chapters += chapters
+        total_minutes  += minutes
         meta   = book.get("metadata", {})
         genres = meta.get("genres", "")
         author = meta.get("author", "")
@@ -495,15 +502,15 @@ def build_profile() -> dict:
         # Calculate velocity-based engagement score (1.0 to 10.0)
         # Baseline comparison: ~15 chapters per hour is very engaged (10/10)
         engagement = 5.0
-        if mins > 0 and ch > 0:
-            ch_per_hour = ch / (mins / 60.0)
+        if minutes > 0 and chapters > 0:
+            ch_per_hour = chapters / (minutes / 60.0)
             engagement = min(10.0, max(1.0, round((ch_per_hour / 15.0) * 10.0, 1)))
             
         profile["novels"].append({
             "title":               name,
-            "chapters_read":       ch,
+            "chapters_read":       chapters,
             "words_read":          words,
-            "hours_spent":         round(mins / 60, 1),
+            "hours_spent":         round(minutes / 60, 1),
             "engagement":          engagement,
             "genres":              genres,
             "author":              author,
@@ -511,18 +518,18 @@ def build_profile() -> dict:
             "downloaded_chapters": dl_ch,
         })
 
-    profile["stats"]["total_chapters_read"] = total_ch
-    profile["stats"]["total_reading_hours"]  = round(total_mins / 60, 1)
+    profile["stats"]["total_chapters_read"] = total_chapters
+    profile["stats"]["total_reading_hours"]  = round(total_minutes / 60, 1)
 
     # Matrix: currently watching (continue-watching progress)
-    watching = matrix.get("watching", {})
+    watching = matrix_data.get("watching", {})
     for title, item in watching.items():
         if isinstance(item, dict):
-            season    = item.get("current_season",  item.get("season",  0))
-            episode   = item.get("current_episode", item.get("episode", 0))
-            total_eps = item.get("total_episodes",  0)
-            ep_watched= len(item.get("episodes_watched", []))
-            is_anime  = item.get("is_anime", False)
+            season      = item.get("current_season",  item.get("season",  0))
+            episode     = item.get("current_episode", item.get("episode", 0))
+            total_eps   = item.get("total_episodes",  0)
+            eps_watched = len(item.get("episodes_watched", []))
+            is_anime    = item.get("is_anime", False)
 
             # Build a human-readable progress string
             parts = []
@@ -530,60 +537,60 @@ def build_profile() -> dict:
                 parts.append(f"S{season:02d}")
             if episode and episode > 0:
                 parts.append(f"E{episode:02d}")
-            if total_eps and total_eps > 0 and ep_watched > 0:
-                parts.append(f"({ep_watched}/{total_eps} eps this season)")
+            if total_eps and total_eps > 0 and eps_watched > 0:
+                parts.append(f"({eps_watched}/{total_eps} eps this season)")
             elif total_eps and total_eps > 0:
                 parts.append(f"(ep {episode} of {total_eps})")
 
             progress = " ".join(parts) if parts else "in progress"
 
             profile["watching"].append({
-                "title":           title,
-                "progress":        progress,
-                "season":          season,
-                "episode":         episode,
-                "total_episodes":  total_eps,
-                "episodes_watched": ep_watched,
-                "is_anime":        is_anime,
+                "title":            title,
+                "progress":         progress,
+                "season":           season,
+                "episode":          episode,
+                "total_episodes":   total_eps,
+                "episodes_watched": eps_watched,
+                "is_anime":         is_anime,
             })
         else:
             profile["watching"].append({"title": title, "progress": "unknown"})
 
     # Matrix: watchlist sub-lists
-    wl = _matrix_wl(matrix)
-    for item in wl.get("planning", []):
+    watchlist = _get_matrix_watchlist(matrix_data)
+    for item in watchlist.get("planning", []):
         if isinstance(item, dict) and item.get("title"):
             profile["watchlist"].append(item["title"])
-    for item in wl.get("watching", []):
+    for item in watchlist.get("watching", []):
         if isinstance(item, dict) and item.get("title"):
             t = item["title"]
             # Avoid duplicating what's already in continue-watching
             if not any(w["title"] == t for w in profile["watching"]):
                 profile["watching"].append({"title": t, "progress": "unknown", "is_anime": item.get("is_anime", False)})
-    for item in wl.get("completed", []):
+    for item in watchlist.get("completed", []):
         if isinstance(item, dict) and item.get("title"):
             profile["completed"].append(item["title"])
     # Legacy completed dict
-    for title in matrix.get("completed", {}).keys():
+    for title in matrix_data.get("completed", {}).keys():
         if title not in profile["completed"]:
             profile["completed"].append(title)
 
     # Legion bookmarks — add to profile so Sage understands reading taste better
-    bm = load_bookmarks_data()
+    bookmarks_data = get_bookmarks_data()
     profile["bookmarks"] = {
-        "planning":  [e.get("title","") for e in bm.get("planning", []) if isinstance(e,dict)],
-        "reading":   [e.get("title","") for e in bm.get("reading", []) if isinstance(e,dict)],
-        "completed": [e.get("title","") for e in bm.get("completed", []) if isinstance(e,dict)],
+        "planning":  [e.get("title","") for e in bookmarks_data.get("planning", []) if isinstance(e,dict)],
+        "reading":   [e.get("title","") for e in bookmarks_data.get("reading", []) if isinstance(e,dict)],
+        "completed": [e.get("title","") for e in bookmarks_data.get("completed", []) if isinstance(e,dict)],
     }
 
-    profile["stats"]["shows_watching"]  = len(profile["watching"])
-    profile["stats"]["watchlist_items"] = len(profile["watchlist"])
-    profile["stats"]["shows_completed"] = len(profile["completed"])
+    profile["stats"]["shows_watching"]   = len(profile["watching"])
+    profile["stats"]["watchlist_items"]  = len(profile["watchlist"])
+    profile["stats"]["shows_completed"]  = len(profile["completed"])
     profile["stats"]["books_bookmarked"] = sum(len(v) for v in profile["bookmarks"].values())
 
     # External services info (for prompt context)
-    ext = load_external_profile()
-    profile["external"] = ext
+    external_profile = load_external_profile()
+    profile["external"] = external_profile
 
     return profile
 
@@ -1906,100 +1913,94 @@ def show_main_menu(profile: dict, groq_ok: bool) -> str:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _print_status(groq_ok, active_model, err, profile, has_data):
+    if RICH and console:
+        if groq_ok:
+            console.print(f"  [ok]✓ Groq connected[/ok]  [faint]·  model: {active_model}[/faint]")
+        else:
+            console.print(f"  [warn]⚠ Groq offline[/warn]  [faint]·  {err}[/faint]")
+
+        if has_data:
+            n_novels   = len(profile["novels"])
+            n_watching = len(profile["watching"])
+            n_done     = len(profile["completed"])
+            n_wl       = len(profile["watchlist"])
+            console.print(
+                f"  [faint]Profile: {n_novels} novel{'s' if n_novels != 1 else ''}  ·  "
+                f"{n_watching} watching  ·  {n_done} completed  ·  {n_wl} on watchlist[/faint]"
+            )
+        else:
+            console.print("  [warn]No data yet — add books in Legion and shows in Matrix first.[/warn]")
+        console.print()
+    else:
+        print(f"  {'Groq: OK' if groq_ok else 'Groq: OFFLINE'}")
+
 def main():
     global GROQ_MODEL
 
     groq_ok, models, err = check_groq()
 
     # Fall back to first available model if preferred isn't listed
-    model_ok     = groq_ok and any(GROQ_MODEL in m for m in models)
+    model_ok = groq_ok and any(GROQ_MODEL in m for m in models)
     active_model = GROQ_MODEL
     if groq_ok and not model_ok and models:
-        # Filter to text/chat models only — skip speech, vision-only, etc.
         chat_models = [m for m in models if not any(
             x in m.lower() for x in ["whisper", "tts", "vision", "arabic", "orpheus"]
         )]
         if chat_models:
             active_model = chat_models[0]
-            GROQ_MODEL   = active_model
+            GROQ_MODEL = active_model
 
-    profile      = build_profile()
+    profile = build_profile()
     profile_text = profile_to_text(profile)
-    has_data     = bool(profile["novels"] or profile["watching"] or
-                        profile["completed"] or profile["watchlist"])
+    has_data = bool(profile["novels"] or profile["watching"] or
+                    profile["completed"] or profile["watchlist"])
+
+    actions = {
+        "1": lambda p, t: run_recommendation(t, "novels", "Novel Recommendations"),
+        "2": lambda p, t: run_recommendation(t, "shows", "Show & Anime Recommendations"),
+        "3": lambda p, t: run_recommendation(t, "similar", "More of What You Love"),
+        "4": lambda p, t: run_recommendation(t, "mood_light", "Light & Fun Picks"),
+        "5": lambda p, t: run_recommendation(t, "mood_heavy", "Intense & Deep Picks"),
+        "6": lambda p, t: run_recommendation(t, "whats_next", "What's Next For You"),
+        "7": lambda p, t: run_quick_pick(t),
+        "8": lambda p, t: run_explain_why(t),
+        "9": lambda p, t: run_chapter_summary(p),
+        "10": lambda p, t: run_watchlist_priority(t, p),
+        "11": lambda p, t: run_chat_mode(t),
+    }
 
     while True:
         splash()
-
-        if RICH and console:
-            if groq_ok:
-                console.print(f"  [ok]✓ Groq connected[/ok]  [faint]·  model: {active_model}[/faint]")
-            else:
-                console.print(f"  [warn]⚠ Groq offline[/warn]  [faint]·  {err}[/faint]")
-
-            if has_data:
-                n_novels   = len(profile["novels"])
-                n_watching = len(profile["watching"])
-                n_done     = len(profile["completed"])
-                n_wl       = len(profile["watchlist"])
-                console.print(
-                    f"  [faint]Profile: {n_novels} novel{'s' if n_novels != 1 else ''}  ·  "
-                    f"{n_watching} watching  ·  {n_done} completed  ·  {n_wl} on watchlist[/faint]"
-                )
-            else:
-                console.print("  [warn]No data yet — add books in Legion and shows in Matrix first.[/warn]")
-            console.print()
-        else:
-            print(f"  {'Groq: OK' if groq_ok else 'Groq: OFFLINE'}")
-
+        _print_status(groq_ok, active_model, err, profile, has_data)
         choice = show_main_menu(profile, groq_ok)
 
-        # For AI features, check connectivity first
-        if not groq_ok and choice not in ("p", "q"):
-            if RICH and console:
-                console.print("\n  [err]Cannot reach Groq. Check your API key and internet connection.[/err]")
-            else:
-                print("\n  Cannot reach Groq.")
+        if choice == "13":
+            break
+        
+        if not groq_ok and choice not in ("12", "13"):
+            msg = "\n  [err]Cannot reach Groq. Check your API key and internet connection.[/err]" if RICH and console else "\n  Cannot reach Groq."
+            if RICH and console: console.print(msg)
+            else: print(msg)
             input("\n  Press Enter to continue...")
             groq_ok, models, err = check_groq()
             continue
 
-        if   choice == "1":
-            run_recommendation(profile_text, "novels",     "Novel Recommendations")
-        elif choice == "2":
-            run_recommendation(profile_text, "shows",      "Show & Anime Recommendations")
-        elif choice == "3":
-            run_recommendation(profile_text, "similar",    "More of What You Love")
-        elif choice == "4":
-            run_recommendation(profile_text, "mood_light", "Light & Fun Picks")
-        elif choice == "5":
-            run_recommendation(profile_text, "mood_heavy", "Intense & Deep Picks")
-        elif choice == "6":
-            run_recommendation(profile_text, "whats_next", "What's Next For You")
-        elif choice == "7":
-            run_quick_pick(profile_text)
-        elif choice == "8":
-            run_explain_why(profile_text)
-        elif choice == "9":
-            run_chapter_summary(profile)
-        elif choice == "10":
-            run_watchlist_priority(profile_text, profile)
-        elif choice == "11":
-            run_chat_mode(profile_text)
-        elif choice == "12":
+        if choice == "12":
             splash()
             show_profile_summary(profile)
             input("  Press Enter to continue...")
-        elif choice == "13":
-            break
+        elif choice in actions:
+            actions[choice](profile, profile_text)
         else:
             continue
 
-        # Reload data after each action in case Legion/Matrix updated
-        profile      = build_profile()
+        # Reload data after each action
+        profile = build_profile()
         profile_text = profile_to_text(profile)
-        has_data     = bool(profile["novels"] or profile["watching"] or
-                            profile["completed"] or profile["watchlist"])
+        has_data = bool(profile["novels"] or profile["watching"] or
+                        profile["completed"] or profile["watchlist"])
+
 
 
 if __name__ == "__main__":

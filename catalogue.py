@@ -195,7 +195,8 @@ class _NoteCard(QFrame):
         root.setSpacing(6)
 
         # Header row: chapter + timestamp + delete
-        hdr = QHBoxLayout(); hdr.setSpacing(6)
+        hdr = QHBoxLayout()
+        hdr.setSpacing(6)
         ch = self._note.get("chapter", 0)
         ts = self._note.get("timestamp", "")[:16].replace("T", "  ")
         hdr.addWidget(_lbl(f"Ch.{ch}", ACCENT, 11, True))
@@ -342,7 +343,8 @@ class CataloguePanel(QFrame):
         root.addWidget(self._editor)
 
         # Formatting toolbar
-        fmt_row2 = QHBoxLayout(); fmt_row2.setSpacing(4)
+        fmt_row2 = QHBoxLayout()
+        fmt_row2.setSpacing(4)
         for symbol, tip, handler in [
             ("B",  "Bold",       self._fmt_bold),
             ("I",  "Italic",     self._fmt_italic),
@@ -393,7 +395,8 @@ class CataloguePanel(QFrame):
         root.addWidget(save_btn)
 
         # Divider
-        div = QFrame(); div.setFrameShape(QFrame.Shape.HLine)
+        div = QFrame()
+        div.setFrameShape(QFrame.Shape.HLine)
         div.setStyleSheet(f"color:{BORDER};")
         root.addWidget(div)
 

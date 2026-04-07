@@ -156,7 +156,7 @@ class AudioCapture:
                     self._process_chunk(samples[:self.BLOCK_SIZE], prev)
         finally:
             try: proc.terminate()
-            except Exception: pass
+            except Exception: pass  # Ignored
 
     def _find_monitor(self):
         """Find the best audio monitor source — checks PipeWire/pactl first."""

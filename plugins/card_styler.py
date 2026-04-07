@@ -56,7 +56,8 @@ def _patch_card(card, key, preset, preset_name, opacity):
         card.setObjectName(f"gs_card_{key}")
     obj = card.objectName()
 
-    c = QColor(bg); c.setAlphaF(opacity)
+    c = QColor(bg)
+    c.setAlphaF(opacity)
     r,g,b,a = c.red(),c.green(),c.blue(),c.alpha()
 
     if mode == "void":
@@ -207,7 +208,8 @@ def build_page(parent, api):
     hdr = QWidget()
     hdr.setFixedHeight(52)
     hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
-    hh = QHBoxLayout(hdr); hh.setContentsMargins(28,0,28,0)
+    hh = QHBoxLayout(hdr)
+    hh.setContentsMargins(28,0,28,0)
     ht = QLabel("◧  CARD STYLER")
     ht.setStyleSheet(f"color:{ACCENT};font-size:14px;font-weight:bold;letter-spacing:3px;")
     hh.addWidget(ht); hh.addStretch()
@@ -336,12 +338,15 @@ def build_page(parent, api):
         def _pick():
             c = QColorDialog.getColor(QColor(btn._hex), btn, "Pick colour")
             if c.isValid():
-                btn._hex = c.name(); _set(btn._hex); on_change(btn._hex)
+                btn._hex = c.name()
+                _set(btn._hex)
+                on_change(btn._hex)
         btn.clicked.connect(_pick)
         return btn
 
     def _sw_row(label, key, cur):
-        row = QHBoxLayout(); row.setSpacing(12)
+        row = QHBoxLayout()
+        row.setSpacing(12)
         row.addWidget(_row_lbl(label))
         def _ch(h, k=key): PRESETS["Custom"][k]=h; _apply(); _save()
         row.addWidget(_swatch(cur, _ch)); row.addStretch()
@@ -350,7 +355,8 @@ def build_page(parent, api):
     cbv.addLayout(_sw_row("Background:", "bg", PRESETS["Custom"].get("bg","#14141E")))
     cbv.addLayout(_sw_row("Border:", "border", PRESETS["Custom"].get("border","#303050")))
 
-    rrow = QHBoxLayout(); rrow.setSpacing(12)
+    rrow = QHBoxLayout()
+    rrow.setSpacing(12)
     rrow.addWidget(_row_lbl("Corner radius:"))
     rsl = QSlider(Qt.Orientation.Horizontal)
     rsl.setRange(0,24); rsl.setValue(PRESETS["Custom"].get("radius",8)); rsl.setFixedWidth(140)
@@ -367,7 +373,8 @@ def build_page(parent, api):
 
     # ── Opacity ────────────────────────────────────────────────────────────────
     cv.addWidget(_sec("CARD OPACITY"))
-    oprow = QHBoxLayout(); oprow.setSpacing(12)
+    oprow = QHBoxLayout()
+    oprow.setSpacing(12)
     opsl = QSlider(Qt.Orientation.Horizontal)
     opsl.setRange(40,100); opsl.setValue(state["opacity"]); opsl.setFixedWidth(200)
     opsl.setStyleSheet("QSlider::groove:horizontal{background:#252530;height:3px;border-radius:2px;}"

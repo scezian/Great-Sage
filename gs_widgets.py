@@ -136,7 +136,8 @@ class NavRail(QFrame):
         logo_w.setFixedSize(48, 48)
         logo_w.setStyleSheet(
             f"background:#130F04; border:1px solid {ACCENT}2A; border-radius:12px;")
-        lv = QVBoxLayout(logo_w); lv.setContentsMargins(0, 0, 0, 0)
+        lv = QVBoxLayout(logo_w)
+        lv.setContentsMargins(0, 0, 0, 0)
         logo_lbl = QLabel("◈")
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_lbl.setStyleSheet(
@@ -145,7 +146,8 @@ class NavRail(QFrame):
         pill_v.addWidget(logo_w, 0, Qt.AlignmentFlag.AlignHCenter)
         pill_v.addSpacing(8)
 
-        sep = QWidget(); sep.setFixedHeight(1)
+        sep = QWidget()
+        sep.setFixedHeight(1)
         sep.setStyleSheet(
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             "stop:0 transparent,stop:0.5 #252535,stop:1 transparent);")
@@ -430,7 +432,8 @@ class EyeBreakToast(QWidget):
         if not p:
             self._anim_timer.stop(); self.hide(); return
 
-        w = self.width(); h = self.height()
+        w = self.width()
+        h = self.height()
         target_y = 16   # final resting y
 
         if self._phase == "in":
@@ -785,7 +788,7 @@ class ReadingRoomOverlay(QWidget):
     def _stop_sound(self):
         try:
             if self._player: self._player.stop()
-        except Exception: pass
+        except Exception: pass  # Ignored
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -990,7 +993,7 @@ class ReadingRoomOverlay(QWidget):
         self._volume = val / 100
         try:
             if self._audio: self._audio.setVolume(self._volume)
-        except Exception: pass
+        except Exception: pass  # Ignored
 
     def keyPressEvent(self, e):
         k = e.key()
@@ -1019,7 +1022,7 @@ class ReadingRoomOverlay(QWidget):
         self._reader.setPlainText(text)
         self._reader.verticalScrollBar().setValue(0)
         try: self._bot_lbl.setText(title[:80])
-        except Exception: pass
+        except Exception: pass  # Ignored
 
     def closeEvent(self, e):
         self._amb_timer.stop()
@@ -1321,12 +1324,12 @@ const BOOK_COLORS = [
   ['#1A2E3C','#2A4A6C'],
 ];
 
-const books = __BOOKS__;
-const shows = __SHOWS__;
+const books = __BOOKS__
+const shows = __SHOWS__
 
 document.getElementById('counts').textContent =
   books.length + ' book' + (books.length !== 1 ? 's' : '') + '  ·  ' +
-  shows.length + ' show' + (shows.length !== 1 ? 's' : '');
+  shows.length + ' show' + (shows.length !== 1 ? 's' : '')
 
 // ── XSS escape helper ─────────────────────────────────────────────────────
 function esc(s) {
@@ -1336,23 +1339,27 @@ function esc(s) {
 }
 
 // ── Build shelves ──────────────────────────────────────────────────────────
-const shelvesEl = document.getElementById('shelves');
+const shelvesEl = document.getElementById('shelves')
 
 if (books.length === 0) {
   shelvesEl.innerHTML = '<div class="empty-msg">No books read yet — start reading in Legion.</div>';
 } else {
-  const SHELF_SIZE = 18;
-  for (let s = 0; s < books.length; s += SHELF_SIZE) {
-    const shelf = document.createElement('div');
-    shelf.className = 'shelf';
-    const batch = books.slice(s, s + SHELF_SIZE);
+  const SHELF_SIZE = 18
+  for (let s = 0
+  s < books.length
+  s += SHELF_SIZE) {
+    const shelf = document.createElement('div')
+    shelf.className = 'shelf'
+    const batch = books.slice(s, s + SHELF_SIZE)
     batch.forEach((book, i) => {
-      const ci = (s / SHELF_SIZE + i) % BOOK_COLORS.length;
-      const [bg1, bg2] = BOOK_COLORS[ci];
-      const height = 60 + (i % 5) * 8;
-      const el = document.createElement('div');
-      el.className = 'book';
-      el.style.cssText = `height:${height}px;background:linear-gradient(90deg,${bg1},${bg2});`;
+      const ci = (s / SHELF_SIZE + i) % BOOK_COLORS.length
+      const [bg1, bg2] = BOOK_COLORS[ci]
+      const height = 60 + (i % 5) * 8
+      const el = document.createElement('div')
+      el.className = 'book'
+      el.style.cssText = `height:${height}px
+      background:linear-gradient(90deg,${bg1},${bg2})
+      `
       el.innerHTML = `
         <div class="book-spine">${esc(book.title)}</div>
         <div class="book-tooltip">${esc(book.title)}<br><span style="color:#4A6080;font-size:10px">${esc(book.info)}</span></div>
@@ -1368,24 +1375,25 @@ const POSTER_COLORS = [
   ['#0D1E3A','#4A9EE0'],['#1A0D26','#9A70E0'],['#0D1A0D','#4FC4A0'],
   ['#2A0D0D','#E05C6A'],['#1A1A0D','#E8C97A'],['#0D1A1A','#00E5CC'],
 ];
-const POSTER_ICONS = ['🎬','📺','🎭','🎌','🎪','⚔️','🔮','🌌'];
+const POSTER_ICONS = ['🎬','📺','🎭','🎌','🎪','⚔️','🔮','🌌']
 
-const wallEl = document.getElementById('poster-wall');
+const wallEl = document.getElementById('poster-wall')
 
 if (shows.length === 0) {
   wallEl.innerHTML = '<div class="empty-msg">No shows tracked yet — add shows in Matrix.</div>';
 } else {
   shows.forEach((show, i) => {
-    const [bg1, bg2] = POSTER_COLORS[i % POSTER_COLORS.length];
-    const icon = POSTER_ICONS[i % POSTER_ICONS.length];
-    const el = document.createElement('div');
-    el.className = 'poster';
-    el.style.cssText = `background:linear-gradient(160deg,${bg1},${bg2});`;
+    const [bg1, bg2] = POSTER_COLORS[i % POSTER_COLORS.length]
+    const icon = POSTER_ICONS[i % POSTER_ICONS.length]
+    const el = document.createElement('div')
+    el.className = 'poster'
+    el.style.cssText = `background:linear-gradient(160deg,${bg1},${bg2})
+    `
     el.innerHTML = `
       <div class="poster-icon">${icon}</div>
       <div class="poster-title">${esc(show.title)}</div>
     `;
-    el.title = esc(show.title) + ' — ' + esc(show.info);
+    el.title = esc(show.title) + ' — ' + esc(show.info)
     wallEl.appendChild(el);
   });
 }
@@ -1408,9 +1416,11 @@ class MemoryPalaceWindow(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
-        bar = QWidget(); bar.setFixedHeight(36)
+        bar = QWidget()
+        bar.setFixedHeight(36)
         bar.setStyleSheet("background:#050810;border-bottom:1px solid #0A1520;")
-        bv = QHBoxLayout(bar); bv.setContentsMargins(16,0,16,0)
+        bv = QHBoxLayout(bar)
+        bv.setContentsMargins(16,0,16,0)
         tl = QLabel("◈  MEMORY PALACE")
         tl.setStyleSheet(f"color:{ACCENT};font-size:11px;letter-spacing:3px;")
         cb = QPushButton("✕  CLOSE")
@@ -1429,7 +1439,8 @@ class MemoryPalaceWindow(QWidget):
 
     def _build_native(self, root):
         """Native Qt fallback — renders when QtWebEngine is not installed."""
-        ld = legion_data(); md = matrix_data()
+        ld = legion_data()
+        md = matrix_data()
         books = [
             (n, b.get("chapters_read", 0))
             for n, b in ld.get("books", {}).items()
@@ -1449,7 +1460,9 @@ class MemoryPalaceWindow(QWidget):
                              "QScrollBar:vertical{background:#030810;width:4px;border:none;}"
                              "QScrollBar::handle:vertical{background:#0E1A2A;border-radius:2px;}")
         container = QWidget(); container.setStyleSheet("background:#030810;")
-        cv = QVBoxLayout(container); cv.setContentsMargins(36, 28, 36, 28); cv.setSpacing(32)
+        cv = QVBoxLayout(container)
+        cv.setContentsMargins(36, 28, 36, 28)
+        cv.setSpacing(32)
 
         BOOK_COLORS = [
             "#1A3A5C","#3C1A1A","#1A3C1A","#3C2E1A","#1E1A3C",
@@ -1501,7 +1514,9 @@ class MemoryPalaceWindow(QWidget):
             ]
             ICONS = ["🎬","📺","🎭","🎌","🎪","⚔️","🔮","🌌"]
             wall_w = QWidget(); wall_w.setStyleSheet("background:transparent;")
-            wl = QHBoxLayout(wall_w); wl.setSpacing(12); wl.setContentsMargins(0,0,0,0)
+            wl = QHBoxLayout(wall_w)
+            wl.setSpacing(12)
+            wl.setContentsMargins(0,0,0,0)
             for i, (title, eps) in enumerate(shows):
                 bg1, bg2 = POSTER_COLORS[i % len(POSTER_COLORS)]
                 icon = ICONS[i % len(ICONS)]
@@ -1511,7 +1526,9 @@ class MemoryPalaceWindow(QWidget):
                     f"QFrame{{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
                     f"stop:0 {bg1},stop:1 {bg2});border-radius:3px;}}")
                 card.setToolTip(f"{title}\n{eps} episodes watched")
-                cl = QVBoxLayout(card); cl.setContentsMargins(4,6,4,4); cl.setSpacing(2)
+                cl = QVBoxLayout(card)
+                cl.setContentsMargins(4,6,4,4)
+                cl.setSpacing(2)
                 ico_lbl = QLabel(icon)
                 ico_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 ico_lbl.setStyleSheet("font-size:22px;background:transparent;")
@@ -1531,7 +1548,8 @@ class MemoryPalaceWindow(QWidget):
 
     def _load_scene(self):
         import json as _json
-        ld = legion_data(); md = matrix_data()
+        ld = legion_data()
+        md = matrix_data()
         books = [
             {"title": n, "info": f"{b.get('chapters_read',0)} chapters read"}
             for n,b in ld.get("books",{}).items() if b.get("chapters_read",0) > 0
@@ -1578,7 +1596,9 @@ class WatchfaceWindow(QWidget):
         self._data_timer.start(30000)
 
     def _build(self):
-        root = QVBoxLayout(self); root.setContentsMargins(80, 60, 80, 60); root.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(80, 60, 80, 60)
+        root.setSpacing(0)
 
         # Clock
         self._clock_lbl = QLabel()
@@ -1594,9 +1614,11 @@ class WatchfaceWindow(QWidget):
         root.addSpacing(60)
 
         # Reading now
-        row1 = QHBoxLayout(); row1.setSpacing(32)
+        row1 = QHBoxLayout()
+        row1.setSpacing(32)
         ico1 = QLabel("◈"); ico1.setStyleSheet(f"color:{ACCENT}; font-size:36px;")
-        col1 = QVBoxLayout(); col1.setSpacing(4)
+        col1 = QVBoxLayout()
+        col1.setSpacing(4)
         self._reading_title = QLabel("—")
         self._reading_title.setStyleSheet(
             f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
@@ -1608,9 +1630,11 @@ class WatchfaceWindow(QWidget):
         root.addSpacing(32)
 
         # Watching now
-        row2 = QHBoxLayout(); row2.setSpacing(32)
+        row2 = QHBoxLayout()
+        row2.setSpacing(32)
         ico2 = QLabel("◎"); ico2.setStyleSheet(f"color:{BLUE}; font-size:36px;")
-        col2 = QVBoxLayout(); col2.setSpacing(4)
+        col2 = QVBoxLayout()
+        col2.setSpacing(4)
         self._watching_title = QLabel("—")
         self._watching_title.setStyleSheet(
             f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
@@ -1622,9 +1646,11 @@ class WatchfaceWindow(QWidget):
         root.addSpacing(32)
 
         # Sage pick
-        row3 = QHBoxLayout(); row3.setSpacing(32)
+        row3 = QHBoxLayout()
+        row3.setSpacing(32)
         ico3 = QLabel("✦"); ico3.setStyleSheet(f"color:{PURPLE}; font-size:36px;")
-        col3 = QVBoxLayout(); col3.setSpacing(4)
+        col3 = QVBoxLayout()
+        col3.setSpacing(4)
         self._sage_pick = QLabel("Ask Sage for a pick →")
         self._sage_pick.setStyleSheet(
             f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
@@ -1651,7 +1677,8 @@ class WatchfaceWindow(QWidget):
         self._date_lbl.setText(now.strftime("%A, %d %B %Y").upper())
 
     def _refresh(self):
-        ld = legion_data(); md = matrix_data()
+        ld = legion_data()
+        md = matrix_data()
         books    = ld.get("books", {})
         watching = md.get("watching", {})
         reading  = [(n, b.get("current_chapter", 0))

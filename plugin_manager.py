@@ -69,35 +69,36 @@ PLUGINS_DIR    = Path.home() / "Documents" / "great sage" / "plugins"
 PLUGINS_CONFIG = Path.home() / ".great_sage_plugins.json"
 PLUGIN_DATA    = Path.home() / ".great_sage_plugin_data.json"
 
-# ── Colour / font constants (mirrors great_sage_gui.py) ───────────────────────
-_COLOURS = {
-    "BG": "#080B0F", "BG2": "#0D1117", "BG3": "#111820", "PANEL": "#141D28",
-    "BORDER": "#1E2D3D", "ACCENT": "#E8C97A", "ACCENT2": "#4FC4A0",
-    "NEON": "#00E5CC", "MUTED": "#4A6070", "TEXT": "#D4E4EE",
-    "TEXT2": "#7A9BB0", "RED": "#E05C6A", "BLUE": "#4A9EE0",
-    "PURPLE": "#9A70E0",
-}
-_FONTS = {
-    "UI":      "JetBrains Mono, Fira Code, Consolas, monospace",
-    "BODY":    "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif",
-    "DISPLAY": "Palatino Linotype, Palatino, Book Antiqua, serif",
-}
-
-BG = _COLOURS["BG"]
-BG2 = _COLOURS["BG2"]
-BG3 = _COLOURS["BG3"]
-PANEL = _COLOURS["PANEL"]
-BORDER = _COLOURS["BORDER"]
-ACCENT = _COLOURS["ACCENT"]
-ACCENT2 = _COLOURS["ACCENT2"]
-MUTED = _COLOURS["MUTED"]
-TEXT = _COLOURS["TEXT"]
-TEXT2 = _COLOURS["TEXT2"]
-RED = _COLOURS["RED"]
-BLUE = _COLOURS["BLUE"]
-PURPLE = _COLOURS["PURPLE"]
-FONT_UI = _FONTS["UI"]
-FONT_DISPLAY = _FONTS["DISPLAY"]
+# ── Colour / font constants (synced with gs_theme.py) ─────────────────────────
+try:
+    from gs_theme import (
+        BG, BG2, BG3, PANEL, BORDER, BORDER2,
+        ACCENT, ACCENT2, NEON, RED, BLUE, PURPLE,
+        TEXT, TEXT2, MUTED,
+        FONT_UI, FONT_BODY, FONT_DISPLAY,
+    )
+    _COLOURS = {
+        "BG": BG, "BG2": BG2, "BG3": BG3, "PANEL": PANEL,
+        "BORDER": BORDER, "ACCENT": ACCENT, "ACCENT2": ACCENT2,
+        "NEON": NEON, "MUTED": MUTED, "TEXT": TEXT,
+        "TEXT2": TEXT2, "RED": RED, "BLUE": BLUE, "PURPLE": PURPLE,
+    }
+    _FONTS = {"UI": FONT_UI, "BODY": FONT_BODY, "DISPLAY": FONT_DISPLAY}
+except ImportError:
+    # Standalone fallback if gs_theme is unavailable
+    BG, BG2, BG3, PANEL, BORDER, BORDER2 = "#0C0C0E", "#111113", "#141417", "#18181B", "#222225", "#2A2A2E"
+    ACCENT, ACCENT2, NEON, RED, BLUE, PURPLE = "#E8C97A", "#4FC4A0", "#00E5CC", "#E05C6A", "#4A9EE0", "#9A70E0"
+    TEXT, TEXT2, MUTED = "#D4E4EE", "#7A9BB0", "#4A6070"
+    FONT_UI = "JetBrains Mono, Fira Code, Consolas, monospace"
+    FONT_BODY = "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif"
+    FONT_DISPLAY = "Palatino Linotype, Palatino, Book Antiqua, serif"
+    _COLOURS = {
+        "BG": BG, "BG2": BG2, "BG3": BG3, "PANEL": PANEL,
+        "BORDER": BORDER, "ACCENT": ACCENT, "ACCENT2": ACCENT2,
+        "NEON": NEON, "MUTED": MUTED, "TEXT": TEXT,
+        "TEXT2": TEXT2, "RED": RED, "BLUE": BLUE, "PURPLE": PURPLE,
+    }
+    _FONTS = {"UI": FONT_UI, "BODY": FONT_BODY, "DISPLAY": FONT_DISPLAY}
 
 # Import shared painting utility
 try:
@@ -214,21 +215,18 @@ class PluginAPI:
         Returns an empty string on error.
         """
         try:
-            spec = importlib.util.spec_from_file_location(
-                "sage",
-                str(Path(__file__).parent / "sage.py"))
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            # Try settings key first
-            md = self.matrix_data()
-            key = md.get("settings", {}).get("groq_api_key", "")
-            if key and hasattr(mod, "GROQ_API_KEY"):
-                mod.GROQ_API_KEY = key
-            resp, err = mod.groq_chat(prompt)
-            return resp or ""
+            import sage as _sage
+            matrix_data = self.matrix_data()
+            api_key = matrix_data.get("settings", {}).get("groq_api_key", "")
+            if api_key:
+                _sage.GROQ_API_KEY = api_key
+            groq_model = matrix_data.get("settings", {}).get("groq_model", "")
+            if groq_model:
+                _sage.GROQ_MODEL = groq_model
+            response, error = _sage.groq_chat(prompt)
+            return response or ""
         except Exception:
             return ""
-
     # ── UI helpers ─────────────────────────────────────────────────────────────
 
     def show_status(self, msg: str) -> None:
@@ -255,14 +253,16 @@ class PluginAPI:
         b = QPushButton(text)
         if accent:
             b.setStyleSheet(
-                f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
-                f"font-size:12px;letter-spacing:1px;padding:8px 18px;border-radius:4px;"
-                f"QPushButton:hover{{background:#F0D98A;}}")
+                f"QPushButton {{ background:{ACCENT}; color:{BG}; border:none; "
+                f"font-weight:bold; font-size:12px; letter-spacing:1px; "
+                f"padding:8px 18px; border-radius:4px; }}"
+                f"QPushButton:hover {{ background:#F0D98A; }}")
         else:
             b.setStyleSheet(
-                f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
-                f"font-size:12px;padding:7px 16px;border-radius:4px;"
-                f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
+                f"QPushButton {{ background:transparent; color:{TEXT2}; "
+                f"border:1px solid {BORDER}; font-size:12px; padding:7px 16px; "
+                f"border-radius:4px; }}"
+                f"QPushButton:hover {{ border-color:{ACCENT}; color:{ACCENT}; }}")
         return b
 
     # ── Slot injection ─────────────────────────────────────────────────────────
@@ -440,28 +440,30 @@ class PluginRecord:
         self._page       = None   # built QWidget, if any
 
     def read_metadata(self):
-        """Read PLUGIN_* constants from the file without fully executing it."""
+        """Read PLUGIN_* constants from the file using AST for safe parsing."""
         try:
-            src = self.path.read_text(encoding="utf-8")
-            for line in src.splitlines():
-                line = line.strip()
-                def _val(s):
-                    for q in ('"""', "'''", '"', "'"):
-                        if s.startswith(q) and s.endswith(q) and len(s) > len(q)*2:
-                            return s[len(q):-len(q)]
-                    return s.strip('"\'')
-                if line.startswith("PLUGIN_NAME"):
-                    self.name = _val(line.split("=",1)[1].strip())
-                elif line.startswith("PLUGIN_ICON"):
-                    self.icon = _val(line.split("=",1)[1].strip())
-                elif line.startswith("PLUGIN_DESCRIPTION"):
-                    self.description = _val(line.split("=",1)[1].strip())
-                elif line.startswith("PLUGIN_VERSION"):
-                    self.version = _val(line.split("=",1)[1].strip())
-                elif line.startswith("PLUGIN_AUTHOR"):
-                    self.author = _val(line.split("=",1)[1].strip())
-                elif line.startswith("PLUGIN_COLOR"):
-                    self.color = _val(line.split("=",1)[1].strip())
+            import ast
+            source = self.path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            if not isinstance(node.value, ast.Constant):
+                                continue
+                            val = node.value.value
+                            if target.id == "PLUGIN_NAME":
+                                self.name = val
+                            elif target.id == "PLUGIN_ICON":
+                                self.icon = val
+                            elif target.id == "PLUGIN_DESCRIPTION":
+                                self.description = val
+                            elif target.id == "PLUGIN_VERSION":
+                                self.version = val
+                            elif target.id == "PLUGIN_AUTHOR":
+                                self.author = val
+                            elif target.id == "PLUGIN_COLOR":
+                                self.color = val
         except Exception as e:
             self.error = str(e)
 

@@ -9,6 +9,11 @@ Run:  python3 great_sage_gui.py
 import os, sys, json, time, re, subprocess, threading
 from pathlib import Path
 
+# Fix for flicker and rendering bugs on Linux (Hyprland/Wayland/Mesa)
+os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
+# Use EGL instead of GLX for better Wayland/Hyprland compatibility
+os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 try:
     from gs_logger import log
@@ -34,13 +39,14 @@ from gs_sage_ui   import SagePage, SettingsPage
 # ── Core ─────────────────────────────────────────────────────────────────────
 from great_sage_core import (
     SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
-    save_json, legion_data, matrix_data, bookmarks_data,
+    save_json, get_legion_data, get_matrix_data, get_bookmarks_data,
+    legion_data, matrix_data, bookmarks_data,
     sage_memory_load,
     SageWorker, AutoSyncWorker, start_mobile_server,
 )
 
 # ── Qt ────────────────────────────────────────────────────────────────────────
-from PyQt6.QtCore    import Qt, QTimer, QSize
+from PyQt6.QtCore    import Qt, QTimer, QSize, QCoreApplication
 from PyQt6.QtGui     import (QColor, QPalette, QShortcut, QPainter,
                               QLinearGradient, QBrush, QPen, QKeySequence)
 from PyQt6.QtWidgets import (
@@ -277,11 +283,11 @@ class DashboardPage(QWidget):
 
     def refresh(self):
         try:
-            ld = legion_data()
-            md = matrix_data()
-            books    = ld.get("books", {})
-            watching = md.get("watching", {})
-            wl       = md.get("watchlist", {})
+            legion_data = get_legion_data()
+            matrix_data = get_matrix_data()
+            books       = legion_data.get("books", {})
+            watching    = matrix_data.get("watching", {})
+            watchlist   = matrix_data.get("watchlist", {})
 
             # Try to get stat values
             n_books = len(books)
@@ -293,27 +299,27 @@ class DashboardPage(QWidget):
                 n_enabled = 0
 
             reading = [
-                (n, b.get("current_chapter", 0))
-                for n, b in books.items()
-                if b.get("chapters_read", 0) > 0 or b.get("current_chapter", 0) > 0
+                (name, book.get("current_chapter", 0))
+                for name, book in books.items()
+                if book.get("chapters_read", 0) > 0 or book.get("current_chapter", 0) > 0
             ]
             if reading:
-                n, ch = reading[-1]
-                self._card_legion._val_lbl.setText(n[:30] + ("…" if len(n) > 30 else ""))
+                name, ch = reading[-1]
+                self._card_legion._val_lbl.setText(name[:30] + ("…" if len(name) > 30 else ""))
                 self._card_legion._sub_lbl.setText(f"Ch.{ch}")
             else:
                 self._card_legion._val_lbl.setText(f"{len(books)} book(s) in library")
                 self._card_legion._sub_lbl.setText("")
 
             if watching:
-                sk   = list(watching.keys())[-1]
-                info = watching[sk]
-                t    = info.get("title", sk) if isinstance(info, dict) else sk
-                ep   = info.get("current_episode", 0) if isinstance(info, dict) else 0
-                self._card_matrix._val_lbl.setText(t[:30] + ("…" if len(t) > 30 else ""))
-                self._card_matrix._sub_lbl.setText(f"Ep.{ep}" if ep else "")
+                last_key = list(watching.keys())[-1]
+                info     = watching[last_key]
+                title    = info.get("title", last_key) if isinstance(info, dict) else last_key
+                episode  = info.get("current_episode", 0) if isinstance(info, dict) else 0
+                self._card_matrix._val_lbl.setText(title[:30] + ("…" if len(title) > 30 else ""))
+                self._card_matrix._sub_lbl.setText(f"Ep.{episode}" if episode else "")
             else:
-                n_plan = len((wl.get("planning") or []) if isinstance(wl, dict) else [])
+                n_plan = len((watchlist.get("planning") or []) if isinstance(watchlist, dict) else [])
                 self._card_matrix._val_lbl.setText(f"{n_plan} show(s) on watchlist")
                 self._card_matrix._sub_lbl.setText("")
 
@@ -511,16 +517,16 @@ class MainWindow(QMainWindow):
             log.warning("_post_activate_refresh failed", error=str(e))
 
     def _reset_stale_downloads(self):
-        ld = legion_data()
+        legion_data = get_legion_data()
         changed = False
-        for name, book in ld.get("books", {}).items():
+        for name, book in legion_data.get("books", {}).items():
             status = book.get("download_state", {}).get("status", "idle")
             if status in ("downloading", "queued"):
                 book["download_state"]["status"]          = "idle"
                 book["download_state"]["pause_requested"] = False
                 changed = True
         if changed:
-            save_json(LEGION_PROGRESS, ld)
+            save_json(LEGION_PROGRESS, legion_data)
 
     def _run_auto_sync(self):
         if self._auto_sync_worker and self._auto_sync_worker.isRunning():
@@ -540,6 +546,8 @@ class MainWindow(QMainWindow):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    # Fix for black screen/rendering issues in QtWebEngine on Linux
+    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseOpenGLES)
     app = QApplication(sys.argv)
     app.setApplicationName("Great Sage")
     app.setStyleSheet(QSS)

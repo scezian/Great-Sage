@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QFrame, QListWidget, QListWidgetItem, QTabWidget, QComboBox,
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QMessageBox, QAbstractItemView,
     QProgressBar, QGroupBox, QFormLayout, QStatusBar, QMenu, QSplitter, QScrollArea,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QRadioButton,
 )
 from great_sage_core import (
     SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
@@ -43,6 +43,7 @@ from great_sage_core import (
     legion_data, matrix_data, bookmarks_data,
     legion_mod, matrix_mod, sage_mod,
     _catalogue_panel_class, _clean_media_title, _strip_markdown, _detect_genre,
+    _detect_show_genre,
     _grep_book_for_term,
     sage_memory_load, sage_memory_append, sage_memory_extract,
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
@@ -61,13 +62,16 @@ class TrailerPickerDialog(QDialog):
         self.setStyleSheet(f"background:{BG}; border:1px solid {BORDER};")
         self.chosen = None
 
-        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
 
         # Header
         hdr = QWidget()
         hdr.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
         hdr.setFixedHeight(52)
-        hv = QHBoxLayout(hdr); hv.setContentsMargins(24,0,24,0)
+        hv = QHBoxLayout(hdr)
+        hv.setContentsMargins(24,0,24,0)
         hl = QLabel("Multiple matches found")
         hl.setStyleSheet(
             f"font-family:{FONT_DISPLAY}; font-size:14px; font-weight:bold; color:{TEXT};")
@@ -77,7 +81,8 @@ class TrailerPickerDialog(QDialog):
         root.addWidget(hdr)
 
         # Candidate list
-        body = QWidget(); bv = QVBoxLayout(body)
+        body = QWidget()
+        bv = QVBoxLayout(body)
         bv.setContentsMargins(20,16,20,16); bv.setSpacing(6)
 
         hint = QLabel("Which one did you mean?")
@@ -93,7 +98,9 @@ class TrailerPickerDialog(QDialog):
             row.setStyleSheet(
                 f"background:{BG2}; border:1px solid {BORDER}; border-radius:4px;")
             row.setCursor(Qt.CursorShape.PointingHandCursor)
-            rv = QHBoxLayout(row); rv.setContentsMargins(14,12,14,12); rv.setSpacing(12)
+            rv = QHBoxLayout(row)
+            rv.setContentsMargins(14,12,14,12)
+            rv.setSpacing(12)
 
             radio = QRadioButton()
             radio.setStyleSheet(f"color:{TEXT};")
@@ -132,7 +139,9 @@ class TrailerPickerDialog(QDialog):
         foot = QWidget()
         foot.setStyleSheet(f"background:{BG2}; border-top:1px solid {BORDER};")
         foot.setFixedHeight(52)
-        fv = QHBoxLayout(foot); fv.setContentsMargins(20,0,20,0); fv.setSpacing(10)
+        fv = QHBoxLayout(foot)
+        fv.setContentsMargins(20,0,20,0)
+        fv.setSpacing(10)
         cancel_btn = QPushButton("CANCEL")
         cancel_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
@@ -183,13 +192,16 @@ class TrailerDialog(QDialog):
                 pg.y() + (pg.height() -  620) // 2,
             )
 
-        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
 
         # Header
         hdr = QWidget()
         hdr.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
         hdr.setFixedHeight(48)
-        hv = QHBoxLayout(hdr); hv.setContentsMargins(20,0,12,0)
+        hv = QHBoxLayout(hdr)
+        hv.setContentsMargins(20,0,12,0)
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
             f"font-family:{FONT_DISPLAY}; font-size:15px; color:{TEXT}; letter-spacing:1px;")
@@ -221,7 +233,8 @@ class TrailerDialog(QDialog):
         bot = QWidget()
         bot.setStyleSheet(f"background:{BG2}; border-top:1px solid {BORDER};")
         bot.setFixedHeight(32)
-        bv = QHBoxLayout(bot); bv.setContentsMargins(20,0,20,0)
+        bv = QHBoxLayout(bot)
+        bv.setContentsMargins(20,0,20,0)
         hint = QLabel("Click a result to play  ·  Esc to close")
         hint.setStyleSheet(f"color:{MUTED}; font-size:10px;")
         bv.addWidget(hint)
@@ -281,6 +294,16 @@ if WEBENGINE_OK:
         def interceptRequest(self, info: QWebEngineUrlRequestInfo):
             url = info.requestUrl().toString()
             host = info.requestUrl().host().lower()
+
+            # Skip blocking for YouTube and Google-owned domains needed for player init
+            # and video playback (googlevideo.com is the primary stream source).
+            # Blocking these often results in black screens or player hangs.
+            if any(x in host for x in [
+                "youtube.com", "googlevideo.com", "ytimg.com", 
+                "ggpht.com", "google.com", "gstatic.com"
+            ]):
+                return
+
             # Strip leading www.
             host = host.lstrip("www.")
             # Block known ad domains
@@ -301,17 +324,19 @@ if WEBENGINE_OK:
         def __init__(self, profile, parent=None):
             super().__init__(profile, parent)
             # Enable features needed for video playback and livestreams
-            self.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
-            self.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
-            self.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)
+            s = self.settings()
+            s.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
+            s.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, True)
             self.fullScreenRequested.connect(self._handle_fullscreen)
 
         def _handle_fullscreen(self, request):
             request.accept()
-            view = self.view()
+            # In PyQt6 QWebEnginePage doesn't have .view(), but we pass it as parent
+            view = self.parent()
             if view:
                 if request.toggleOn():
                     view.window().showFullScreen()
@@ -349,18 +374,22 @@ class MatrixPage(QWidget):
         from PyQt6.QtGui import (QPainter as _mP, QLinearGradient as _mG,
                                   QColor as _mC, QBrush as _mB, QPen as _mPen,
                                   QRadialGradient as _mRG)
-        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
 
         header_w = QWidget()
         header_w.setFixedHeight(64)
         def _hdr_paint(self_w, event):
-            p = _mP(self_w); p.setRenderHint(_mP.RenderHint.Antialiasing)
+            p = _mP(self_w)
+            p.setRenderHint(_mP.RenderHint.Antialiasing)
             W, H = self_w.width(), self_w.height()
             g = _mG(0, 0, W, 0)
             g.setColorAt(0, _mC("#0D1520")); g.setColorAt(0.4, _mC(BG2)); g.setColorAt(1.0, _mC("#0A0F18"))
             p.fillRect(0, 0, W, H, _mB(g))
             rg = _mRG(0, H // 2, W * 0.5)
-            c1 = _mC(BLUE); c1.setAlpha(30)
+            c1 = _mC(BLUE)
+            c1.setAlpha(30)
             rg.setColorAt(0, c1); rg.setColorAt(1, _mC(0, 0, 0, 0))
             p.fillRect(0, 0, W, H, _mB(rg))
             bl = _mG(0, 0, W, 0)
@@ -369,7 +398,9 @@ class MatrixPage(QWidget):
             p.setPen(_mPen(_mB(bl), 1)); p.drawLine(0, H - 1, W, H - 1); p.end()
         header_w.paintEvent = _mt.MethodType(_hdr_paint, header_w)
 
-        hv = QHBoxLayout(header_w); hv.setContentsMargins(24, 0, 24, 0); hv.setSpacing(0)
+        hv = QHBoxLayout(header_w)
+        hv.setContentsMargins(24, 0, 24, 0)
+        hv.setSpacing(0)
         back_b = QPushButton("⬡  HOME")
         back_b.setStyleSheet(
             f"QPushButton{{background:transparent;border:none;color:{MUTED};"
@@ -413,7 +444,10 @@ class MatrixPage(QWidget):
         root.addWidget(tabs, 1)
 
     def _build_watchlist(self):
-        w = QWidget(); root = QVBoxLayout(w); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        w = QWidget()
+        root = QVBoxLayout(w)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
 
         # ── Add bar (full width at top) ───────────────────────────────────────
         add_bar = QWidget()
@@ -422,7 +456,9 @@ class MatrixPage(QWidget):
             f"stop:0 {BG2},stop:0.5 {BG3},stop:1 {BG2});"
             f"border-bottom:1px solid {BORDER2};")
         add_bar.setFixedHeight(56)
-        add_row = QHBoxLayout(add_bar); add_row.setContentsMargins(16,0,16,0); add_row.setSpacing(10)
+        add_row = QHBoxLayout(add_bar)
+        add_row.setContentsMargins(16,0,16,0)
+        add_row.setSpacing(10)
         self.wl_input = QLineEdit()
         self.wl_input.setPlaceholderText("Add a title to your list...")
         self.wl_input.setStyleSheet(
@@ -451,7 +487,9 @@ class MatrixPage(QWidget):
         # Left: tabs + lists
         left = QWidget()
         left.setStyleSheet(f"background:{BG2};")
-        lv = QVBoxLayout(left); lv.setContentsMargins(0,0,0,0); lv.setSpacing(0)
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0,0,0,0)
+        lv.setSpacing(0)
         self.wl_tabs = QTabWidget()
         self.wl_tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border:none; background:{BG}; }}
@@ -476,22 +514,28 @@ class MatrixPage(QWidget):
             lw.customContextMenuRequested.connect(lambda pos, lw=lw, n=n: self._wl_ctx(pos,lw,n))
             lw.itemDoubleClicked.connect(lambda item, n=n: self._wl_meta(item,n))
             lw.itemClicked.connect(lambda item, n=n: self._wl_meta(item,n))
-            self.wl_lists[n] = lw; self.wl_tabs.addTab(lw, n.capitalize())
+            self.wl_lists[n] = lw
+            self.wl_tabs.addTab(lw, n.capitalize())
         lv.addWidget(self.wl_tabs, 1)
         splitter.addWidget(left)
 
         # Right: detail panel
         right = QWidget()
         right.setStyleSheet(f"background:{BG};")
-        rv = QVBoxLayout(right); rv.setContentsMargins(32,28,32,28); rv.setSpacing(0)
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(32,28,32,28)
+        rv.setSpacing(0)
 
         self.wl_placeholder = QLabel("Click any title to see details")
         self.wl_placeholder.setStyleSheet(f"color:{MUTED};font-size:13px;letter-spacing:.5px;")
         self.wl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rv.addWidget(self.wl_placeholder, 1)
 
-        self.wl_detail_w = QWidget(); self.wl_detail_w.hide()
-        dv = QVBoxLayout(self.wl_detail_w); dv.setContentsMargins(0,0,0,0); dv.setSpacing(0)
+        self.wl_detail_w = QWidget()
+        self.wl_detail_w.hide()
+        dv = QVBoxLayout(self.wl_detail_w)
+        dv.setContentsMargins(0,0,0,0)
+        dv.setSpacing(0)
 
         self.wl_d_title = QLabel("")
         self.wl_d_title.setStyleSheet(
@@ -503,7 +547,8 @@ class MatrixPage(QWidget):
         self.wl_d_meta.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:.5px;")
         dv.addWidget(self.wl_d_meta); dv.addSpacing(16)
 
-        div = QFrame(); div.setFrameShape(QFrame.Shape.HLine)
+        div = QFrame()
+        div.setFrameShape(QFrame.Shape.HLine)
         div.setStyleSheet(f"color:{BORDER};"); dv.addWidget(div); dv.addSpacing(16)
 
         self.wl_d_synopsis = QLabel("")
@@ -513,7 +558,8 @@ class MatrixPage(QWidget):
         self.wl_d_synopsis.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         dv.addWidget(self.wl_d_synopsis, 1); dv.addSpacing(20)
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
         self.wl_d_trailer_btn = QPushButton("▶  WATCH TRAILER")
         self.wl_d_trailer_btn.setStyleSheet(
             f"background:{BLUE};color:{BG};border:none;font-size:10px;font-weight:700;"
@@ -600,7 +646,9 @@ class MatrixPage(QWidget):
                 pg = self.window().geometry()
                 score_dlg.move(pg.x() + (pg.width() - 340) // 2,
                                pg.y() + (pg.height() - 160) // 2)
-            sv = QVBoxLayout(score_dlg); sv.setContentsMargins(20, 20, 20, 20); sv.setSpacing(12)
+            sv = QVBoxLayout(score_dlg)
+            sv.setContentsMargins(20, 20, 20, 20)
+            sv.setSpacing(12)
             sv.addWidget(lbl(f"How would you rate  {title[:36]}?", ACCENT, 13, True))
             sv.addWidget(lbl("0 = Skip  ·  1–10 = Your score", MUTED, 10))
             slider = QSlider(Qt.Orientation.Horizontal)
@@ -732,7 +780,10 @@ class MatrixPage(QWidget):
     VIDEO_EXTS = ('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v')
 
     def _build_browser(self):
-        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(10,10,10,10); v.setSpacing(8)
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(10,10,10,10)
+        v.setSpacing(8)
 
         # Breadcrumb bar
         crumb_row = QHBoxLayout()
@@ -753,7 +804,8 @@ class MatrixPage(QWidget):
 
         # Bottom: selected file info + Play button
         play_row = QHBoxLayout()
-        self.br_selected = QLineEdit(); self.br_selected.setReadOnly(True)
+        self.br_selected = QLineEdit()
+        self.br_selected.setReadOnly(True)
         self.br_selected.setPlaceholderText("Double-click a folder to open  ·  Double-click a file to play")
         self.br_play_btn = btn("▶  Play", "accent", self._browser_play)
         self.br_play_btn.setEnabled(False)
@@ -881,7 +933,10 @@ class MatrixPage(QWidget):
 
     # ── Continue Watching ──────────────────────────────────────────────────────
     def _build_continue(self):
-        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(10,10,10,10); v.setSpacing(8)
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(10,10,10,10)
+        v.setSpacing(8)
         v.addWidget(lbl("Continue Watching — double-click to resume", ACCENT, 13, True))
         self.cw_list = QListWidget()
         self.cw_list.setWordWrap(True)
@@ -963,7 +1018,8 @@ class MatrixPage(QWidget):
         # opens in movie mode rather than pre-filling junk episode numbers
         is_movie = (total_eps == 1)
         if is_movie:
-            season = 0; episode = 0
+            season = 0
+            episode = 0
         dlg = SubtitleDialog(self, title=title, season=season,
                              episode=episode, video_path=video_path,
                              auto_movie=is_movie)
@@ -1005,7 +1061,7 @@ class MatrixPage(QWidget):
         show = filename
         if mod and hasattr(mod, "extract_show_title"):
             try: show = mod.extract_show_title(filename)
-            except Exception: pass
+            except Exception: pass  # Ignored
         else:
             # Remove leading group tags like [Gecko], [SubGroup] etc.
             cleaned = re.sub(r'^\[.*?\]\s*', '', filename)
@@ -1024,7 +1080,7 @@ class MatrixPage(QWidget):
         season, episode = 0, 0
         if mod and hasattr(mod, "MediaPlayer"):
             try: season, episode = mod.MediaPlayer._extract_season_episode(filename)
-            except Exception: pass
+            except Exception: pass  # Ignored
         else:
             m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', filename)
             if m: season, episode = int(m.group(1)), int(m.group(2))
@@ -1034,7 +1090,7 @@ class MatrixPage(QWidget):
         file_index = 0
         if mod and hasattr(mod, "MediaPlayer"):
             try: total_eps = mod.MediaPlayer.count_episodes_in_folder(path)
-            except Exception: pass
+            except Exception: pass  # Ignored
         else:
             try:
                 exts = ('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v')
@@ -1051,7 +1107,7 @@ class MatrixPage(QWidget):
                 # 1-based position of this file in the sorted list
                 try:    file_index = all_files.index(path) + 1
                 except ValueError: file_index = 0
-            except Exception: pass
+            except Exception: pass  # Ignored
 
         # Load existing entry to preserve duration/episodes_watched
         md = matrix_data()
@@ -1089,10 +1145,10 @@ class MatrixPage(QWidget):
                 self._mpv_process.wait(timeout=2)
             except Exception:
                 try: self._mpv_process.kill()
-                except Exception: pass
+                except Exception: pass  # Ignored
         self._mpv_process = None
-        try: os.remove(MPV_MPV_SOCKET_PATH)
-        except Exception: pass
+        try: os.remove(MPV_SOCKET_PATH)
+        except Exception: pass  # Ignored
 
         t = threading.Thread(
             target=self._play_loop,
@@ -1137,7 +1193,7 @@ class MatrixPage(QWidget):
                 })
                 save_json(MATRIX_PROGRESS, md)
                 QTimer.singleShot(0, self.refresh)
-            except Exception: pass
+            except Exception: pass  # Ignored
         _ensure_watching(show)
 
         while current:
@@ -1147,7 +1203,7 @@ class MatrixPage(QWidget):
             cur_next = None
             if mod and hasattr(mod, "MediaPlayer"):
                 try: cur_next = mod.MediaPlayer.find_next_episode(current)
-                except Exception: pass
+                except Exception: pass  # Ignored
 
             # Show next episode status in the UI label so it's visible
             next_label = f"Next: {os.path.basename(cur_next)}" if cur_next else "Next: not found"
@@ -1155,7 +1211,7 @@ class MatrixPage(QWidget):
 
             # Build mpv command
             try: os.remove(MPV_SOCKET_PATH)
-            except Exception: pass
+            except Exception: pass  # Ignored
 
             cmd = [
                 "mpv",
@@ -1221,7 +1277,7 @@ class MatrixPage(QWidget):
             duration      = 0.0
             next_confirmed = cur_next is not None  # whether we've confirmed next exists
             play_next_triggered = False
-            play_session  = 0  # incremented on every play-next; stale _save threads skip write
+            play_session  = 0  # incremented on every play-next
             _file_switching = False  # True while waiting for mpv to confirm new file loaded
             _expected_file  = os.path.basename(current)
 
@@ -1269,7 +1325,7 @@ class MatrixPage(QWidget):
                         cur_next = None
                         if mod_n and hasattr(mod_n, "MediaPlayer"):
                             try: cur_next = mod_n.MediaPlayer.find_next_episode(current)
-                            except Exception: pass
+                            except Exception: pass  # Ignored
                         next_confirmed = cur_next is not None
                         play_next_triggered = False
                         # Update the Lua script's has_next flag
@@ -1300,7 +1356,9 @@ class MatrixPage(QWidget):
                 now = time.time()
                 if last_pos > 0 and not _file_switching and now - last_save >= 3:
                     last_save = now
-                    pos_snap = last_pos; dur_snap = duration; fname = current
+                    pos_snap = last_pos
+                    dur_snap = duration
+                    fname = current
                     track_event("watch_time", {"minutes": 0.05})  # ~3s per save cycle
                     def _save(sk=show, p=pos_snap, d=dur_snap, f=fname, sess=play_session):
                         if sess != play_session: return  # stale — a newer episode is playing
@@ -1385,7 +1443,7 @@ class MatrixPage(QWidget):
                 season, episode = 0, 0
                 if mod and hasattr(mod, "MediaPlayer"):
                     try: season, episode = mod.MediaPlayer._extract_season_episode(next_filename)
-                    except Exception: pass
+                    except Exception: pass  # Ignored
                 else:
                     m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', next_filename)
                     if m: season, episode = int(m.group(1)), int(m.group(2))
@@ -1473,10 +1531,14 @@ class MatrixPage(QWidget):
         """STREAM tab — embedded AnimeKai browser with ad blocking, persistent login,
            real-time episode tracking and full Matrix/Sage integration."""
         w = QWidget()
-        wv = QVBoxLayout(w); wv.setContentsMargins(0,0,0,0); wv.setSpacing(0)
+        wv = QVBoxLayout(w)
+        wv.setContentsMargins(0,0,0,0)
+        wv.setSpacing(0)
 
         if not WEBENGINE_OK:
-            ph = QWidget(); phv = QVBoxLayout(ph); phv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            ph = QWidget()
+            phv = QVBoxLayout(ph)
+            phv.setAlignment(Qt.AlignmentFlag.AlignCenter)
             ico = QLabel("📺"); ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
             ico.setStyleSheet("font-size:48px;")
             msg = QLabel("QtWebEngine not installed.\n\nRun:  sudo apt install python3-pyqt6.qtwebengine")
@@ -1500,11 +1562,14 @@ class MatrixPage(QWidget):
         self._interceptor = AnimeInterceptor()
         self._stream_profile.setUrlRequestInterceptor(self._interceptor)
 
-        # ── Custom page (blocks popups, suppresses JS console noise) ──────────
-        self._stream_page = AnimePage(self._stream_profile)
-
         # ── Web view ───────────────────────────────────────────────────────────
         self._stream_view = QWebEngineView()
+        # Set background to black to avoid white flashes during initial load
+        self._stream_view.setStyleSheet("background-color: #000000;")
+
+        # ── Custom page (blocks popups, suppresses JS console noise) ──────────
+        # We pass the view as parent so the page can access it for fullscreen
+        self._stream_page = AnimePage(self._stream_profile, self._stream_view)
         self._stream_view.setPage(self._stream_page)
 
         # Enable fullscreen and media capabilities on the view's settings too
@@ -1517,7 +1582,9 @@ class MatrixPage(QWidget):
         nav_bar = QWidget()
         nav_bar.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
         nav_bar.setFixedHeight(48)
-        nv = QHBoxLayout(nav_bar); nv.setContentsMargins(10,0,10,0); nv.setSpacing(5)
+        nv = QHBoxLayout(nav_bar)
+        nv.setContentsMargins(10,0,10,0)
+        nv.setSpacing(5)
 
         def _nav_btn(text, tip=""):
             b = QPushButton(text)
@@ -1712,9 +1779,11 @@ class MatrixPage(QWidget):
                     '.account-menu, .user-menu') ||
                 // Look for any img in the top-right area that's not the logo
                 (function() {
-                    var imgs = document.querySelectorAll('header img, nav img, .header img');
-                    for (var i = 0; i < imgs.length; i++) {
-                        var src = imgs[i].src || '';
+                    var imgs = document.querySelectorAll('header img, nav img, .header img')
+                    for (var i = 0
+                    i < imgs.length
+                    i++) {
+                        var src = imgs[i].src || ''
                         if (src.includes('avatar') || src.includes('user') ||
                             src.includes('profile') || src.includes('gravatar') ||
                             imgs[i].alt === 'avatar' || imgs[i].className.includes('avatar')) {
@@ -1725,9 +1794,9 @@ class MatrixPage(QWidget):
                 })() ||
                 // Check for username text anywhere in header/nav
                 (function() {
-                    var nav = document.querySelector('header, nav, .header, .navbar');
+                    var nav = document.querySelector('header, nav, .header, .navbar')
                     if (!nav) return false;
-                    var text = nav.textContent || '';
+                    var text = nav.textContent || ''
                     // If there's a non-generic username (not just menu items)
                     return !!(
                         nav.querySelector('[class*="username"], [class*="user-name"], [class*="account"]')
@@ -1768,13 +1837,15 @@ class MatrixPage(QWidget):
         # Pattern 1: /watch/slug#ep=12 or /watch/slug?ep=12
         m = _re.search(r'/watch/([^#?/]+)[#?]ep[=:](\d+)', url)
         if m:
-            slug = m.group(1); ep = int(m.group(2))
+            slug = m.group(1)
+            ep = int(m.group(2))
             title = _re.sub(r'-[a-z0-9]{3,6}$', '', slug).replace('-', ' ').title()
             self._update_now_watching(title, ep); return
         # Pattern 2: /slug/ep-12
         m = _re.search(r'/([a-z0-9-]+)/ep-(\d+)', url)
         if m:
-            slug = m.group(1); ep = int(m.group(2))
+            slug = m.group(1)
+            ep = int(m.group(2))
             title = slug.replace('-', ' ').title()
             self._update_now_watching(title, ep)
 
@@ -1847,7 +1918,8 @@ class MatrixPage(QWidget):
             for k in watching:
                 kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
                 if kt.lower() == title.lower():
-                    key = k; break
+                    key = k
+                    break
 
             if key is None:
                 key = title
@@ -1944,19 +2016,21 @@ class MatrixPage(QWidget):
         # We read it directly from the embedded browser's storage.
         js = r"""
         (function() {
-            var results = [];
+            var results = []
             try {
                 // Scan all localStorage keys for AnimeKai watch data
-                for (var i = 0; i < localStorage.length; i++) {
-                    var key = localStorage.key(i);
-                    var val = localStorage.getItem(key);
+                for (var i = 0
+                i < localStorage.length
+                i++) {
+                    var key = localStorage.key(i)
+                    var val = localStorage.getItem(key)
                     if (!val) continue;
                     try {
-                        var data = JSON.parse(val);
+                        var data = JSON.parse(val)
                         // AnimeKai stores episode progress as objects with ep/episode keys
                         if (data && typeof data === 'object') {
                             // Format: {title: "...", ep: 12} or {episode: 12, ...}
-                            var title = data.title || data.name || data.anime_title || null;
+                            var title = data.title || data.name || data.anime_title || null
                             var ep = data.ep || data.episode || data.current_ep ||
                                      data.currentEpisode || data.last_ep || 0;
                             if (title && title.length > 1) {
@@ -1967,7 +2041,7 @@ class MatrixPage(QWidget):
                     // Also check raw string keys that look like episode markers
                     // e.g. key="solo-leveling" val="12"
                     if (!isNaN(parseInt(val)) && key.length > 3 && !key.startsWith('_')) {
-                        var cleanTitle = key.replace(/-/g, ' ').replace(/_/g, ' ');
+                        var cleanTitle = key.replace(/-/g, ' ').replace(/_/g, ' ')
                         // Only if it looks like a title (letters, not a UUID/hash)
                         if (/^[a-zA-Z]/.test(key) && key.length < 80) {
                             results.push({title: cleanTitle, ep: parseInt(val) || 0, src: 'localStorage:' + key});
@@ -1976,12 +2050,14 @@ class MatrixPage(QWidget):
                 }
 
                 // Also check sessionStorage
-                for (var j = 0; j < sessionStorage.length; j++) {
-                    var skey = sessionStorage.key(j);
-                    var sval = sessionStorage.getItem(skey);
+                for (var j = 0
+                j < sessionStorage.length
+                j++) {
+                    var skey = sessionStorage.key(j)
+                    var sval = sessionStorage.getItem(skey)
                     if (!sval) continue;
                     try {
-                        var sdata = JSON.parse(sval);
+                        var sdata = JSON.parse(sval)
                         if (sdata && sdata.title) {
                             results.push({title: sdata.title,
                                 ep: sdata.ep || sdata.episode || 0, src: 'sessionStorage'});
@@ -1995,19 +2071,19 @@ class MatrixPage(QWidget):
                     '.recently-watched .item, .watch-history .item'
                 );
                 cwItems.forEach(function(el) {
-                    var titleEl = el.querySelector('.film-name, .name, a[title], h3, h4');
+                    var titleEl = el.querySelector('.film-name, .name, a[title], h3, h4')
                     var epEl = el.querySelector('[class*="ep"], .tick-eps, [data-ep]');
-                    var title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent.trim()) : null;
-                    var ep = epEl ? parseInt(epEl.textContent.replace(/\D/g,'')) || 0 : 0;
+                    var title = titleEl ? (titleEl.getAttribute('title') || titleEl.textContent.trim()) : null
+                    var ep = epEl ? parseInt(epEl.textContent.replace(/\D/g,'')) || 0 : 0
                     if (title && title.length > 1)
                         results.push({title: title, ep: ep, src: 'dom'});
                 });
 
                 // Deduplicate by title, keep highest ep
-                var map = {};
+                var map = {}
                 results.forEach(function(r) {
-                    var k = r.title.toLowerCase().trim();
-                    if (!map[k] || r.ep > map[k].ep) map[k] = r;
+                    var k = r.title.toLowerCase().trim()
+                    if (!map[k] || r.ep > map[k].ep) map[k] = r
                 });
                 return JSON.stringify(Object.values(map));
             } catch(e) {
@@ -2034,7 +2110,8 @@ class MatrixPage(QWidget):
             md = matrix_data()
             watching = md.setdefault("watching", {})
             wl       = md.setdefault("watchlist", {})
-            synced = 0; new_shows = 0
+            synced = 0
+            new_shows = 0
             now = int(time.time())
 
             for item in items:
@@ -2047,10 +2124,12 @@ class MatrixPage(QWidget):
                 for k in watching:
                     kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
                     if kt.lower() == title.lower():
-                        key = k; break
+                        key = k
+                        break
 
                 if key is None:
-                    key = title; new_shows += 1
+                    key = title
+                    new_shows += 1
                     # Add to watchlist watching if not already there
                     wl_w = wl.setdefault("watching", [])
                     if not any(
@@ -2112,7 +2191,9 @@ class MatrixPage(QWidget):
 
         def _fmt(s):
             s = int(s)
-            h = s // 3600; m = (s % 3600) // 60; sc = s % 60
+            h = s // 3600
+            m = (s % 3600) // 60
+            sc = s % 60
             return f"{h}:{m:02d}:{sc:02d}" if h else f"{m:02d}:{sc:02d}"
 
         # ── Collect all continue-watching entries (local + AnimeKai) ──────────
@@ -2204,7 +2285,9 @@ class AddToWLDialog(QDialog):
     def __init__(self, text, parent=None):
         super().__init__(parent); self.setWindowTitle("Add to Watchlist")
         self.setMinimumSize(460,340); self.setStyleSheet(QSS)
-        lay = QVBoxLayout(self); lay.setContentsMargins(16,16,16,16); lay.setSpacing(8)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16,16,16,16)
+        lay.setSpacing(8)
         lay.addWidget(lbl("Select titles to add:",TEXT2))
         titles = re.findall(r'\d+\.\s+(.+?)(?:\s+[-\u2014]|\n|$)', text)
         if not titles:
@@ -2215,7 +2298,8 @@ class AddToWLDialog(QDialog):
         for t in titles:
             cb = QCheckBox(t); cb.setChecked(True); cb.setStyleSheet(f"color:{TEXT};")
             lay.addWidget(cb); self.checks.append((cb,t))
-        row = QHBoxLayout(); self.target = QComboBox()
+        row = QHBoxLayout()
+        self.target = QComboBox()
         for n in ("planning","watching","dropped","completed"): self.target.addItem(n.capitalize(),n)
         row.addWidget(lbl("Add to:",TEXT2)); row.addWidget(self.target); row.addStretch()
         lay.addLayout(row)
@@ -2223,7 +2307,8 @@ class AddToWLDialog(QDialog):
         bb.accepted.connect(self._do); bb.rejected.connect(self.reject); lay.addWidget(bb)
 
     def _do(self):
-        lst = self.target.currentData(); md = matrix_data()
+        lst = self.target.currentData()
+        md = matrix_data()
         wl  = md.setdefault("watchlist",{})
         for k in ("planning","watching","dropped","completed"): wl.setdefault(k,[])
         added = 0
@@ -2242,4 +2327,574 @@ class AddToWLDialog(QDialog):
 # ═══════════════════════════════════════════════════════════════════════════════
 # SETTINGS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _CalendarWorker(QThread):
+    done = pyqtSignal(dict, str)  # {date_str: [(time, show, ep)]}
+
+    HEADERS = {
+        "Content-Type": "application/json",
+        "Accept":       "application/json",
+        "User-Agent":   "GreatSage/1.0 (personal media app)",
+    }
+
+    @staticmethod
+    def _match_score(watchlist_title, show_name):
+        """
+        Match a watchlist title against a schedule entry.
+        Rules (in order):
+          1. Exact match (case-insensitive)
+          2. Watchlist title is fully contained in show name (handles "Demon Slayer" vs
+             "Demon Slayer: Kimetsu no Yaiba" or "Solo Leveling Season 2")
+          3. Show name is fully contained in watchlist title
+          4. Word overlap >= 70% of watchlist words (minimum 2 words, 3+ chars each)
+        Single-word titles must exact-match or be contained to avoid false positives.
+        """
+        a = watchlist_title.lower().strip()
+        b = show_name.lower().strip()
+        if not a or not b or len(a) < 3: return False
+        # Exact
+        if a == b: return True
+        words_a = [w for w in a.split() if len(w) > 2]
+        words_b = set(w for w in b.split() if len(w) > 2)
+        # Single-word titles: only match if exact (already handled above)
+        if len(words_a) <= 1: return False
+        # Multi-word: watchlist title must be a leading substring of show name
+        # e.g. "Demon Slayer" matches "Demon Slayer: Kimetsu" but not the reverse loosely
+        if b.startswith(a) or b.startswith(a.rstrip(":")):
+            return True
+        if a.startswith(b):
+            return True
+        # Word overlap — at least 70% of watchlist meaningful words appear in show name
+        overlap = sum(1 for w in words_a if w in words_b) / len(words_a)
+        return overlap >= 0.7
+
+    def run(self):
+        import datetime as dt, urllib.request, urllib.parse
+        import concurrent.futures, threading
+
+        md = matrix_data()
+        wl = md.get("watchlist", {})
+        all_titles = []
+        for lst in wl.values():
+            for e in lst:
+                t = e.get("title","") if isinstance(e,dict) else str(e)
+                if t: all_titles.append(t)
+        for info in md.get("watching",{}).values():
+            if isinstance(info,dict):
+                t = info.get("title","")
+                if t and t not in all_titles: all_titles.append(t)
+
+        if not all_titles:
+            self.done.emit({}, "Add shows to your watchlist first."); return
+
+        now        = dt.datetime.now()
+        week_later = now + dt.timedelta(days=7)
+        by_date    = {}
+        lock       = threading.Lock()
+        anilist_ok = threading.Event()
+        tvmaze_ok  = threading.Event()
+
+        def fetch_anilist(title):
+            q = """query($s:String){Media(search:$s,type:ANIME,status:RELEASING){
+                title{romaji english}
+                nextAiringEpisode{airingAt episode}}}"""
+            try:
+                payload = json.dumps({"query": q, "variables": {"s": title}}).encode()
+                req = urllib.request.Request(
+                    "https://graphql.anilist.co", data=payload, headers=self.HEADERS)
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    resp = json.loads(r.read())
+                anilist_ok.set()
+                media = (resp.get("data") or {}).get("Media")
+                if not media: return
+                romaji  = (media.get("title") or {}).get("romaji","")
+                english = (media.get("title") or {}).get("english","")
+                if not (self._match_score(title, romaji) or
+                        self._match_score(title, english)): return
+                nae = media.get("nextAiringEpisode")
+                if not nae: return
+                at = dt.datetime.fromtimestamp(nae["airingAt"])
+                if now <= at <= week_later:
+                    date_key  = at.strftime("%Y-%m-%d")
+                    show_name = english or romaji or title
+                    with lock:
+                        by_date.setdefault(date_key, []).append(
+                            (at.strftime("%H:%M"), show_name, nae["episode"]))
+            except Exception:
+                pass
+
+        def fetch_tvmaze(title):
+            try:
+                search_url = (f"https://api.tvmaze.com/singlesearch/shows"
+                              f"?q={urllib.parse.quote(title)}&embed=nextepisode")
+                req = urllib.request.Request(
+                    search_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    show_data = json.loads(r.read())
+                tvmaze_ok.set()
+                show_name = show_data.get("name","")
+                show_id   = show_data.get("id")
+                if not show_name or not show_id: return
+                if not self._match_score(title, show_name): return
+
+                # Try nextepisode from embedded data first (fastest path)
+                embedded = (show_data.get("_embedded") or {})
+                next_ep  = embedded.get("nextepisode")
+                if next_ep:
+                    airdate = next_ep.get("airdate","")
+                    airtime = next_ep.get("airtime","") or "00:00"
+                    ep_num  = next_ep.get("number") or 0
+                    if airdate:
+                        try:
+                            ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
+                            if now.date() <= ep_dt.date() <= week_later.date():
+                                with lock:
+                                    by_date.setdefault(airdate, []).append(
+                                        (airtime, show_name, ep_num))
+                                return
+                        except Exception:
+                            pass
+
+                # Fallback: scan last 20 episodes for upcoming ones
+                ep_url = f"https://api.tvmaze.com/shows/{show_id}/episodes?specials=0"
+                req2   = urllib.request.Request(
+                    ep_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
+                with urllib.request.urlopen(req2, timeout=8) as r2:
+                    all_eps = json.loads(r2.read())
+                for ep in all_eps[-20:]:
+                    airdate = ep.get("airdate","")
+                    if not airdate: continue
+                    try:
+                        ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
+                    except Exception: continue
+                    if not (now.date() <= ep_dt.date() <= week_later.date()): continue
+                    airtime = ep.get("airtime","") or "00:00"
+                    ep_num  = ep.get("number") or 0
+                    with lock:
+                        by_date.setdefault(airdate, []).append(
+                            (airtime, show_name, ep_num))
+            except urllib.request.HTTPError as e:
+                if e.code == 404: return
+            except Exception:
+                pass
+
+        # Fetch all titles in parallel — AniList and TVMaze simultaneously
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            futures = []
+            for title in all_titles:
+                futures.append(pool.submit(fetch_anilist, title))
+                futures.append(pool.submit(fetch_tvmaze,  title))
+            # Wait for all with a hard timeout of 25s
+            concurrent.futures.wait(futures, timeout=25)
+
+        # Deduplicate and sort each day
+        for k in by_date:
+            seen = set()
+            unique = []
+            for entry in sorted(by_date[k]):
+                key = (entry[1], entry[2])  # show + ep
+                if key not in seen:
+                    seen.add(key); unique.append(entry)
+            by_date[k] = unique
+
+        total = sum(len(v) for v in by_date.values())
+        sources = []
+        if anilist_ok.is_set(): sources.append("Anime")
+        if tvmaze_ok.is_set():  sources.append("TV")
+
+        if total:
+            day_word = "day" if len(by_date) == 1 else "days"
+            src_str  = " + ".join(sources) if sources else ""
+            suffix   = f"  [{src_str}]" if src_str else ""
+            msg = f"Found episodes on {len(by_date)} {day_word} this week{suffix}"
+        elif not sources:
+            msg = "Could not connect — check your internet connection"
+        else:
+            msg = f"Checked {len(all_titles)} title(s) — none airing this week"
+
+        self.done.emit(by_date, msg)
+
+
+
+
+class HighlightsDialog(QDialog):
+    """Currently reading + watching + planning at a glance."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Highlights")
+        self.resize(820, 560)
+        self.setStyleSheet(f"background:{BG};")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
+
+        hdr = QWidget(); hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
+        hdr.setFixedHeight(52)
+        hv = QHBoxLayout(hdr)
+        hv.setContentsMargins(28,0,28,0)
+        tl = QLabel("HIGHLIGHTS")
+        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;color:{ACCENT};letter-spacing:4px;")
+        hv.addWidget(tl); hv.addStretch()
+        root.addWidget(hdr)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(20,16,20,16)
+        body.setSpacing(12)
+
+        ld = legion_data()
+        md = matrix_data()
+        books    = ld.get("books", {})
+        watching = md.get("watching", {})
+        wl       = md.get("watchlist", {})
+
+        for col_title, color, items in [
+            ("CURRENTLY READING",  ACCENT,  [
+                (f"{n}  Ch.{b.get('current_chapter',0)}",
+                 f"{b.get('chapters_read',0)} chapters read  ·  {b.get('words_read',0):,} words")
+                for n, b in books.items() if b.get("chapters_read",0)>0 or b.get("current_chapter",0)>0
+            ]),
+            ("CONTINUE WATCHING",  BLUE,    [
+                ((info.get("title", k) if isinstance(info,dict) else k),
+                 f"Ep.{info.get('current_episode',0) if isinstance(info,dict) else 0}")
+                for k, info in watching.items()
+            ]),
+            ("PLANNING",           PURPLE,  [
+                (e.get("title","?") if isinstance(e,dict) else str(e), "")
+                for e in wl.get("planning",[])[:20]
+            ]),
+        ]:
+            col = QFrame()
+            col.setStyleSheet(f"background:{BG2};border:1px solid {BORDER};border-radius:6px;")
+            cv = QVBoxLayout(col)
+            cv.setContentsMargins(0,0,0,0)
+            cv.setSpacing(0)
+            hdr2 = QWidget()
+            hdr2.setStyleSheet(f"background:{BG3};border-bottom:1px solid {BORDER};border-radius:6px 6px 0 0;")
+            hv2 = QHBoxLayout(hdr2)
+            hv2.setContentsMargins(14,10,14,10)
+            hl = QLabel(col_title); hl.setStyleSheet(f"color:{color};font-size:9px;letter-spacing:2px;")
+            cnt = QLabel(str(len(items))); cnt.setStyleSheet(f"color:{MUTED};font-size:9px;")
+            hv2.addWidget(hl); hv2.addStretch(); hv2.addWidget(cnt)
+            cv.addWidget(hdr2)
+            lst = QListWidget()
+            lst.setStyleSheet(
+                f"QListWidget{{background:transparent;border:none;padding:4px;}}"
+                f"QListWidget::item{{color:{TEXT2};padding:8px 14px;border-bottom:1px solid {BG3};}}"
+                f"QListWidget::item:hover{{color:{TEXT};background:{BG3};}}")
+            for title, sub in (items or [("Nothing here yet", "")]):
+                item = QListWidgetItem(title)
+                if sub: item.setToolTip(sub)
+                item.setForeground(QColor(TEXT2))
+                lst.addItem(item)
+            cv.addWidget(lst, 1)
+            body.addWidget(col, 1)
+
+        root.addLayout(body, 1)
+
+        close_btn = QPushButton("CLOSE")
+        close_btn.setObjectName("accent")
+        close_btn.setStyleSheet(
+            f"background:{BG2};color:{MUTED};border:1px solid {BORDER};"
+            f"font-size:9px;letter-spacing:1px;padding:8px 20px;border-radius:3px;margin:0 20px 14px 20px;")
+        close_btn.clicked.connect(self.accept)
+        root.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+
+class CalendarDialog(QDialog):
+    """Calendar grid — click a date to see what's airing."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📅  What\'s Airing This Week")
+        self.setMinimumSize(700, 460); self.setStyleSheet(QSS)
+        self._data = {}  # {date_str: [(time, show, ep)]}
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16,16,16,16)
+        lay.setSpacing(10)
+        lay.addWidget(lbl("What\'s Airing This Week", ACCENT, 16, True))
+        lay.addWidget(hline())
+
+        # ── Calendar grid (7 day buttons) ─────────────────────────────────
+        import datetime as dt
+        self._today = dt.datetime.now()
+        grid = QHBoxLayout()
+        grid.setSpacing(6)
+        self._day_btns = {}
+        for i in range(7):
+            day    = self._today + dt.timedelta(days=i)
+            date_s = day.strftime("%Y-%m-%d")
+            label  = day.strftime("%a") + "\n" + day.strftime("%d")
+            b      = QPushButton(label)
+            b.setCheckable(True)
+            b.setFixedSize(80, 54)
+            b.setStyleSheet(
+                f"QPushButton{{background:{BG3};border:1px solid {BORDER};"
+                f"border-radius:8px;color:{TEXT};font-size:12px;}}"
+                f"QPushButton:checked{{background:{ACCENT};color:{BG};"
+                f"border-color:{ACCENT};font-weight:bold;}}"
+                f"QPushButton:hover{{border-color:{ACCENT};}}")
+            b.clicked.connect(lambda _, d=date_s: self._select_day(d))
+            grid.addWidget(b)
+            self._day_btns[date_s] = b
+        grid.addStretch()
+        lay.addLayout(grid)
+
+        lay.addWidget(hline())
+
+        # ── Episode list for selected day ──────────────────────────────────
+        self._day_label = lbl("Select a day above", TEXT2, 13, True)
+        lay.addWidget(self._day_label)
+        self._list = QListWidget()
+        self._list.setStyleSheet(f"background:{BG3};border:none;")
+        lay.addWidget(self._list, 1)
+
+        self._status = lbl("Fetching schedule...", MUTED, 11)
+        lay.addWidget(self._status)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(self.reject); lay.addWidget(bb)
+
+        # Select today by default, fetch data
+        self._selected = self._today.strftime("%Y-%m-%d")
+        self._data     = {}
+        self._worker   = _CalendarWorker()
+        self._worker.done.connect(self._on_data)
+        self._worker.start()
+
+        # Animate status while loading
+        self._dots = 0
+        self._anim = QTimer(self)
+        self._anim.timeout.connect(self._tick_loading)
+        self._anim.start(500)
+
+        # Hard timeout — if worker takes > 30s, show partial results anyway
+        self._timeout = QTimer(self)
+        self._timeout.setSingleShot(True)
+        self._timeout.timeout.connect(self._force_done)
+        self._timeout.start(60000)
+
+    def _tick_loading(self):
+        self._dots = (self._dots + 1) % 4
+        self._status.setText("Fetching schedule" + "." * (self._dots + 1))
+
+    def _force_done(self):
+        """Called if worker takes too long — show whatever we have."""
+        if not self._data:
+            self._status.setText("Timed out — check your internet connection.")
+            self._list.clear()
+            item = QListWidgetItem("  Could not load schedule in time. Try again.")
+            item.setForeground(QColor(RED)); self._list.addItem(item)
+
+    def _on_data(self, data, status_msg):
+        self._data = data
+        # Stop loading animation and timeout guard
+        if hasattr(self, "_anim"):   self._anim.stop()
+        if hasattr(self, "_timeout"): self._timeout.stop()
+        self._status.setText(status_msg)
+        # Mark days that have episodes with a dot indicator
+        for date_s, btn in self._day_btns.items():
+            has = bool(data.get(date_s))
+            text = btn.text()
+            if has and "●" not in text:
+                btn.setText(text + "\n●")
+        # Select today
+        self._select_day(self._selected)
+
+    def _select_day(self, date_s):
+        import datetime as dt
+        self._selected = date_s
+        # Update button states
+        for d, b in self._day_btns.items():
+            b.setChecked(d == date_s)
+        # Update label
+        try:
+            dt_obj = dt.datetime.strptime(date_s, "%Y-%m-%d")
+            self._day_label.setText(dt_obj.strftime("%A, %d %B %Y"))
+        except Exception:
+            self._day_label.setText(date_s)
+        # Populate list
+        self._list.clear()
+        eps = self._data.get(date_s, [])
+        if not eps:
+            if self._data or self._status.text() != "Fetching schedule...":
+                item = QListWidgetItem("  Nothing airing from your watchlist on this day.")
+                item.setForeground(QColor(MUTED)); self._list.addItem(item)
+            else:
+                item = QListWidgetItem("  Loading...")
+                item.setForeground(QColor(MUTED)); self._list.addItem(item)
+        else:
+            for time_s, show, ep in eps:
+                ep_str = f"Ep {ep}" if ep else ""
+                item   = QListWidgetItem(f"  {time_s}   {show}   {ep_str}")
+                item.setForeground(QColor(TEXT)); self._list.addItem(item)
+
+class WrappedDialog(QDialog):
+    """Stats & Wrapped — year or all-time."""
+    def __init__(self, period="year", parent=None):
+        super().__init__(parent)
+        import datetime as dt
+        self._period = period
+        year = dt.datetime.now().year
+        title = f"🏆  Your {year} Wrapped" if period == "year" else "📊  All-Time Stats"
+        self.setWindowTitle(title)
+        self.setMinimumSize(560, 580); self.setStyleSheet(QSS)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20,20,20,16)
+        lay.setSpacing(12)
+        lay.addWidget(lbl(title, ACCENT, 18, True))
+        lay.addWidget(hline())
+        self._body = QVBoxLayout()
+        lay.addLayout(self._body, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(self.reject); lay.addWidget(bb)
+        self._populate()
+
+    def _stat(self, label, value, color=TEXT):
+        row = QHBoxLayout()
+        row.addWidget(lbl(label, TEXT2, 13))
+        row.addStretch()
+        v = lbl(str(value), color, 14, True)
+        row.addWidget(v)
+        return row
+
+    def _populate(self):
+        import datetime as dt
+        ld = legion_data()
+        md = matrix_data()
+        bd = behaviour_data()
+        sigs = bd.get("signals", {})
+        sessions = bd.get("sessions", [])
+        year = dt.datetime.now().year
+
+        # Filter sessions by period
+        cutoff = 0
+        if self._period == "year":
+            cutoff = dt.datetime(year, 1, 1).timestamp()
+            sessions = [s for s in sessions if s.get("timestamp", 0) >= cutoff]
+
+        books = ld.get("books", {})
+        watching = md.get("watching", {})
+        wl = md.get("watchlist", {})
+
+        # Compute stats from filtered sessions
+        chapters_read = sum(1 for s in sessions if s.get("type") == "chapter_finished")
+        words_read    = sum(s.get("data",{}).get("words",0) for s in sessions if s.get("type")=="words_read")
+        watch_mins    = sum(s.get("data",{}).get("minutes",0) for s in sessions if s.get("type")=="watch_time")
+        eps_finished  = sum(1 for s in sessions if s.get("type")=="episode_finished")
+
+        # If all-time, merge with cumulative signals (since sessions are capped)
+        if self._period == "alltime":
+            # For chapters_read, words_read, etc., we want the maximum of (sessions_sum, sigs_total)
+            # because sigs_total is cumulative all-time, while sessions is capped.
+            # However, sigs is more reliable for all-time.
+            chapters_read = max(chapters_read, sigs.get("chapters_finished", 0))
+            words_read    = max(words_read, sigs.get("total_words", 0))
+            eps_finished  = max(eps_finished, sigs.get("episodes_finished", 0))
+            watch_mins    = max(watch_mins, sigs.get("total_watch_minutes", 0))
+
+        # Completed / Abandoned shows from watchlist (not period-filtered yet, usually okay)
+        completed = len(wl.get("completed", []))
+        abandoned = len(wl.get("dropped", []))
+
+        # Busiest hour
+        hours = [s.get("hour") for s in sessions if s.get("hour") is not None]
+        busiest_hour = ""
+        if hours:
+            from collections import Counter
+            peak = Counter(hours).most_common(1)[0][0]
+            period_name = ("morning" if peak < 12 else
+                           "afternoon" if peak < 17 else
+                           "evening" if peak < 21 else "night")
+            busiest_hour = f"{peak:02d}:00 ({period_name})"
+
+        # Top genres from behavior
+        # For year view, we need to count genres from the filtered sessions
+        if self._period == "year":
+            gc = {}
+            for s in sessions:
+                g = s.get("data", {}).get("genre")
+                if g: gc[g] = gc.get(g, 0) + 1
+        else:
+            gc = sigs.get("genre_counts", {})
+        
+        top_genre = sorted(gc.items(), key=lambda x: -x[1])[0][0] if gc else "—"
+
+        # Finish rate
+        if self._period == "year":
+            fin = sum(1 for s in sessions if s.get("type") == "chapter_finished")
+            abd = sum(1 for s in sessions if s.get("type") == "chapter_abandoned")
+        else:
+            fin = sigs.get("chapters_finished", 0)
+            abd = sigs.get("chapters_abandoned", 0)
+        
+        finish_rate = f"{int(fin/(fin+abd)*100)}%" if fin+abd > 0 else "—"
+
+        stats = [
+            ("📖  Chapters read",        chapters_read,  NEON),
+            ("📝  Words read",           f"{int(words_read):,}" if words_read else "—", TEXT),
+            ("🎬  Episodes watched",     eps_finished,   BLUE),
+            ("⏱  Hours watched",        f"{int(watch_mins)//60}h {int(watch_mins)%60}m" if watch_mins else "—", BLUE),
+            ("✅  Shows completed",      completed,      ACCENT2),
+            ("❌  Shows dropped",        abandoned,      RED),
+            ("💪  Chapter finish rate",  finish_rate,    ACCENT),
+            ("🎯  Favourite genre",      top_genre,      PURPLE),
+            ("🌙  Peak viewing time",    busiest_hour or "—", MUTED),
+            ("📚  Books in library",     len(books),     ACCENT),
+        ]
+
+        for label, value, color in stats:
+            self._body.addLayout(self._stat(label, value, color))
+
+        self._body.addStretch()
+
+        if self._period == "year" and not sessions:
+            note = lbl("Start reading and watching to build up your stats!", MUTED, 12)
+            note.setWordWrap(True)
+            self._body.addWidget(note)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MATRIX
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _TTSWorker(QThread):
+    paragraph_started = pyqtSignal(int, str)   # index, text
+    finished          = pyqtSignal()
+    error             = pyqtSignal(str)
+
+    def __init__(self, paragraphs: list[str], start_index: int = 0):
+        super().__init__()
+        self.paragraphs   = paragraphs
+        self.start_index  = start_index
+        self._stop        = False
+        self._pause       = False
+
+    def stop(self):  self._stop = True
+    def pause(self): self._pause = True
+    def resume(self):self._pause = False
+
+    def run(self):
+        try:
+            import pyttsx3
+        except ImportError:
+            self.error.emit("pyttsx3 not installed. Run: pip install pyttsx3")
+            return
+        try:
+            engine = pyttsx3.init()
+            engine.setProperty("rate", 185)   # words per minute
+            for i, para in enumerate(self.paragraphs[self.start_index:], start=self.start_index):
+                if self._stop:
+                    break
+                while self._pause and not self._stop:
+                    self.msleep(100)
+                if self._stop:
+                    break
+                self.paragraph_started.emit(i, para)
+                engine.say(para)
+                engine.runAndWait()
+            engine.stop()
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
 

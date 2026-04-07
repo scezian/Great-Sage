@@ -3,7 +3,7 @@ gs_sage_ui.py — Great Sage
 ===========================
 Sage AI page and Settings page.
 """
-import os, re, subprocess, sys, threading, time
+import os, re, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 try:
@@ -59,24 +59,35 @@ class SagePage(QWidget):
         self._build()
 
     def _build(self):
-        root = QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
 
         sidebar = QFrame()
         sidebar.setFixedWidth(258)
         sidebar.setStyleSheet(
             f"QFrame {{ background:{BG}; border-right:1px solid #1A1A24; }}")
-        sv = QVBoxLayout(sidebar); sv.setContentsMargins(0,0,0,0); sv.setSpacing(0)
+        sv = QVBoxLayout(sidebar)
+        sv.setContentsMargins(0,0,0,0)
+        sv.setSpacing(0)
 
         hero = QWidget()
         hero.setStyleSheet(f"background:{BG}; border-bottom:1px solid #1A1A24;")
-        hv = QVBoxLayout(hero); hv.setContentsMargins(20,18,20,14); hv.setSpacing(0)
-        eye_outer = QLabel(); eye_outer.setFixedSize(32, 32)
+        hv = QVBoxLayout(hero)
+        hv.setContentsMargins(20,18,20,14)
+        hv.setSpacing(0)
+        eye_outer = QLabel()
+        eye_outer.setFixedSize(32, 32)
         eye_outer.setStyleSheet(
             "border:1px solid rgba(201,168,76,0.27); border-radius:16px; background:transparent;")
-        eye_mid = QLabel(eye_outer); eye_mid.setFixedSize(20, 20); eye_mid.move(5, 5)
+        eye_mid = QLabel(eye_outer)
+        eye_mid.setFixedSize(20, 20)
+        eye_mid.move(5, 5)
         eye_mid.setStyleSheet(
             "border:1px solid rgba(201,168,76,0.53); border-radius:10px; background:transparent;")
-        eye_core = QLabel(eye_mid); eye_core.setFixedSize(9, 9); eye_core.move(5, 5)
+        eye_core = QLabel(eye_mid)
+        eye_core.setFixedSize(9, 9)
+        eye_core.move(5, 5)
         eye_core.setStyleSheet(f"background:{ACCENT}; border-radius:4px; border:none;")
         hv.addWidget(eye_outer); hv.addSpacing(8)
         name_lbl = QLabel("SAGE")
@@ -91,19 +102,25 @@ class SagePage(QWidget):
         hv.addWidget(sub_lbl); hv.addSpacing(14)
         sv.addWidget(hero)
 
-        rule = QWidget(); rule.setFixedHeight(1)
+        rule = QWidget()
+        rule.setFixedHeight(1)
         rule.setStyleSheet(
             "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             f"stop:0 {ACCENT}, stop:0.5 {ACCENT2}, stop:1 transparent);")
         sv.addWidget(rule)
 
-        tab_bar = QWidget(); tab_bar.setFixedHeight(36)
+        tab_bar = QWidget()
+        tab_bar.setFixedHeight(36)
         tab_bar.setStyleSheet(f"background:{BG}; border-bottom:1px solid #1A1A24;")
-        tb = QHBoxLayout(tab_bar); tb.setContentsMargins(0,0,0,0); tb.setSpacing(0)
-        self._tab_btns = {}; self._tab_pages = {}
+        tb = QHBoxLayout(tab_bar)
+        tb.setContentsMargins(0,0,0,0)
+        tb.setSpacing(0)
+        self._tab_btns = {}
+        self._tab_pages = {}
 
         def _make_tab(key, label, accent_color):
-            b = QPushButton(label); b.setCheckable(True)
+            b = QPushButton(label)
+            b.setCheckable(True)
             b.setStyleSheet(f"""
                 QPushButton {{
                     background:transparent; border:none;
@@ -115,7 +132,8 @@ class SagePage(QWidget):
                 QPushButton:checked {{ color:{accent_color}; border-bottom:1px solid {accent_color}; }}
             """)
             b.clicked.connect(lambda _, k=key: self._switch_tab(k))
-            tb.addWidget(b); self._tab_btns[key] = b
+            tb.addWidget(b)
+            self._tab_btns[key] = b
 
         _make_tab("discover", "DISCOVER", ACCENT)
         _make_tab("analyse",  "ANALYSE",  ACCENT)
@@ -128,10 +146,14 @@ class SagePage(QWidget):
         self._nav_btns = {}
 
         def _section_hdr(parent_layout, label, color):
-            hdr = QWidget(); hdr.setFixedHeight(32)
+            hdr = QWidget()
+            hdr.setFixedHeight(32)
             hdr.setStyleSheet("background:transparent;")
-            hl = QHBoxLayout(hdr); hl.setContentsMargins(18,0,18,0); hl.setSpacing(8)
-            pip = QWidget(); pip.setFixedSize(18, 1)
+            hl = QHBoxLayout(hdr)
+            hl.setContentsMargins(18,0,18,0)
+            hl.setSpacing(8)
+            pip = QWidget()
+            pip.setFixedSize(18, 1)
             pip.setStyleSheet(f"background:{color}; border:none;")
             lbl_w = QLabel(label)
             lbl_w.setStyleSheet(
@@ -142,7 +164,9 @@ class SagePage(QWidget):
             hl.addWidget(pip); hl.addWidget(lbl_w, 1); hl.addWidget(chev)
             parent_layout.addWidget(hdr)
             body = QWidget(); body.setStyleSheet("background:transparent;")
-            bv = QVBoxLayout(body); bv.setContentsMargins(0,0,0,0); bv.setSpacing(0)
+            bv = QVBoxLayout(body)
+            bv.setContentsMargins(0,0,0,0)
+            bv.setSpacing(0)
             parent_layout.addWidget(body)
             def _toggle():
                 body.setVisible(not body.isVisible())
@@ -169,7 +193,8 @@ class SagePage(QWidget):
             layout.addWidget(b)
             self._nav_btns[key] = (b, section)
 
-        disc_w = QWidget(); disc_v = QVBoxLayout(disc_w)
+        disc_w = QWidget()
+        disc_v = QVBoxLayout(disc_w)
         disc_v.setContentsMargins(0,0,0,0); disc_v.setSpacing(0)
         rec_bv = _section_hdr(disc_v, "RECOMMENDATIONS", ACCENT)
         _nav_item(rec_bv, "novels",     "01", "▫", "Novel Recs",        "tailored to your taste",       "discover")
@@ -180,7 +205,9 @@ class SagePage(QWidget):
         _nav_item(mood_bv, "mood_heavy", "05", "◆", "Intense & Deep",   "darker, heavier stories",       "discover")
         _nav_item(mood_bv, "whats_next", "06", "→", "What's Next?",    "your logical next chapter",     "discover")
         qp_w = QWidget(); qp_w.setStyleSheet("background:transparent;")
-        qp_l = QHBoxLayout(qp_w); qp_l.setContentsMargins(14,6,14,8); qp_l.setSpacing(8)
+        qp_l = QHBoxLayout(qp_w)
+        qp_l.setContentsMargins(14,6,14,8)
+        qp_l.setSpacing(8)
         qp_btn = QPushButton("⚡  Quick Pick")
         qp_btn.setStyleSheet(f"""
             QPushButton {{
@@ -200,7 +227,8 @@ class SagePage(QWidget):
         disc_v.addWidget(qp_w); disc_v.addStretch()
         self._tab_pages["discover"] = disc_w; self._tab_stack.addWidget(disc_w)
 
-        anal_w = QWidget(); anal_v = QVBoxLayout(anal_w)
+        anal_w = QWidget()
+        anal_v = QVBoxLayout(anal_w)
         anal_v.setContentsMargins(0,0,0,0); anal_v.setSpacing(0)
         tool_bv = _section_hdr(anal_v, "TOOLS", ACCENT2)
         _nav_item(tool_bv, "explain",  "01", "?", "Would I Like This?", "taste-match any title",    "analyse")
@@ -210,12 +238,15 @@ class SagePage(QWidget):
         anal_v.addStretch()
         self._tab_pages["analyse"] = anal_w; self._tab_stack.addWidget(anal_w)
 
-        chat_w = QWidget(); chat_v = QVBoxLayout(chat_w)
+        chat_w = QWidget()
+        chat_v = QVBoxLayout(chat_w)
         chat_v.setContentsMargins(16,20,16,16); chat_v.setSpacing(14)
         card = QFrame()
         card.setStyleSheet(
             "QFrame { background:#080D0C; border:1px solid #0F2820; border-radius:6px; }")
-        card_v = QVBoxLayout(card); card_v.setContentsMargins(18,16,18,16); card_v.setSpacing(8)
+        card_v = QVBoxLayout(card)
+        card_v.setContentsMargins(18,16,18,16)
+        card_v.setSpacing(8)
         card_title = QLabel("Chat with Sage")
         card_title.setStyleSheet(
             f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.5px; "
@@ -239,7 +270,8 @@ class SagePage(QWidget):
         open_chat_btn.clicked.connect(lambda: self._stack.setCurrentIndex(1))
         card_v.addWidget(card_title); card_v.addWidget(card_sub); card_v.addWidget(open_chat_btn)
         chat_v.addWidget(card)
-        div = QWidget(); div.setFixedHeight(1)
+        div = QWidget()
+        div.setFixedHeight(1)
         div.setStyleSheet("background:#1A1A24; border:none;")
         chat_v.addWidget(div)
         for color, text in [
@@ -247,12 +279,14 @@ class SagePage(QWidget):
             (ACCENT2,  "Knows your watchlist and\nviewing habits"),
             ("#505068", "Retains mood & taste\nacross sessions"),
         ]:
-            row = QWidget(); rl = QHBoxLayout(row)
+            row = QWidget()
+            rl = QHBoxLayout(row)
             rl.setContentsMargins(2,0,2,0); rl.setSpacing(10)
             pip = QLabel("·"); pip.setFixedWidth(10)
             pip.setStyleSheet(
                 f"color:{color}; font-size:14px; background:transparent; border:none;")
-            txt = QLabel(text); txt.setWordWrap(True)
+            txt = QLabel(text)
+            txt.setWordWrap(True)
             txt.setStyleSheet(
                 f"font-family:{FONT_UI}; font-size:10px; letter-spacing:0.3px; "
                 f"color:#505068; background:transparent; border:none;")
@@ -261,9 +295,12 @@ class SagePage(QWidget):
         chat_v.addStretch()
         self._tab_pages["chat"] = chat_w; self._tab_stack.addWidget(chat_w)
 
-        footer = QWidget(); footer.setFixedHeight(32)
+        footer = QWidget()
+        footer.setFixedHeight(32)
         footer.setStyleSheet(f"background:{BG}; border-top:1px solid #1A1A24;")
-        fl = QHBoxLayout(footer); fl.setContentsMargins(18,0,18,0); fl.setSpacing(8)
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(18,0,18,0)
+        fl.setSpacing(8)
         self.groq_lbl = QLabel("● GROQ CONNECTED")
         self.groq_lbl.setStyleSheet(
             f"font-family:{FONT_UI}; font-size:8px; letter-spacing:1.5px; color:#236050; border:none;")
@@ -315,10 +352,14 @@ class SagePage(QWidget):
                     }}
                 """)
     def _build_output(self):
-        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(20,14,20,10); v.setSpacing(8)
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(20,14,20,10)
+        v.setSpacing(8)
 
         # Title row with refresh button
-        title_row = QHBoxLayout(); title_row.setContentsMargins(0,0,0,0)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0,0,0,0)
         self.out_title = lbl("Select a mode from the left", ACCENT, 16, True)
         title_row.addWidget(self.out_title, 1)
         self._refresh_btn = QPushButton("↻  REFRESH")
@@ -331,14 +372,16 @@ class SagePage(QWidget):
         v.addLayout(title_row)
 
         self.explain_row = QWidget()
-        er = QHBoxLayout(self.explain_row); er.setContentsMargins(0,0,0,0)
+        er = QHBoxLayout(self.explain_row)
+        er.setContentsMargins(0,0,0,0)
         self.explain_input = QLineEdit(); self.explain_input.setPlaceholderText("Enter a title to analyse...")
         er.addWidget(self.explain_input,1)
         er.addWidget(btn("Analyse","accent",lambda: self._run("explain_go")))
         self.explain_row.setVisible(False); v.addWidget(self.explain_row)
 
         self.chapter_row = QWidget()
-        cr = QHBoxLayout(self.chapter_row); cr.setContentsMargins(0,0,0,0)
+        cr = QHBoxLayout(self.chapter_row)
+        cr.setContentsMargins(0,0,0,0)
         self.chapter_input = QComboBox()
         self.chapter_input.setEditable(True)
         self.chapter_input.setPlaceholderText("Book title for summary...")
@@ -347,11 +390,14 @@ class SagePage(QWidget):
         self.chapter_row.setVisible(False); v.addWidget(self.chapter_row)
 
         v.addWidget(hline())
-        self.out_area = QTextEdit(); self.out_area.setReadOnly(True)
+        self.out_area = QTextEdit()
+        self.out_area.setReadOnly(True)
         v.addWidget(self.out_area,1)
 
         bar_row = QHBoxLayout()
-        self.spin = QProgressBar(); self.spin.setRange(0,0); self.spin.setVisible(False)
+        self.spin = QProgressBar()
+        self.spin.setRange(0,0)
+        self.spin.setVisible(False)
         self.spin.setFixedHeight(4)
         self.add_wl_btn = btn("+ Add Recommendations to Watchlist", cb=self._add_rec_to_wl)
         self.add_wl_btn.setVisible(False)
@@ -372,12 +418,16 @@ class SagePage(QWidget):
         return w
 
     def _build_chat(self):
-        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0,0,0,0); v.setSpacing(0)
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0,0,0,0)
+        v.setSpacing(0)
         # Header
         top_bar = QWidget()
         top_bar.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
         top_bar.setFixedHeight(52)
-        th = QHBoxLayout(top_bar); th.setContentsMargins(28,0,28,0)
+        th = QHBoxLayout(top_bar)
+        th.setContentsMargins(28,0,28,0)
         tl = QLabel("CHAT WITH SAGE")
         tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;color:{ACCENT};letter-spacing:3px;")
         back_b = QPushButton("← BACK")
@@ -388,7 +438,8 @@ class SagePage(QWidget):
         th.addWidget(tl); th.addStretch(); th.addWidget(back_b)
         v.addWidget(top_bar)
         # Chat area
-        self.chat_area = QTextEdit(); self.chat_area.setReadOnly(True)
+        self.chat_area = QTextEdit()
+        self.chat_area.setReadOnly(True)
         self.chat_area.setStyleSheet(
             f"background:{BG};border:none;padding:20px 28px;"
             f"font-family:{FONT_BODY};font-size:16px;color:{TEXT};")
@@ -399,7 +450,9 @@ class SagePage(QWidget):
         # Input row
         input_bar = QWidget()
         input_bar.setStyleSheet(f"background:{BG2};border-top:1px solid {BORDER};")
-        ib = QHBoxLayout(input_bar); ib.setContentsMargins(20,12,20,12); ib.setSpacing(8)
+        ib = QHBoxLayout(input_bar)
+        ib.setContentsMargins(20,12,20,12)
+        ib.setSpacing(8)
         self.chat_input = QLineEdit()
         self.chat_input.setPlaceholderText("Message Sage...")
         self.chat_input.returnPressed.connect(self._send_chat)
@@ -508,11 +561,21 @@ class SagePage(QWidget):
     def _start_worker(self, mode, user_msg="", extra=""):
         self.out_area.setPlainText("Sage is thinking...")
         self.spin.setVisible(True); self.add_wl_btn.setVisible(False); self._last_response = ""
-        if self._worker and self._worker.isRunning(): self._worker.terminate()
+        if self._worker and self._worker.isRunning():
+            self._worker._stop = True
+            self._worker.wait(500)
         self._worker = SageWorker(mode, user_msg=user_msg, extra=extra)
+        self._worker.chunk_ready.connect(self._on_chunk)
         self._worker.done.connect(self._sage_done)
         self._worker.error.connect(self._sage_error)
         self._worker.start()
+
+    def _on_chunk(self, chunk):
+        if self.out_area.toPlainText() == "Sage is thinking...":
+            self.out_area.clear()
+        self.out_area.moveCursor(QTextCursor.MoveOperation.End)
+        self.out_area.insertPlainText(chunk)
+        self.spin.setVisible(False)
 
     @staticmethod
     def _strip_md(text: str) -> str:
@@ -536,26 +599,34 @@ class SagePage(QWidget):
             if not piper or not model: return
             # Truncate to first 600 chars for voice (keep it concise)
             speak_text = self._strip_md(text)[:600]
-            import subprocess, threading, tempfile, os as _os
             def _run():
+                wav = None
                 try:
                     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                         wav = tf.name
                     result = subprocess.run(
                         [piper, "--model", model, "--output_file", wav],
                         input=speak_text.encode(), capture_output=True, timeout=30)
-                    if result.returncode == 0 and _os.path.exists(wav):
-                        subprocess.Popen(["aplay", wav],
-                                         stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL)
+                    if result.returncode == 0 and os.path.exists(wav):
+                        proc = subprocess.Popen(["aplay", wav],
+                                                stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL)
+                        proc.wait()   # wait for aplay to finish before deleting
                 except Exception:
                     pass
+                finally:
+                    try:
+                        if wav and os.path.exists(wav):
+                            os.unlink(wav)
+                    except Exception:
+                        pass
             threading.Thread(target=_run, daemon=True).start()
         except Exception:
             pass
 
     def _sage_done(self, text):
-        self.spin.setVisible(False); self._last_response = text
+        self.spin.setVisible(False)
+        self._last_response = text
         self.out_area.setPlainText(self._strip_md(text))
         self.out_area.moveCursor(QTextCursor.MoveOperation.Start)
         self._speak_sage(text)
@@ -622,7 +693,9 @@ class SagePage(QWidget):
         dlg.move(pg.x() + (pg.width() - 400) // 2,
                  pg.y() + (pg.height() - 100) // 2)
 
-        v = QVBoxLayout(dlg); v.setContentsMargins(20, 20, 20, 20); v.setSpacing(10)
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(20, 20, 20, 20)
+        v.setSpacing(10)
         hdr = QLabel("Which title would you like a trailer for?")
         hdr.setStyleSheet(f"color:{TEXT}; font-size:13px;")
         hdr.setWordWrap(True)
@@ -655,13 +728,14 @@ class SagePage(QWidget):
         self._refresh_btn.setEnabled(True)
         self.out_area.setPlainText(
             f"Error: {msg}\n\n"
-            "Check:\n- Your Groq API key is set in sage.py\n"
+            "Check:\n- Your Groq API key is set in .env\n"
             "- You have internet access\n"
             "- sage.py is in the same folder as this file")
 
     def _add_rec_to_wl(self):
         if self._last_response:
-            dlg = AddToWLDialog(self._last_response, self); dlg.exec()
+            dlg = AddToWLDialog(self._last_response, self)
+            dlg.exec()
 
     def _open_chat(self): self._stack.setCurrentIndex(1)
 
@@ -671,7 +745,9 @@ class SagePage(QWidget):
         self.chat_input.clear()
         self.chat_area.append(f'<span style="color:{ACCENT};font-weight:bold;">You:</span>  {msg}<br>')
         self.chat_typing.setText("Sage is thinking...")
-        if self._worker and self._worker.isRunning(): self._worker.terminate()
+        if self._worker and self._worker.isRunning():
+            self._worker._stop = True
+            self._worker.wait(500)
         # Pass a copy of history so the worker has full context
         self._worker = SageWorker("chat", user_msg=msg, history=list(self._chat_history))
         self._worker.done.connect(lambda text, m=msg: self._chat_done(text, m))
@@ -695,13 +771,16 @@ class SettingsPage(QWidget):
         super().__init__(); self._build()
 
     def _build(self):
-        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
         header_w = QWidget()
         header_w.setFixedHeight(52)
         import types as _ht
         from PyQt6.QtGui import QPainter as _hP, QLinearGradient as _hG, QColor as _hC, QBrush as _hB, QPen as _hPen
         def _hdr_paint(self_w, event):
-            p = _hP(self_w); p.setRenderHint(_hP.RenderHint.Antialiasing)
+            p = _hP(self_w)
+            p.setRenderHint(_hP.RenderHint.Antialiasing)
             W, H = self_w.width(), self_w.height()
             g = _hG(0, 0, W, 0)
             g.setColorAt(0, _hC(BG2).lighter(118)); g.setColorAt(0.4, _hC(BG2)); g.setColorAt(1.0, _hC(BG2).lighter(108))
@@ -711,7 +790,8 @@ class SettingsPage(QWidget):
             sep.setColorAt(0.85, _hC(ACCENT).darker(180)); sep.setColorAt(1.0, _hC(ACCENT).darker(400))
             p.setPen(_hPen(_hB(sep), 1)); p.drawLine(0, H - 1, W, H - 1); p.end()
         header_w.paintEvent = _ht.MethodType(_hdr_paint, header_w)
-        hv = QHBoxLayout(header_w); hv.setContentsMargins(28,0,28,0)
+        hv = QHBoxLayout(header_w)
+        hv.setContentsMargins(28,0,28,0)
         back_b3 = QPushButton("← HOME")
         back_b3.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
@@ -723,7 +803,8 @@ class SettingsPage(QWidget):
             f"color:{ACCENT};letter-spacing:4px;margin-left:14px;")
         hv.addWidget(back_b3); hv.addWidget(tl); hv.addStretch()
         root.addWidget(header_w)
-        inner = QWidget(); iv = QVBoxLayout(inner)
+        inner = QWidget()
+        iv = QVBoxLayout(inner)
         iv.setContentsMargins(32,28,32,24); iv.setSpacing(16)
         root.addWidget(inner, 1)
         root = iv  # redirect all following widgets into inner
@@ -739,7 +820,8 @@ class SettingsPage(QWidget):
         pg = QGroupBox("Paths")
         pf = QFormLayout(pg)
         self.dl_edit = QLineEdit(os.path.expanduser("~/Videos"))
-        row = QHBoxLayout(); row.addWidget(self.dl_edit,1)
+        row = QHBoxLayout()
+        row.addWidget(self.dl_edit,1)
         row.addWidget(btn("Browse", cb=lambda: self.dl_edit.setText(
             QFileDialog.getExistingDirectory(self,"Download Dir") or self.dl_edit.text())))
         pf.addRow("Video Download Dir:", row); root.addWidget(pg)
@@ -804,7 +886,7 @@ class SettingsPage(QWidget):
                         if not saved_model and line.strip().startswith("GROQ_MODEL") and "=" in line:
                             v = line.split("=",1)[1].strip().strip('"').strip("'").split("#")[0].strip()
                             if v and v != "active_model": saved_model = v
-                except Exception: pass
+                except Exception: pass  # Ignored
         if saved_key:   self.key_edit.setText(saved_key)
         if saved_model: self.model_edit.setText(saved_model)
         else:           self.model_edit.setText("llama-3.3-70b-versatile")
@@ -836,7 +918,7 @@ class SettingsPage(QWidget):
                 txt = re.sub(r'GROQ_MODEL\s*=\s*["\'][^"\']*["\'][^\n]*',
                              f'GROQ_MODEL = "{new_model}"', txt)
                 sage_path.write_text(txt)
-            except Exception: pass
+            except Exception: pass  # Ignored
         from great_sage_core import reload_module as _rm; _rm("sage")
         QMessageBox.information(self, "Saved", "Settings saved.")
 

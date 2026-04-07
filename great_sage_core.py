@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from datetime import datetime
 
 # Per-path locks — prevents concurrent track_event threads racing on the same .tmp file
 _save_locks: dict = {}
@@ -146,26 +147,37 @@ def save_json(path: str, data: dict):
             log.exc("Failed to save JSON", e, path=path)
 
 # ── Data accessors ─────────────────────────────────────────────────────────────
-def legion_data() -> dict:
+def get_legion_data() -> dict:
     return load_json_cached(LEGION_PROGRESS, {"books": {}})
 
-def matrix_data() -> dict:
-    d = load_json_cached(MATRIX_PROGRESS, {
+def get_matrix_data() -> dict:
+    data = load_json_cached(MATRIX_PROGRESS, {
         "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
         "watching": {}, "completed": {}})
-    wl = d.get("watchlist", {})
-    if isinstance(wl, list):
-        d["watchlist"] = {"planning": wl, "watching": [], "dropped": [], "completed": []}
+    watchlist = data.get("watchlist", {})
+    if isinstance(watchlist, list):
+        data["watchlist"] = {"planning": watchlist, "watching": [], "dropped": [], "completed": []}
     for k in ("planning", "watching", "dropped", "completed"):
-        d["watchlist"].setdefault(k, [])
-    return d
+        data["watchlist"].setdefault(k, [])
+    return data
 
-def bookmarks_data() -> dict:
+def get_bookmarks_data() -> dict:
     return load_json_cached(LEGION_BOOKMARKS,
         {"planning": [], "reading": [], "dropped": [], "completed": []})
 
+def legion_data() -> dict:
+    return get_legion_data()
+
+def matrix_data() -> dict:
+    return get_matrix_data()
+
+def bookmarks_data() -> dict:
+    return get_bookmarks_data()
+
+def behaviour_data() -> dict:
+    return get_behaviour_data()
+
 # ── Sage persistent memory ─────────────────────────────────────────────────────
-from sage_memory_db import SageMemoryDB
 _sage_memory_db_instance = None
 
 def _get_memory_db():
@@ -210,80 +222,80 @@ def sage_memory_extract(response: str, user_msg: str) -> list:
     return facts[:3]
 
 # ── Behaviour tracking ─────────────────────────────────────────────────────────
-def behaviour_data() -> dict:
+def get_behaviour_data() -> dict:
     return load_json(BEHAVIOUR_LOG, {"sessions": [], "signals": {}})
 
 def track_event(event_type: str, data=None):
     def _write():
         try:
-            bd = behaviour_data()
+            behaviour_data = get_behaviour_data()
             # Consolidate watch_time events to prevent log flooding
-            if event_type == "watch_time" and bd["sessions"]:
-                last = bd["sessions"][-1]
+            if event_type == "watch_time" and behaviour_data["sessions"]:
+                last = behaviour_data["sessions"][-1]
                 # If last event was watch_time and within the same hour, merge it
                 if last.get("type") == "watch_time" and (time.time() - last.get("timestamp", 0)) < 300:
                     last["data"]["minutes"] = last["data"].get("minutes", 0) + (data or {}).get("minutes", 0)
                     last["timestamp"] = time.time()
                 else:
-                    bd["sessions"].append({
+                    behaviour_data["sessions"].append({
                         "type":      event_type,
                         "data":      data or {},
                         "timestamp": time.time(),
-                        "hour":      __import__("datetime").datetime.now().hour,
-                        "weekday":   __import__("datetime").datetime.now().weekday(),
+                        "hour":      datetime.now().hour,
+                        "weekday":   datetime.now().weekday(),
                     })
             else:
-                bd["sessions"].append({
+                behaviour_data["sessions"].append({
                     "type":      event_type,
                     "data":      data or {},
                     "timestamp": time.time(),
-                    "hour":      __import__("datetime").datetime.now().hour,
-                    "weekday":   __import__("datetime").datetime.now().weekday(),
+                    "hour":      datetime.now().hour,
+                    "weekday":   datetime.now().weekday(),
                 })
 
-            bd["sessions"] = bd["sessions"][-10000:]
-            sigs = bd.setdefault("signals", {})
+            behaviour_data["sessions"] = behaviour_data["sessions"][-10000:]
+            signals = behaviour_data.setdefault("signals", {})
             if event_type == "chapter_finished":
-                sigs["chapters_finished"] = sigs.get("chapters_finished", 0) + 1
+                signals["chapters_finished"] = signals.get("chapters_finished", 0) + 1
                 genre = (data or {}).get("genre", "")
                 if genre:
-                    gc = sigs.setdefault("genre_counts", {})
-                    gc[genre] = gc.get(genre, 0) + 1
+                    genre_counts = signals.setdefault("genre_counts", {})
+                    genre_counts[genre] = genre_counts.get(genre, 0) + 1
             elif event_type == "chapter_abandoned":
-                sigs["chapters_abandoned"] = sigs.get("chapters_abandoned", 0) + 1
+                signals["chapters_abandoned"] = signals.get("chapters_abandoned", 0) + 1
             elif event_type == "episode_finished":
-                sigs["episodes_finished"] = sigs.get("episodes_finished", 0) + 1
+                signals["episodes_finished"] = signals.get("episodes_finished", 0) + 1
                 genre = (data or {}).get("genre", "")
                 if genre:
-                    gc = sigs.setdefault("genre_counts", {})
-                    gc[genre] = gc.get(genre, 0) + 1
+                    genre_counts = signals.setdefault("genre_counts", {})
+                    genre_counts[genre] = genre_counts.get(genre, 0) + 1
             elif event_type == "words_read":
-                sigs["total_words"] = sigs.get("total_words", 0) + (data or {}).get("words", 0)
+                signals["total_words"] = signals.get("total_words", 0) + (data or {}).get("words", 0)
             elif event_type == "watch_time":
-                sigs["total_watch_minutes"] = sigs.get("total_watch_minutes", 0) + (data or {}).get("minutes", 0)
-            save_json(BEHAVIOUR_LOG, bd)
+                signals["total_watch_minutes"] = signals.get("total_watch_minutes", 0) + (data or {}).get("minutes", 0)
+            save_json(BEHAVIOUR_LOG, behaviour_data)
         except Exception as e:
             log.warning("track_event write failed", event=event_type, error=str(e))
     threading.Thread(target=_write, daemon=True).start()
 
 def behaviour_summary() -> str:
-    bd   = behaviour_data()
-    sigs = bd.get("signals", {})
-    sessions = bd.get("sessions", [])
+    behaviour_data = get_behaviour_data()
+    signals        = behaviour_data.get("signals", {})
+    sessions       = behaviour_data.get("sessions", [])
     if not sessions:
         return ""
     parts = []
-    fin = sigs.get("chapters_finished", 0)
-    abd = sigs.get("chapters_abandoned", 0)
+    fin = signals.get("chapters_finished", 0)
+    abd = signals.get("chapters_abandoned", 0)
     if fin + abd > 0:
         parts.append(f"Finishes {int(fin/(fin+abd)*100)}% of chapters started")
-    words = sigs.get("total_words", 0)
+    words = signals.get("total_words", 0)
     if words: parts.append(f"Read {words:,} words total")
-    mins = sigs.get("total_watch_minutes", 0)
+    mins = signals.get("total_watch_minutes", 0)
     if mins: parts.append(f"Watched {mins//60}h total")
-    gc = sigs.get("genre_counts", {})
-    if gc:
-        top = sorted(gc.items(), key=lambda x: -x[1])[:3]
+    genre_counts = signals.get("genre_counts", {})
+    if genre_counts:
+        top = sorted(genre_counts.items(), key=lambda x: -x[1])[:3]
         parts.append("Favourite genres: " + ", ".join(g for g, _ in top))
     hours = [s.get("hour") for s in sessions if s.get("hour") is not None]
     if hours:
@@ -295,10 +307,10 @@ def behaviour_summary() -> str:
 
 # ── Stream watch context ───────────────────────────────────────────────────────
 def stream_watch_context() -> str:
-    md        = matrix_data()
-    watching  = md.get("watching", {})
-    watchlist = md.get("watchlist", {})
-    parts     = []
+    matrix_data     = get_matrix_data()
+    watching        = matrix_data.get("watching", {})
+    watchlist       = matrix_data.get("watchlist", {})
+    parts           = []
 
     stream_entries, regular_entries = [], []
     for k, v in watching.items():
@@ -306,13 +318,13 @@ def stream_watch_context() -> str:
             regular_entries.append(str(k)); continue
         title  = v.get("title", k)
         ep     = v.get("current_episode", 0)
-        src_   = v.get("source", "")
+        source = v.get("source", "")
         eps_w  = v.get("episodes_watched", [])
         ep_str = f"ep {ep}" if ep else ""
         if eps_w and len(eps_w) > 1:
             ep_str += f" ({len(eps_w)} episodes watched)"
         entry = title + (f" [{ep_str}]" if ep_str else "")
-        if src_ in ("animekai", "animekai_sync"):
+        if source in ("animekai", "animekai_sync"):
             stream_entries.append(entry)
         else:
             regular_entries.append(entry)
@@ -498,6 +510,7 @@ class SageWorker(QThread):
         self.user_msg = user_msg
         self.extra    = extra
         self.history  = history or []
+        self._stop    = False
 
     def run(self):
         mod, err = sage_mod()
@@ -505,11 +518,13 @@ class SageWorker(QThread):
             log.sage.error("sage.py unavailable", error=err)
             self.error.emit(f"Cannot load sage.py: {err}")
             return
-        _s = matrix_data().get("settings", {})
-        if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
-            mod.GROQ_API_KEY = _s["groq_api_key"]
-        if _s.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
-            mod.GROQ_MODEL = _s["groq_model"]
+        
+        # Use get_matrix_data directly to avoid shadowing issues with local matrix_data variable
+        settings = get_matrix_data().get("settings", {})
+        if settings.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
+            mod.GROQ_API_KEY = settings["groq_api_key"]
+        if settings.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
+            mod.GROQ_MODEL = settings["groq_model"]
 
         log.sage.info("Sage request started", mode=self.mode)
         try:
@@ -518,15 +533,23 @@ class SageWorker(QThread):
             memory       = mod.load_memory() if hasattr(mod, "load_memory") else {}
             mem_ctx      = mod.memory_to_context(memory) if hasattr(mod, "memory_to_context") else ""
             
-            # Use semantic vector search for precision
-            relevant_memories = _get_memory_db().search(self.user_msg, k=5)
+            relevant_memories = []
+            try:
+                if self.user_msg:
+                    relevant_memories = _get_memory_db().search(self.user_msg, k=5)
+            except Exception as e:
+                log.sage.warning("Memory search failed", error=str(e))
+
             if relevant_memories:
                 pers_mem = "\n".join(relevant_memories)
                 mem_ctx = (mem_ctx + "\n\n[Relevant Past Memories]\n" + pers_mem).strip()
             else:
-                pers_mem = sage_memory_load()
-                if pers_mem:
-                    mem_ctx = (mem_ctx + "\n\n[Persistent user memory]\n" + pers_mem).strip()
+                try:
+                    pers_mem = sage_memory_load()
+                    if pers_mem:
+                        mem_ctx = (mem_ctx + "\n\n[Persistent user memory]\n" + pers_mem).strip()
+                except Exception:
+                    pass
             bsummary = behaviour_summary()
             if bsummary:
                 mem_ctx = (mem_ctx + "\n\nLearned behaviour signals: " + bsummary).strip()
@@ -551,13 +574,13 @@ class SageWorker(QThread):
             user_msg = prompts.get(self.mode, self.user_msg)
 
             if self.mode == "priority":
-                md = matrix_data()
-                wl = md.get("watchlist", {})
-                if isinstance(wl, list):
-                    wl = {"planning": wl, "watching": [], "dropped": [], "completed": []}
+                matrix_data = get_matrix_data()
+                watchlist = matrix_data.get("watchlist", {})
+                if isinstance(watchlist, list):
+                    watchlist = {"planning": watchlist, "watching": [], "dropped": [], "completed": []}
                 all_unwatched = []
                 for sub in ("planning", "watching"):
-                    for e in wl.get(sub, []):
+                    for e in watchlist.get(sub, []):
                         t = e.get("title", "") if isinstance(e, dict) else str(e)
                         if t and t not in all_unwatched:
                             all_unwatched.append(t)
@@ -572,9 +595,9 @@ class SageWorker(QThread):
                     user_msg = "My watchlist appears to be empty. Suggest what I should add based on my profile."
 
             if self.mode == "chapter_summary":
-                book_name  = self.extra
-                ld         = legion_data()
-                cur_ch     = ld.get("books", {}).get(book_name, {}).get("current_chapter", 0)
+                book_name    = self.extra
+                legion_data  = get_legion_data()
+                cur_ch       = legion_data.get("books", {}).get(book_name, {}).get("current_chapter", 0)
                 chapter_text = None
                 if hasattr(mod, "read_chapters_around") and cur_ch:
                     try:
@@ -611,6 +634,8 @@ class SageWorker(QThread):
             full_resp = ""
             if hasattr(mod, "groq_stream_chat"):
                 for chunk, error in mod.groq_stream_chat(full_prompt, system=mem_ctx if mem_ctx else None):
+                    if self._stop:
+                        return
                     if error:
                         self.error.emit(error)
                         return
@@ -627,7 +652,11 @@ class SageWorker(QThread):
 
             if self.mode in ("novels", "shows", "similar", "mood_light", "mood_heavy", "quick", "whats_next"):
                 try:
-                    titles = re.findall(r'\d+\.\s+(.+?)(?:\s+[-\u2014]|\n|$)', full_resp)
+                    titles = re.findall(
+                        r'\d+[.)]\s+\*{0,2}([^*\n(]{3,60}?)\*{0,2}\s*(?:[-\u2014:(]|$)',
+                        full_resp
+                    )
+                    titles = [t.strip().strip('*').strip() for t in titles if t.strip()]
                     if titles and hasattr(mod, "add_seen_recs"):
                         mod.add_seen_recs(titles[:8])
                 except Exception as e:
@@ -709,14 +738,15 @@ class _SageCompanionWorker(QThread):
 
     def run(self):
         mod, err = sage_mod()
+        # Guard FIRST, before any attribute access on mod:
+        if not mod or not hasattr(mod, "groq_chat"):
+            self.done.emit(f"Sage unavailable: {err or 'sage.py not loaded'}")
+            return
         _s = matrix_data().get("settings", {})
         if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
             mod.GROQ_API_KEY = _s["groq_api_key"]
         if _s.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
             mod.GROQ_MODEL = _s["groq_model"]
-        if not mod or not hasattr(mod, "groq_chat"):
-            self.done.emit(f"Sage unavailable: {err or 'sage.py not loaded'}")
-            return
 
         q            = self.question.strip()
         lookup_match = re.match(
@@ -818,34 +848,55 @@ class _DiscoveryWorker(QThread):
         self.query = query
 
     def run(self):
+        results = []
+        mod, _ = legion_mod()
+        if mod and hasattr(mod, "plugin_registry"):
+            import requests
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0"})
+            for plugin in mod.plugin_registry.all_plugins():
+                if plugin.supports_search:
+                    try:
+                        hits = plugin.search(self.query, session)
+                        for h in hits[:4]:   # max 4 per source
+                            results.append({
+                                "title": h.title,
+                                "url":   h.url,
+                                "desc":  h.description,
+                                "source": plugin.name,
+                            })
+                    except Exception as e:
+                        log.error("Discovery search failed", plugin=plugin.id, error=str(e))
+        # Fallback to Groq if no results
+        if not results:
+            results = self._groq_fallback()
+        self.done.emit(results[:15])
+
+    def _groq_fallback(self) -> list:
         try:
-            import urllib.parse
             mod, err = sage_mod()
             if not mod:
-                self.error.emit(err or "sage.py not loaded")
-                return
+                return []
 
             # Apply settings-override API key (same pattern as SageWorker)
-            settings = load_json(MATRIX_PROGRESS, {}).get("settings", {})
+            settings = get_matrix_data().get("settings", {})
             if settings.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
                 mod.GROQ_API_KEY = settings["groq_api_key"]
 
-            profile_text = mod.profile_to_text(mod.build_profile())
             prompt = (
                 f"You are a web novel expert. A user wants novel recommendations.\n\n"
                 f"User's request: \"{self.query}\"\n\n"
                 f"Rules:\n"
                 f"- Treat every requirement as a HARD filter\n"
                 f"- Only recommend novels that exist on novelbin.com or webnovel.com\n"
-                f"- Return EXACTLY 6 titles, one per line\n"
+                f"- Return EXACTLY 15 titles, one per line\n"
                 f"- Format: Title | one sentence description\n"
                 f"- No numbering, no bullet points\n\n"
-                f"Return 6 novels matching: \"{self.query}\""
+                f"Return 15 novels matching: \"{self.query}\""
             )
             response, error = mod.groq_chat(prompt)
             if error:
-                self.error.emit(error)
-                return
+                return []
 
             results = []
             for line in (response or "").splitlines():
@@ -862,12 +913,17 @@ class _DiscoveryWorker(QThread):
                 if not title:
                     continue
                 slug = "".join(c for c in title.lower().replace(" ", "-") if c.isalnum() or c == "-")
-                results.append({"title": title, "url": f"https://novelbin.com/b/{slug}", "desc": desc})
-                if len(results) >= 6:
+                results.append({
+                    "title": title, 
+                    "url": f"https://novelbin.com/b/{slug}", 
+                    "desc": desc,
+                    "source": "Groq AI"
+                })
+                if len(results) >= 15:
                     break
-            self.done.emit(results)
-        except Exception as e:
-            self.error.emit(str(e))
+            return results
+        except Exception:
+            return []
 
 
 class AutoSyncWorker(QThread):
@@ -881,8 +937,8 @@ class AutoSyncWorker(QThread):
             log.sync.warning("Auto-sync skipped — legion.py unavailable", error=err)
             return
 
-        ld    = legion_data()
-        books = ld.get("books", {})
+        legion_data = get_legion_data()
+        books = legion_data.get("books", {})
         log.sync.info("Auto-sync started", total_books=len(books))
 
         fresh = [
@@ -892,13 +948,13 @@ class AutoSyncWorker(QThread):
                book.get("download_state", {}).get("total_chapters_downloaded", 0) == 0
         ]
         for name, book in fresh:
-            ld = legion_data()
-            if name not in ld.get("books", {}):
+            legion_data = get_legion_data()
+            if name not in legion_data.get("books", {}):
                 continue
-            ld["books"][name]["download_state"]["status"] = "queued"
-            save_json(LEGION_PROGRESS, ld)
+            legion_data["books"][name]["download_state"]["status"] = "queued"
+            save_json(LEGION_PROGRESS, legion_data)
             try:
-                mod.download_manager.queue_download(name, ld["books"][name], ld)
+                mod.download_manager.queue_download(name, legion_data["books"][name], legion_data)
                 log.sync.info("Fresh book queued for download", book=name)
             except Exception as e:
                 log.sync.exc("Failed to queue fresh book download", e, book=name)
@@ -944,10 +1000,10 @@ class AutoSyncWorker(QThread):
             self.status_update.emit(f"Syncing {name}...")
 
             existing_state = book.get("download_state", {})
-            ld = legion_data()
-            if name not in ld.get("books", {}):
+            legion_data = get_legion_data()
+            if name not in legion_data.get("books", {}):
                 continue
-            ld["books"][name]["download_state"] = {
+            legion_data["books"][name]["download_state"] = {
                 "status":                      "queued",
                 "last_downloaded_chapter":     last_dl_url,
                 "last_downloaded_chapter_num": last_dl_ch,
@@ -958,12 +1014,11 @@ class AutoSyncWorker(QThread):
                 "pause_requested":             False,
                 "_sync_start_url":             next_url,
             }
-            save_json(LEGION_PROGRESS, ld)
+            save_json(LEGION_PROGRESS, legion_data)
             try:
-                mod.download_manager.queue_download(name, ld["books"][name], ld)
+                mod.download_manager.queue_download(name, legion_data["books"][name], legion_data)
             except Exception as e:
                 log.sync.exc("Failed to queue sync download", e, book=name)
-
         if any_new:
             log.sync.info("Auto-sync complete — new chapters found", books=synced_names)
             self.sync_done.emit(f"📥 Syncing new chapters — {', '.join(synced_names)}")
@@ -992,9 +1047,9 @@ def start_mobile_server():
 
         @app.route("/api/watching")
         def api_watching():
-            md    = matrix_data()
+            matrix_data = get_matrix_data()
             items = []
-            for key, info in md.get("watching", {}).items():
+            for key, info in matrix_data.get("watching", {}).items():
                 if not isinstance(info, dict):
                     continue
                 items.append({
@@ -1010,25 +1065,25 @@ def start_mobile_server():
 
         @app.route("/api/reading")
         def api_reading():
-            ld    = legion_data()
+            legion_data = get_legion_data()
             items = []
-            for name, b in ld.get("books", {}).items():
-                if b.get("chapters_read", 0) == 0:
+            for name, book in legion_data.get("books", {}).items():
+                if book.get("chapters_read", 0) == 0:
                     continue
                 items.append({
                     "title":      name,
-                    "ch_read":    b.get("chapters_read", 0),
-                    "current_ch": b.get("current_chapter", 0),
-                    "words":      b.get("words_read", 0),
+                    "ch_read":    book.get("chapters_read", 0),
+                    "current_ch": book.get("current_chapter", 0),
+                    "words":      book.get("words_read", 0),
                 })
             return jsonify({"items": items})
 
         @app.route("/api/watchlist")
         def api_watchlist():
-            md     = matrix_data()
-            wl     = md.get("watchlist", {})
+            matrix_data = get_matrix_data()
+            watchlist = matrix_data.get("watchlist", {})
             result = {}
-            for lst, entries in wl.items():
+            for lst, entries in watchlist.items():
                 result[lst] = [
                     {"title": e.get("title", "?") if isinstance(e, dict) else str(e)}
                     for e in entries
@@ -1039,10 +1094,10 @@ def start_mobile_server():
         def api_remove_watching():
             data  = request.json or {}
             title = data.get("title", "")
-            md    = matrix_data()
-            if title in md.get("watching", {}):
-                del md["watching"][title]
-                save_json(MATRIX_PROGRESS, md)
+            matrix_data = get_matrix_data()
+            if title in matrix_data.get("watching", {}):
+                del matrix_data["watching"][title]
+                save_json(MATRIX_PROGRESS, matrix_data)
             return jsonify({"ok": True})
 
         @app.route("/api/move_watchlist", methods=["POST"])
@@ -1051,19 +1106,19 @@ def start_mobile_server():
             title     = data.get("title", "")
             from_list = data.get("from_list", "")
             to_list   = data.get("to_list", "")
-            md        = matrix_data()
-            wl        = md.setdefault("watchlist", {})
+            matrix_data = get_matrix_data()
+            watchlist = matrix_data.setdefault("watchlist", {})
             entry     = None
-            for e in wl.get(from_list, []):
+            for e in watchlist.get(from_list, []):
                 t = e.get("title", "") if isinstance(e, dict) else str(e)
                 if t == title:
                     entry = e
                     break
             if entry:
-                wl[from_list] = [e for e in wl[from_list]
+                watchlist[from_list] = [e for e in watchlist[from_list]
                     if (e.get("title", "") if isinstance(e, dict) else str(e)) != title]
-                wl.setdefault(to_list, []).append(entry)
-                save_json(MATRIX_PROGRESS, md)
+                watchlist.setdefault(to_list, []).append(entry)
+                save_json(MATRIX_PROGRESS, matrix_data)
             return jsonify({"ok": True})
 
         @app.route("/api/update_reading", methods=["POST"])
@@ -1071,11 +1126,11 @@ def start_mobile_server():
             data  = request.json or {}
             title = data.get("title", "")
             ch    = data.get("current_chapter", 0)
-            ld    = legion_data()
-            b     = ld.get("books", {}).get(title)
-            if b and ch > 0:
-                b["current_chapter"] = ch
-                save_json(LEGION_PROGRESS, ld)
+            legion_data = get_legion_data()
+            book  = legion_data.get("books", {}).get(title)
+            if book and ch > 0:
+                book["current_chapter"] = ch
+                save_json(LEGION_PROGRESS, legion_data)
             return jsonify({"ok": True})
 
         def _run():

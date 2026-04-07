@@ -214,10 +214,22 @@ def _find_legion():
 def _install(legion=None):
     if legion is None:
         legion = _find_legion()
-    if not legion or not hasattr(legion, "jumpin_list"):
+    if not legion:
         return
-    lw: QListWidget = legion.jumpin_list
-    lw.setIconSize(QSize(THUMB_W, THUMB_H))
+    
+    # Potential targets for cover icons
+    widgets = []
+    for attr in ["jumpin_grid", "jumpin_list", "bookmarks_list"]:
+        if hasattr(legion, attr):
+            w = getattr(legion, attr)
+            if isinstance(w, QListWidget):
+                widgets.append(w)
+    
+    if hasattr(legion, "_discovery_page") and hasattr(legion._discovery_page, "grid"):
+        widgets.append(legion._discovery_page.grid)
+
+    if not widgets:
+        return
 
     # Connect signal to update icons when covers arrive
     bridge = _get_bridge()
@@ -225,20 +237,22 @@ def _install(legion=None):
         bridge.cover_ready.disconnect()
     except Exception:
         pass
-    bridge.cover_ready.connect(lambda title: _update_icon(lw, title))
+    bridge.cover_ready.connect(lambda title: _update_all_widgets(widgets, title))
 
     # Apply icons to current items
-    for i in range(lw.count()):
-        item = lw.item(i)
-        title = item.data(Qt.ItemDataRole.UserRole) or ""
-        if title:
-            _apply_icon(item, title)
+    for lw in widgets:
+        lw.setIconSize(QSize(THUMB_W, THUMB_H))
+        for i in range(lw.count()):
+            item = lw.item(i)
+            # data could be title string or a dict with "title" key
+            data = item.data(Qt.ItemDataRole.UserRole)
+            title = data if isinstance(data, str) else (data.get("title") if isinstance(data, dict) else "")
+            if title:
+                _apply_icon(item, title)
 
-    # Trigger Legion refresh so new items get icons via gui patch
-    try:
-        legion.refresh()
-    except Exception:
-        pass
+def _update_all_widgets(widgets, title):
+    for lw in widgets:
+        _update_icon(lw, title)
 
 def _update_icon(lw: QListWidget, title: str):
     """Called when a cover fetch completes — update matching item."""
@@ -247,9 +261,10 @@ def _update_icon(lw: QListWidget, title: str):
         return
     for i in range(lw.count()):
         item = lw.item(i)
-        if item.data(Qt.ItemDataRole.UserRole) == title:
+        data = item.data(Qt.ItemDataRole.UserRole)
+        item_title = data if isinstance(data, str) else (data.get("title") if isinstance(data, dict) else "")
+        if item_title == title:
             item.setIcon(QIcon(px))
-            break
 
 # ── Plugin entry points ───────────────────────────────────────────────────────
 def build_page(parent, api):
@@ -371,12 +386,23 @@ def build_page(parent, api):
                 _px_cache[t] = px
                 legion = _find_legion()
                 if legion:
-                    lw = legion.jumpin_list
-                    for i in range(lw.count()):
-                        item = lw.item(i)
-                        if item.data(Qt.ItemDataRole.UserRole) == t:
-                            item.setIcon(QIcon(px))
-                            break
+                    widgets = []
+                    for attr in ["jumpin_grid", "jumpin_list", "bookmarks_list"]:
+                        if hasattr(legion, attr):
+                            w = getattr(legion, attr)
+                            if isinstance(w, QListWidget):
+                                widgets.append(w)
+                    if hasattr(legion, "_discovery_page") and hasattr(legion._discovery_page, "grid"):
+                        widgets.append(legion._discovery_page.grid)
+                    
+                    for lw in widgets:
+                        for i in range(lw.count()):
+                            item = lw.item(i)
+                            data = item.data(Qt.ItemDataRole.UserRole)
+                            title = data if isinstance(data, str) else (data.get("title") if isinstance(data, dict) else "")
+                            if title == t:
+                                item.setIcon(QIcon(px))
+                                break
                 manual_title.setText("")
                 manual_title.setPlaceholderText(f"✓ Cover set for '{t}'")
 

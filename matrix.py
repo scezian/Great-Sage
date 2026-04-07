@@ -563,7 +563,7 @@ class MediaPlayer:
                                     process is not None and process.poll() is not None):
                                 if on_progress:
                                     try: on_progress(file_path, last_position, duration)
-                                    except Exception: pass
+                                    except Exception: pass  # Ignored
                                 _state["result"] = (True, False)
                                 return
                             time.sleep(1)
@@ -579,7 +579,7 @@ class MediaPlayer:
 
                         if on_progress:
                             try: on_progress(file_path, last_position, duration)
-                            except Exception: pass
+                            except Exception: pass  # Ignored
                         MediaPlayer._mpv_command(socket_path, "loadfile", next_file, "replace")
                         _state["result"] = (False, True)
                         return

@@ -154,7 +154,8 @@ def _clean_title(title, artist):
     # If title contains " - ", split into artist/title
     if " - " in clean:
         left, right = clean.split(" - ", 1)
-        left = left.strip(); right = right.strip()
+        left = left.strip()
+        right = right.strip()
         if not clean_artist or clean_artist.lower() in ("unknown", ""):
             return left, right
         # Check if left part matches artist (fuzzy)
@@ -587,7 +588,8 @@ def build_page(parent, api):
     hdr.setStyleSheet(
         f"background:{colours['BG2']};"
         f"border-bottom:1px solid {colours['BORDER']};")
-    hh = QHBoxLayout(hdr); hh.setContentsMargins(28, 0, 28, 0)
+    hh = QHBoxLayout(hdr)
+    hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("♪  LYRICS")
     tl.setStyleSheet(
         f"color:{colours['ACCENT']};font-size:14px;"
