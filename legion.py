@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
+from source_plugin_base import SourcePlugin, ChapterResult
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 try:
@@ -150,25 +151,54 @@ SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 SCRAPER = cloudscraper.create_scraper() if CLOUDSCRAPER else None
 
-MIRRORS = ["novelbin.com", "novelbin.me", "novelfull.com"]
+class SourcePluginRegistry:
+    def __init__(self):
+        self._plugins: list[SourcePlugin] = []
 
-WATERMARK_PATTERNS = [
-    r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
-    r"(?i)read\s+(at|on)\s+\S+\s+for.*",
-    r"(?i)support\s+the\s+(author|translator)\s+at\s+\S+.*",
-    r"(?i)this\s+chapter\s+(is|was)\s+(stolen|taken)\s+from.*",
-    r"(?i)find\s+(this|more)\s+(story|chapter|content)\s+(at|on)\s+\S+.*",
-    r"(?i)novelbin\.(me|com|net)\S*",
-    r"(?i)\[.*?novelbin.*?\]",
-    # NovelBin comment/response junk
-    r"(?i)^total\s+responses?\s*:\s*\d+$",
-    r"(?i)^responses?\s*:\s*\d+$",
-    r"(?i)^\d+\s+comments?$",
-    r"(?i)^(load|show)\s+more\s+comments?.*",
-    r"(?i)^leave\s+a\s+(reply|comment).*",
-    r"(?i)^(sponsored|advertisement|advert)\b.*",
-    r"(?i)^your\s+email\s+address\s+will\s+not\s+be\s+published.*",
-]
+    def register(self, plugin: SourcePlugin):
+        self._plugins.append(plugin)
+
+    def for_url(self, url: str) -> SourcePlugin | None:
+        for p in self._plugins:
+            if p.can_handle(url):
+                return p
+        return None
+
+    def all_plugins(self) -> list[SourcePlugin]:
+        return list(self._plugins)
+
+    def load_user_plugins(self, directory: str):
+        """Load .py files from a directory as plugins. Each must define
+        a module-level `plugin` variable that is a SourcePlugin instance."""
+        import importlib.util, pathlib
+        for f in pathlib.Path(directory).glob("*.py"):
+            try:
+                spec = importlib.util.spec_from_file_location(f.stem, f)
+                mod  = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                if hasattr(mod, "plugin") and isinstance(mod.plugin, SourcePlugin):
+                    self.register(mod.plugin)
+            except Exception as e:
+                log.error("Failed to load user plugin", file=str(f), error=str(e))
+
+plugin_registry = SourcePluginRegistry()
+
+# Add project dir to sys.path to ensure sources can be imported
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Built-in plugins
+try:
+    from sources.novelbin_plugin import plugin as novelbin_plugin
+    from sources.royalroad_plugin import plugin as royalroad_plugin
+    plugin_registry.register(novelbin_plugin)
+    plugin_registry.register(royalroad_plugin)
+except ImportError as e:
+    log.error("Failed to load built-in plugins", error=str(e))
+
+# User plugins from ~/.config/great-sage/sources/
+_user_plugin_dir = os.path.expanduser("~/.config/great-sage/sources")
+os.makedirs(_user_plugin_dir, exist_ok=True)
+plugin_registry.load_user_plugins(_user_plugin_dir)
 
 DIVIDERS = ["　❦　", "　✦　", "　⁂　", "　❧　", "　◈　", "　✧　", "　⟡　"]
 
@@ -750,11 +780,12 @@ def show_bookmarks_menu(progress: dict):
                     return result[1], result[2]  # title, url
 
 
-def _build_mirror_urls(url: str) -> list:
+def _generic_build_mirror_urls(url: str) -> list:
+    mirrors = ["novelbin.com", "novelbin.me", "novelfull.com"]
     parsed = urlparse(url)
     original_host = parsed.netloc
     urls = [url]
-    for mirror in MIRRORS:
+    for mirror in mirrors:
         if mirror != original_host:
             urls.append(url.replace(original_host, mirror, 1))
     return urls
@@ -768,8 +799,8 @@ def _warm_session(base_url: str):
         pass
 
 
-def _get_with_retry(url: str):
-    urls = _build_mirror_urls(url)
+def _generic_get_with_retry(url: str):
+    urls = _generic_build_mirror_urls(url)
     last_error = "Unknown error"
     for attempt_url in urls:
         parsed = urlparse(attempt_url)
@@ -779,43 +810,96 @@ def _get_with_retry(url: str):
         try:
             resp = (SCRAPER or SESSION).get(attempt_url, timeout=15)
             if resp.status_code == 403:
-                # Try cloudscraper specifically on 403 (Cloudflare protected site)
                 if CLOUDSCRAPER and not SCRAPER:
                     try:
                         cs = cloudscraper.create_scraper()
                         resp2 = cs.get(attempt_url, timeout=20)
-                        if resp2.status_code == 200:
-                            return resp2, attempt_url
+                        if resp2.status_code == 200: return resp2, attempt_url
                     except Exception: pass
                 elif SCRAPER:
-                    # Already using cloudscraper — try with longer timeout
                     try:
                         time.sleep(2)
                         resp2 = SCRAPER.get(attempt_url, timeout=30)
-                        if resp2.status_code == 200:
-                            return resp2, attempt_url
+                        if resp2.status_code == 200: return resp2, attempt_url
                     except Exception: pass
-                last_error = f"403 Forbidden ({parsed.netloc}) — Cloudflare protected"
+                last_error = f"403 Forbidden — Cloudflare protected"
                 continue
             resp.raise_for_status()
             return resp, attempt_url
-        except requests.RequestException as e:
+        except Exception as e:
             last_error = str(e)
             continue
-    raise requests.RequestException(
-        f"{last_error}\n\n  All mirrors failed. Try opening the chapter in your browser first."
-    )
+    raise Exception(f"{last_error} — All mirrors failed.")
 
 
-def fetch_chapter(url: str):
+def _fetch_chapter_generic(url: str):
+    # Hardcoded mirrors for the generic fallback (original NovelBin mirrors)
+    GENERIC_MIRRORS = ["novelbin.com", "novelbin.me", "novelfull.com"]
+    GENERIC_WATERMARKS = [
+        r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
+        r"(?i)read\s+(at|on)\s+\S+\s+for.*",
+        r"(?i)support\s+the\s+(author|translator)\s+at\s+\S+.*",
+        r"(?i)this\s+chapter\s+(is|was)\s+(stolen|taken)\s+from.*",
+        r"(?i)find\s+(this|more)\s+(story|chapter|content)\s+(at|on)\s+\S+.*",
+        r"(?i)novelbin\.(me|com|net)\S*",
+        r"(?i)\[.*?novelbin.*?\]",
+        r"(?i)^total\s+responses?\s*:\s*\d+$",
+        r"(?i)^responses?\s*:\s*\d+$",
+        r"(?i)^\d+\s+comments?$",
+        r"(?i)^(load|show)\s+more\s+comments?.*",
+        r"(?i)^leave\s+a\s+(reply|comment).*",
+        r"(?i)^(sponsored|advertisement|advert)\b.*",
+        r"(?i)^your\s+email\s+address\s+will\s+not\s+be\s+published.*",
+    ]
+
+    def _local_build_mirrors(u):
+        parsed = urlparse(u)
+        host = parsed.netloc
+        urls = [u]
+        for m in GENERIC_MIRRORS:
+            if m != host:
+                urls.append(u.replace(host, m, 1))
+        return urls
+
+    def _local_get_with_retry(u):
+        urls = _local_build_mirrors(u)
+        last_err = "Unknown error"
+        for att_url in urls:
+            parsed = urlparse(att_url)
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            _warm_session(base)
+            time.sleep(0.8)
+            try:
+                resp = (SCRAPER or SESSION).get(att_url, timeout=15)
+                if resp.status_code == 403:
+                    if CLOUDSCRAPER and not SCRAPER:
+                        try:
+                            cs = cloudscraper.create_scraper()
+                            resp2 = cs.get(att_url, timeout=20)
+                            if resp2.status_code == 200: return resp2, att_url
+                        except Exception: pass
+                    elif SCRAPER:
+                        try:
+                            time.sleep(2)
+                            resp2 = SCRAPER.get(att_url, timeout=30)
+                            if resp2.status_code == 200: return resp2, att_url
+                        except Exception: pass
+                    last_err = f"403 Forbidden — Cloudflare protected"
+                    continue
+                resp.raise_for_status()
+                return resp, att_url
+            except Exception as e:
+                last_err = str(e)
+                continue
+        raise requests.RequestException(f"{last_err} — All mirrors failed.")
+
     try:
-        resp, actual_url = _get_with_retry(url)
-    except requests.RequestException as e:
-        log.error("fetch_chapter failed — all mirrors exhausted", url=url, error=str(e))
+        resp, actual_url = _local_get_with_retry(url)
+    except Exception as e:
+        log.error("_fetch_chapter_generic failed", url=url, error=str(e))
         return None, [], None, None, str(e), None
 
     soup = BeautifulSoup(resp.text, "html.parser")
-
     title = "Chapter"
     for tag_name, attrs in [("span", {"class": "chr-text"}), ("h2", {"class": "chr-title"}), ("h1", {})]:
         tag = soup.find(tag_name, attrs)
@@ -831,62 +915,47 @@ def fetch_chapter(url: str):
     if not content_div:
         divs = soup.find_all("div")
         content_div = max(divs, key=lambda d: len(d.find_all("p")), default=None)
+    
     if not content_div:
-        page_title = soup.title.get_text(strip=True) if soup.title else "no-title"
-        log.legion.debug("fetch_chapter: content_div not found", url=url, page_title=page_title, page_len=len(resp.text))
-        log.error("Could not locate chapter content div",
-                  url=url,
-                  page_title=page_title,
-                  page_len=len(resp.text))
-        return title, [], None, None, "Could not locate chapter content.", None
+        return title, [], None, None, "Could not locate content.", None
 
     for junk in content_div(["script", "style", "iframe", "ins", "noscript"]):
         junk.decompose()
 
-    raw_paragraphs = [
-        p.get_text(separator=" ").strip()
-        for p in content_div.find_all("p")
-        if p.get_text(strip=True)
-    ]
+    raw_paragraphs = [p.get_text(separator=" ").strip() for p in content_div.find_all("p") if p.get_text(strip=True)]
     if not raw_paragraphs:
         raw_text = content_div.get_text(separator="\n").strip()
         raw_paragraphs = [l.strip() for l in raw_text.splitlines() if l.strip()]
 
-    paragraphs = [
-        p for p in raw_paragraphs
-        if not any(re.search(pat, p) for pat in WATERMARK_PATTERNS)
-    ]
-
-    log.debug("fetch_chapter parsed",
-              url=url,
-              raw_paragraphs=len(raw_paragraphs),
-              after_filter=len(paragraphs),
-              content_div_id=content_div.get("id", "") if content_div else "none")
-
-    if not paragraphs and raw_paragraphs:
-        log.error("All paragraphs removed by watermark filter",
-                  url=url,
-                  sample=raw_paragraphs[0][:120] if raw_paragraphs else "")
+    paragraphs = [p for p in raw_paragraphs if not any(re.search(pat, p) for pat in GENERIC_WATERMARKS)]
 
     parsed = urlparse(actual_url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     next_url = _extract_nav(soup, "next_chap", base)
     prev_url = _extract_nav(soup, "prev_chap", base)
 
-    # Extract chapter number from URL (e.g. novelbin: /chapter-40)
     url_ch_num = None
     m_url = re.search(r'/chapter-([0-9]+)', actual_url)
     if m_url:
         url_ch_num = int(m_url.group(1))
 
-    # Fallback: construct prev URL only (safe — going back never causes infinite loop)
-    # Do NOT construct next_url — it causes downloads to run past the latest released chapter
-    if not prev_url:
-        if url_ch_num is not None and url_ch_num > 1:
-            ch_prefix = actual_url[:actual_url.index(m_url.group(0))]
-            prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
+    if not prev_url and url_ch_num is not None and url_ch_num > 1:
+        ch_prefix = actual_url[:actual_url.index(m_url.group(0))]
+        prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
 
     return title, paragraphs, next_url, prev_url, None, url_ch_num
+
+def fetch_chapter(url: str):
+    plugin = plugin_registry.for_url(url)
+    if plugin:
+        scraper = SCRAPER if plugin.supports_cloudflare else None
+        result  = plugin.fetch_chapter(url, SESSION, scraper)
+        if result.error:
+            return "", [], None, None, result.error, None
+        result.paragraphs = plugin.clean_content(result.paragraphs)
+        return result.title, result.paragraphs, result.next_url, result.prev_url, None, result.chapter_num
+    else:
+        return _fetch_chapter_generic(url)
 
 
 def download_book(book_name: str, start_url: str, incremental: bool = False):
@@ -1121,6 +1190,22 @@ def _extract_synopsis(soup):
 
 
 def fetch_book_metadata(chapter_url: str) -> dict:
+    plugin = plugin_registry.for_url(chapter_url)
+    if plugin:
+        try:
+            metadata = plugin.fetch_metadata(chapter_url, SESSION)
+            if metadata and metadata.title:
+                return {
+                    "title": metadata.title,
+                    "author": metadata.author,
+                    "status": metadata.status,
+                    "genres": ", ".join(metadata.genres),
+                    "synopsis": metadata.synopsis,
+                    "cover_url": metadata.cover_url
+                }
+        except Exception as e:
+            log.error("Plugin fetch_metadata failed", plugin=plugin.id, error=str(e))
+
     try:
         parsed = urlparse(chapter_url)
         path_parts = parsed.path.strip('/').split('/')
@@ -1136,7 +1221,7 @@ def fetch_book_metadata(chapter_url: str) -> dict:
         resp = None
         for url in dict.fromkeys(candidates):
             try:
-                r, _ = _get_with_retry(url)
+                r, _ = _generic_get_with_retry(url)
                 if r and r.status_code == 200 and len(r.text) > 2000:
                     resp = r
                     break
@@ -1169,6 +1254,117 @@ def fetch_book_metadata(chapter_url: str) -> dict:
         return {}
 
 
+def resolve_first_chapter_url(book_page_url: str) -> str | None:
+    """
+    Given a book landing page URL, resolve the first chapter URL.
+    This scrapes the book page and looks for 'Read' or 'Start Reading' links.
+    Returns the first chapter URL or None if not found.
+    """
+    try:
+        # Check if plugin can handle this URL
+        plugin = plugin_registry.for_url(book_page_url)
+        if plugin and hasattr(plugin, 'resolve_first_chapter'):
+            try:
+                return plugin.resolve_first_chapter(book_page_url, SESSION)
+            except Exception as e:
+                log.warning("Plugin resolve_first_chapter failed", url=book_page_url, error=str(e))
+
+        # Generic fallback: scrape the book page for first chapter link
+        resp, actual_url = _generic_get_with_retry(book_page_url)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        parsed = urlparse(actual_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Look for common "Read" or "Start Reading" button patterns
+        read_patterns = [
+            r"read\s+now",
+            r"start\s+reading",
+            r"read\s+first\s+chapter",
+            r"begin\s+reading",
+            r"^read$",
+            r"^start$",
+        ]
+
+        # 1. Look for buttons/links with read patterns
+        for a in soup.find_all("a", href=True):
+            text = a.get_text(strip=True).lower()
+            for pat in read_patterns:
+                if re.search(pat, text, re.I):
+                    href = a["href"]
+                    if href:
+                        # Make absolute URL
+                        if href.startswith("http"):
+                            return href
+                        elif href.startswith("/"):
+                            return base + href
+                        else:
+                            return base + "/" + href
+
+        # 2. Look for chapter list and get first chapter
+        chapter_selectors = [
+            ("a", {"class": re.compile(r"chapter|chap", re.I)}),
+            ("a", {"href": re.compile(r"/chapter[-/]?", re.I)}),
+            ("a", {"href": re.compile(r"chapter-\d+", re.I)}),
+        ]
+
+        for tag_name, attrs in chapter_selectors:
+            links = soup.find_all(tag_name, attrs)
+            if links:
+                # Sort by href to get chapter 1 or earliest
+                def chapter_sort_key(a):
+                    href = a.get("href", "")
+                    m = re.search(r"chapter[-/]?(\d+)", href, re.I)
+                    if m:
+                        return int(m.group(1))
+                    return 999999
+
+                sorted_links = sorted(links, key=chapter_sort_key)
+                if sorted_links:
+                    first_ch = sorted_links[0]["href"]
+                    if first_ch.startswith("http"):
+                        return first_ch
+                    elif first_ch.startswith("/"):
+                        return base + first_ch
+                    else:
+                        return base + "/" + first_ch
+
+        # 3. Look for table of contents links
+        toc_selectors = [
+            ("a", {"href": re.compile(r"toc|contents|chapters|list", re.I)}),
+            ("a", {"class": re.compile(r"toc|contents|chapters|list", re.I)}),
+        ]
+
+        for tag_name, attrs in toc_selectors:
+            toc_link = soup.find(tag_name, attrs)
+            if toc_link:
+                href = toc_link["href"]
+                if href:
+                    toc_url = href if href.startswith("http") else (base + href if href.startswith("/") else base + "/" + href)
+                    # Try to get first chapter from TOC page
+                    try:
+                        toc_resp, _ = _generic_get_with_retry(toc_url)
+                        toc_soup = BeautifulSoup(toc_resp.text, "html.parser")
+                        for sel in chapter_selectors:
+                            links = toc_soup.find_all(*sel)
+                            if links:
+                                sorted_links = sorted(links, key=lambda a: int(re.search(r"chapter[-/]?(\d+)", a.get("href", ""), re.I).group(1)) if re.search(r"chapter[-/]?(\d+)", a.get("href", ""), re.I) else 999999)
+                                if sorted_links:
+                                    first_ch = sorted_links[0]["href"]
+                                    if first_ch.startswith("http"):
+                                        return first_ch
+                                    elif first_ch.startswith("/"):
+                                        return base + first_ch
+                                    else:
+                                        return base + "/" + first_ch
+                    except Exception:
+                        pass
+
+        return None
+    except Exception as e:
+        log.error("resolve_first_chapter_url failed", url=book_page_url, error=str(e))
+        return None
+
+
 def parse_novelbin(soup): return _scrape_info_box(soup)
 def parse_novelfull(soup): return _scrape_info_box(soup)
 def parse_wuxiaworld(soup): return _scrape_info_box(soup)
@@ -1179,7 +1375,7 @@ def extract_synopsis_fallback(soup): return _extract_synopsis(soup)
 
 def extract_book_title_from_chapter(url: str) -> str:
     try:
-        resp, _ = _get_with_retry(url)
+        resp, _ = _generic_get_with_retry(url)
         soup = BeautifulSoup(resp.text, "html.parser")
         breadcrumb = soup.find("ol", class_="breadcrumb")
         if breadcrumb:
@@ -1426,10 +1622,19 @@ def read_last_n_chapters(book_name: str, n: int = 5) -> str:
         return ""
 
 
-def find_next_chapter(url):
+def find_next_chapter(url: str):
     """Fetch url and extract the next chapter link using all available methods."""
+    plugin = plugin_registry.for_url(url)
+    if plugin:
+        scraper = SCRAPER if plugin.supports_cloudflare else None
+        try:
+            result = plugin.fetch_chapter(url, SESSION, scraper)
+            return result.next_url
+        except Exception as e:
+            log.warning("Plugin find_next_chapter failed", url=url, plugin=plugin.id, error=str(e))
+
     try:
-        resp, actual_url = _get_with_retry(url)
+        resp, actual_url = _generic_get_with_retry(url)
         soup = BeautifulSoup(resp.text, "html.parser")
         parsed = urlparse(actual_url)
         base = f"{parsed.scheme}://{parsed.netloc}"
@@ -1444,6 +1649,7 @@ class DownloadManager:
         self.active_downloads = {}
         self.cancelled_books  = set()   # books removed by user — never download these
         self.download_queue = queue.Queue()
+        self._queue_order: list[str] = []   # book names in queue order
         self.running = True
         self.worker_thread = threading.Thread(target=self._worker)
         self.worker_thread.daemon = True
@@ -1453,8 +1659,29 @@ class DownloadManager:
         """Permanently cancel all activity for a book. Called when user deletes it."""
         self.cancelled_books.add(book_name)
         self.active_downloads.pop(book_name, None)
+        if book_name in self._queue_order:
+            self._queue_order.remove(book_name)
         log.legion.debug("DownloadManager.cancel_book", book=book_name, cancelled_books=list(self.cancelled_books))
         log.debug("cancel_book called", book=book_name)
+
+    def get_queue_snapshot(self) -> list[str]:
+        """Return current queue order (copy)."""
+        return list(self._queue_order)
+
+    def get_chapter_rate(self, book_name: str) -> float:
+        """Return average chapters/minute for active download, or 0."""
+        book = self.active_downloads.get(book_name)
+        if not book:
+            return 0.0
+        dl = book.get("download_state", {})
+        ts = dl.get("timestamp", 0)
+        cnt = dl.get("total_chapters_downloaded", 0)
+        if not ts or cnt < 2:
+            return 0.0
+        elapsed = time.time() - ts
+        if elapsed < 10:
+            return 0.0
+        return cnt / (elapsed / 60)
 
     def _worker(self):
         while self.running:
@@ -1473,6 +1700,10 @@ class DownloadManager:
             log.legion.debug("DownloadManager._download_book: already cancelled, aborting", book=book_name)
             log.info("Download aborted — book is cancelled", book=book_name)
             return
+        
+        if book_name in self._queue_order:
+            self._queue_order.remove(book_name)
+
         book['download_state']['status'] = 'downloading'
         save_progress(progress)
         # _sync_start_url: set by AutoSyncWorker — already the next undownloaded chapter URL
@@ -1553,6 +1784,7 @@ class DownloadManager:
             return
         if book_name not in self.active_downloads:
             self.active_downloads[book_name] = book  # track so pause/UI can find it
+            self._queue_order.append(book_name)
             self.download_queue.put((book_name, book, progress))
 
     def pause_download(self, book_name):
@@ -1926,8 +2158,22 @@ def check_for_new_chapters(book: dict) -> int:
     seen = set()
     while url and url not in seen:
         seen.add(url)
+        plugin = plugin_registry.for_url(url)
+        if plugin:
+            scraper = SCRAPER if plugin.supports_cloudflare else None
+            try:
+                result = plugin.fetch_chapter(url, SESSION, scraper)
+                if result.error or not result.next_url:
+                    break
+                count += 1
+                url = result.next_url
+                continue
+            except Exception:
+                break
+
+        # Fallback
         try:
-            resp, actual_url = _get_with_retry(url)
+            resp, actual_url = _generic_get_with_retry(url)
             soup = BeautifulSoup(resp.text, "html.parser")
             content_div = None
             for selector in ["chr-content", "chapter-content", "content"]:
@@ -1937,14 +2183,9 @@ def check_for_new_chapters(book: dict) -> int:
             if not content_div:
                 break
             count += 1
-            next_tag = soup.find("a", id="next_chap")
-            if next_tag and next_tag.get("href"):
-                href = next_tag["href"]
-                parsed = urlparse(actual_url)
-                base = f"{parsed.scheme}://{parsed.netloc}"
-                url = href if href.startswith("http") else base + href
-            else:
-                break
+            parsed = urlparse(actual_url)
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            url = _extract_nav(soup, "next_chap", base)
         except Exception:
             break
     return count

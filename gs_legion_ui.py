@@ -27,7 +27,8 @@ except ImportError:
     WEBENGINE_OK = False
 from PyQt6.QtGui import (
     QColor, QFont, QPalette, QTextCursor, QTextOption, QKeySequence, QShortcut,
-    QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath
+    QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath,
+    QTextCharFormat
 )
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -41,7 +42,6 @@ from great_sage_core import (
     SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
     load_json, save_json,
     legion_data, matrix_data, bookmarks_data,
-    legion_mod, matrix_mod, sage_mod,
     _catalogue_panel_class, _clean_media_title, _strip_markdown, _detect_genre,
     _grep_book_for_term,
     sage_memory_load, sage_memory_append, sage_memory_extract,
@@ -51,12 +51,49 @@ from great_sage_core import (
     start_mobile_server,
 )
 
+_legion_mod_cache = None
+
+def _get_legion_mod():
+    global _legion_mod_cache
+    if _legion_mod_cache is None:
+        try:
+            import importlib.util, sys as _sys
+            spec = importlib.util.find_spec("legion")
+            if spec:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _legion_mod_cache = (mod, None)
+            else:
+                _legion_mod_cache = (None, "legion module not found")
+        except Exception as e:
+            _legion_mod_cache = (None, str(e))
+    return _legion_mod_cache
+
 from gs_widgets import ReadingRoomOverlay
+from gs_matrix_ui import _TTSWorker, CalendarDialog, HighlightsDialog, WrappedDialog
+
+_BG_MODES = {
+    "dark":  (BG3,      TEXT),
+    "sepia": ("#F5ECD7", "#3A2A1A"),
+    "white": ("#FFFFFF", "#1A1A1A"),
+}
 
 class LegionPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._worker = None; self._font_size = 18
+        self._worker = None
+        self._font_size = 18
+        # Reader settings — loaded from progress on init, saved on change
+        self._rs_defaults = {
+            "font_size":   18,
+            "line_height": 1.9,
+            "padding_h":   80,    # horizontal padding px
+            "padding_v":   36,    # vertical padding px
+            "bg_mode":     "dark", # "dark" | "sepia" | "white"
+            "tts_rate":    185,
+        }
+        self._rs = {**self._rs_defaults, **legion_data().get("reader_settings", {})}
+        self._font_size = self._rs["font_size"]
         self._current_url = ""; self._next_url = ""; self._prev_url = ""
         self._current_book = ""; self._book_data = {}
         # Local-file navigation state
@@ -66,6 +103,12 @@ class LegionPage(QWidget):
         self._chapter_loading = False # True while a new chapter is being set up
         # Scroll position memory: {book_name: {ch_num: fraction 0.0-1.0}}
         self._scroll_positions = {}
+        # TTS state
+        self._tts_active   = False
+        self._tts_paused   = False
+        self._tts_paragraphs: list[str] = []   # current chapter split into paragraphs
+        self._tts_index    = 0      # which paragraph we're reading
+        self._tts_worker   = None   # QThread
         self._build()
         # Eye-break reminder — fires every 15 minutes while reading
         self._eye_toast = EyeBreakToast(self)
@@ -73,16 +116,43 @@ class LegionPage(QWidget):
         self._eye_timer.setInterval(15 * 60 * 1000)   # 15 minutes
         self._eye_timer.timeout.connect(self._eye_toast.show_toast)
 
-    def _build(self):
-        root = QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+    def _make_icon_list(self):
+        """Create a standard icon-mode QListWidget matching the Jump In grid style."""
+        lw = QListWidget()
+        lw.setViewMode(QListWidget.ViewMode.IconMode)
+        lw.setIconSize(QSize(100, 140))
+        lw.setGridSize(QSize(120, 185))
+        lw.setResizeMode(QListWidget.ResizeMode.Adjust)
+        lw.setMovement(QListWidget.Movement.Static)
+        lw.setWordWrap(True)
+        lw.setSpacing(8)
+        # Pixel-level scrolling so scrollbar maximum() is meaningful for infinite scroll
+        lw.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        lw.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        lw.setStyleSheet(
+            f"QListWidget{{background:transparent;border:none;padding:12px;}}"
+            f"QListWidget::item{{background:transparent;border-radius:8px;color:{TEXT2};"
+            f"font-size:10px;text-align:center;}}"
+            f"QListWidget::item:hover{{background:{BG2};}}"
+            f"QListWidget::item:selected{{background:{BG3};color:{ACCENT};}}")
+        return lw
 
-        # Sidebar
-        sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(360)
-        sv = QVBoxLayout(sidebar); sv.setContentsMargins(0,20,0,12); sv.setSpacing(0)
+    def _build(self):
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0,0,0,0)
+        root.setSpacing(0)
+
+        # ── Sidebar: nav only ──────────────────────────────────────────────────
+        sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(220)
+        sv = QVBoxLayout(sidebar)
+        sv.setContentsMargins(0,0,0,12)
+        sv.setSpacing(0)
+
         hdr_w = QWidget()
         hdr_w.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
         hdr_w.setFixedHeight(52)
-        hw = QHBoxLayout(hdr_w); hw.setContentsMargins(16,0,12,0)
+        hw = QHBoxLayout(hdr_w)
+        hw.setContentsMargins(16,0,12,0)
         back_b = QPushButton("← HOME")
         back_b.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
@@ -101,161 +171,288 @@ class LegionPage(QWidget):
         hw.addWidget(self._menu_btn)
         sv.addWidget(hdr_w); sv.addWidget(hline())
 
-        self._list_tabs = QTabWidget()
-        self._list_tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:none;background:transparent;}}"
-            f"QTabBar::tab{{background:transparent;color:{MUTED};border:none;padding:5px 9px;font-size:12px;}}"
-            f"QTabBar::tab:selected{{color:{ACCENT};border-bottom:2px solid {ACCENT};}}")
+        # Tab buttons — control the right-panel stack
+        _tab_btn_style_active = (
+            f"background:{BG3};color:{ACCENT};border:none;border-left:2px solid {ACCENT};"
+            f"font-size:12px;padding:12px 16px;text-align:left;border-radius:0;")
+        _tab_btn_style_idle = (
+            f"background:transparent;color:{MUTED};border:none;"
+            f"font-size:12px;padding:12px 16px;text-align:left;border-radius:0;"
+            f"border-left:2px solid transparent;")
 
-        self.jumpin_list = QListWidget()
-        self.jumpin_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.jumpin_list.setIconSize(QSize(100, 140))
-        self.jumpin_list.setGridSize(QSize(115, 175))
-        self.jumpin_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.jumpin_list.setMovement(QListWidget.Movement.Static)
-        self.jumpin_list.setWordWrap(True)
-        self.jumpin_list.setSpacing(6)
-        self.jumpin_list.setStyleSheet(
-            f"QListWidget{{background:transparent;border:none;padding:8px;}}"
-            f"QListWidget::item{{background:transparent;border-radius:6px;color:{TEXT2};"
-            f"font-size:10px;text-align:center;}}"
-            f"QListWidget::item:hover{{background:{BG2};}}"
-            f"QListWidget::item:selected{{background:{BG3};color:{ACCENT};}}")
-        self.jumpin_list.itemClicked.connect(self._book_clicked)
-        self._list_tabs.addTab(self.jumpin_list, "Jump In")
+        self._tab_btns = []
+        tab_labels = [("Jump In", 0), ("Bookmarks", 1), ("Discover", 2)]
+        for label, idx in tab_labels:
+            b = QPushButton(label)
+            b.setStyleSheet(_tab_btn_style_idle)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _, i=idx: self._switch_tab(i))
+            sv.addWidget(b)
+            self._tab_btns.append(b)
 
-        self._bm_tabs = QTabWidget()
-        self._bm_tabs.setStyleSheet(self._list_tabs.styleSheet())
-        self._bm_lists = {}
-        for n in ("planning","reading","dropped","completed"):
-            lw = QListWidget()
-            lw.itemDoubleClicked.connect(lambda item, name=n: self._bm_double(item, name))
-            lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            lw.customContextMenuRequested.connect(
-                lambda pos, lw=lw, name=n: self._bm_context(pos, lw, name))
-            self._bm_lists[n] = lw; self._bm_tabs.addTab(lw, n.capitalize())
-        self._list_tabs.addTab(self._bm_tabs, "Bookmarks")
-        sv.addWidget(self._list_tabs, 1)
+        self._tab_btn_style_active = _tab_btn_style_active
+        self._tab_btn_style_idle   = _tab_btn_style_idle
 
-        sv.addSpacing(8)
-        btn_row = QHBoxLayout(); btn_row.setContentsMargins(12,0,12,0); btn_row.setSpacing(6)
+        sv.addStretch(1)
+        sv.addWidget(hline())
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(12,8,12,0)
+        btn_row.setSpacing(6)
         add_b = QPushButton("+ ADD BOOK"); add_b.setObjectName("accent")
         add_b.setStyleSheet(f"font-size:10px;letter-spacing:1px;padding:8px;")
         add_b.clicked.connect(self._add_book)
         ref_b = QPushButton("↻"); ref_b.setFixedWidth(34)
-        ref_b.setStyleSheet(f"font-size:14px;padding:6px;border:1px solid {BORDER};border-radius:4px;color:{MUTED};background:transparent;")
+        ref_b.setStyleSheet(
+            f"font-size:14px;padding:6px;border:1px solid {BORDER};"
+            f"border-radius:4px;color:{MUTED};background:transparent;")
         ref_b.clicked.connect(self.refresh)
         btn_row.addWidget(add_b, 1); btn_row.addWidget(ref_b)
         sv.addLayout(btn_row)
 
-        disc_b = QPushButton("◈  DISCOVER NOVELS")
-        disc_b.setStyleSheet(
-            f"background:transparent; border:1px solid {ACCENT}; color:{ACCENT};"
-            f"font-size:9px; letter-spacing:1px; padding:7px; margin:6px 0 0 0; border-radius:3px;")
-        disc_b.clicked.connect(self._open_discovery)
-        sv.addWidget(disc_b)
         root.addWidget(sidebar)
 
-        # ── Reader panel (stacked: detail view / reader view) ──────────────────
+        # ── Right panel: stacked content area ─────────────────────────────────
         right = QWidget()
-        rv = QVBoxLayout(right); rv.setContentsMargins(0,0,0,0); rv.setSpacing(0)
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0,0,0,0)
+        rv.setSpacing(0)
 
         self._right_stack = QStackedWidget()
 
-        # ── 0: Detail view ────────────────────────────────────────────────────
-        detail_w = QWidget()
-        dv = QVBoxLayout(detail_w); dv.setContentsMargins(20,16,20,12); dv.setSpacing(10)
+        # ── Right panel: stacked content area (continued from sidebar build above)
+        rv.addWidget(self._right_stack, 1)
+        root.addWidget(right, 1)
 
-        self._detail_title = QLabel("")
-        self._detail_title.setStyleSheet(
-            f"font-size:20px;font-weight:bold;color:{ACCENT};font-family:{FONT_BODY};")
-        self._detail_title.setWordWrap(True)
-        dv.addWidget(self._detail_title)
+        # ── Stack page 0: Jump In ──────────────────────────────────────────────
+        jumpin_w = QWidget()
+        jumpin_w.setStyleSheet(f"background:{BG};")
+        ji_v = QVBoxLayout(jumpin_w)
+        ji_v.setContentsMargins(0,0,0,0)
+        ji_v.setSpacing(0)
 
-        self._detail_meta = QLabel("")
-        self._detail_meta.setStyleSheet(f"color:{TEXT2};font-size:13px;")
-        self._detail_meta.setWordWrap(True)
-        dv.addWidget(self._detail_meta)
+        # Jump In header bar
+        ji_hdr = QWidget()
+        ji_hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
+        ji_hdr.setFixedHeight(44)
+        ji_hdr_l = QHBoxLayout(ji_hdr)
+        ji_hdr_l.setContentsMargins(20,0,20,0)
+        ji_hdr_l.addWidget(lbl("JUMP IN", ACCENT, 11, True))
+        ji_hdr_l.addStretch()
+        ji_v.addWidget(ji_hdr)
 
-        dv.addWidget(hline())
+        self.jumpin_list = self._make_icon_list()
+        self.jumpin_list.itemClicked.connect(self._book_clicked)
+        ji_v.addWidget(self.jumpin_list, 1)
+        self._right_stack.addWidget(jumpin_w)   # index 0
 
-        self._detail_synopsis = QTextEdit()
-        self._detail_synopsis.setReadOnly(True)
-        self._detail_synopsis.setStyleSheet(
-            f"background:{BG3};border:none;padding:12px;color:{TEXT};"
-            f"font-family:{FONT_BODY};font-size:15px;")
-        dv.addWidget(self._detail_synopsis, 1)
+        # ── Stack page 1: Bookmarks ────────────────────────────────────────────
+        bm_w = QWidget()
+        bm_w.setStyleSheet(f"background:{BG};")
+        bm_v = QVBoxLayout(bm_w)
+        bm_v.setContentsMargins(0,0,0,0)
+        bm_v.setSpacing(0)
 
-        # Progress row
-        self._detail_progress = QLabel("")
-        self._detail_progress.setStyleSheet(
-            f"color:{ACCENT2};font-size:10px;letter-spacing:1px;")
-        dv.addWidget(self._detail_progress)
+        bm_hdr = QWidget()
+        bm_hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
+        bm_hdr.setFixedHeight(44)
+        bm_hdr_l = QHBoxLayout(bm_hdr)
+        bm_hdr_l.setContentsMargins(20,0,20,0)
+        bm_hdr_l.addWidget(lbl("BOOKMARKS", ACCENT, 11, True))
+        bm_hdr_l.addStretch()
+        bm_v.addWidget(bm_hdr)
 
-        # Download status row
-        self._detail_dl_status = QLabel("")
-        self._detail_dl_status.setStyleSheet(
-            f"color:{MUTED};font-size:10px;letter-spacing:1px;")
-        dv.addWidget(self._detail_dl_status)
-        dv.addSpacing(6)
+        self._bm_tabs = QTabWidget()
+        self._bm_tabs.setStyleSheet(
+            f"QTabWidget::pane{{border:none;background:transparent;}}"
+            f"QTabBar::tab{{background:transparent;color:{MUTED};border:none;"
+            f"padding:8px 14px;font-size:12px;}}"
+            f"QTabBar::tab:selected{{color:{ACCENT};border-bottom:2px solid {ACCENT};}}")
+        self._bm_lists = {}
+        for n in ("planning","reading","dropped","completed"):
+            lw = QListWidget()
+            lw.setStyleSheet(
+                f"QListWidget{{background:transparent;border:none;padding:8px;}}"
+                f"QListWidget::item{{background:{BG2};border-radius:6px;color:{TEXT};"
+                f"font-size:12px;padding:10px 14px;margin:3px 0;}}"
+                f"QListWidget::item:hover{{background:{BG3};}}"
+                f"QListWidget::item:selected{{background:{BG3};color:{ACCENT};}}")
+            lw.itemClicked.connect(lambda item, nm=n: self._bm_clicked(item, nm))
+            lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            lw.customContextMenuRequested.connect(
+                lambda pos, lw_=lw, nm=n: self._bm_context(pos, lw_, nm))
+            self._bm_lists[n] = lw
+            self._bm_tabs.addTab(lw, n.capitalize())
+        bm_v.addWidget(self._bm_tabs, 1)
+        self._right_stack.addWidget(bm_w)   # index 1
 
-        # Action buttons
-        def _ab(text, style="", cb=None):
-            b = QPushButton(text)
-            if style == "accent":
-                b.setStyleSheet(
-                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
-                    f"font-size:9px;letter-spacing:1.2px;padding:7px 16px;border-radius:3px;")
-            elif style == "danger":
-                b.setStyleSheet(
-                    f"background:transparent;color:{RED};border:1px solid #2A1018;"
-                    f"font-size:9px;letter-spacing:1px;padding:7px 14px;border-radius:3px;")
-            else:
-                b.setStyleSheet(
-                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
-                    f"font-size:9px;letter-spacing:1px;padding:7px 14px;border-radius:3px;"
-                    f"QPushButton:hover{{color:{TEXT};border-color:{ACCENT};}}")
-            if cb: b.clicked.connect(cb)
-            return b
+        # ── Stack page 2: Discover ─────────────────────────────────────────────
+        disc_w = QWidget()
+        disc_w.setStyleSheet(f"background:{BG};")
+        disc_v = QVBoxLayout(disc_w)
+        disc_v.setContentsMargins(0,0,0,0)
+        disc_v.setSpacing(0)
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
-        self._btn_read     = _ab("▶  READ",   "accent", self._detail_read)
-        self._btn_download = _ab("↓  DOWNLOAD",         self._detail_download)
-        self._btn_dl_pause = _ab("⏸  PAUSE",            self._detail_pause)
-        self._btn_dl_resume= _ab("▶  RESUME",           self._detail_resume)
-        self._btn_dl_cancel= _ab("✕  CANCEL", "danger", self._detail_cancel)
-        self._btn_refresh  = _ab("↺  INFO",             self._detail_refresh_meta)
-        self._btn_new_chs  = _ab("↓  NEW CH",           self._detail_check_new)
-        self._btn_delete   = _ab("REMOVE",    "danger",  self._detail_delete)
+        # Source list (name, id) — verified working sources only
+        self._disc_sources = [
+            ("NovelBin","novelbin"), ("NovelFire","novelfire"), ("LightNovelPub","lightnovelpub"),
+            ("Royal Road","royalroad"), ("Scribble Hub","scribblehub"), ("Wuxia World","wuxiaworld"), ("Groq AI","groq")
+        ]
+        self._disc_active_src_id = "novelbin"
+        self._disc_src_statuses  = {}
+        self._disc_health_worker = None
 
-        self._btn_reset_time = _ab("↺  RESET TIME", self._detail_reset_time)
-        btn_row.addWidget(self._btn_read)
-        btn_row.addWidget(self._btn_delete)
-        btn_row.addWidget(self._btn_reset_time)
-        btn_row.addStretch()
-        # Hidden but kept for download manager wiring
-        for b_ in (self._btn_download, self._btn_dl_pause, self._btn_dl_resume,
-                   self._btn_dl_cancel, self._btn_refresh, self._btn_new_chs):
-            b_.setVisible(False)
-            btn_row.addWidget(b_)
-        dv.addLayout(btn_row)
-        self._right_stack.addWidget(detail_w)   # index 0
+        # ── Top bar: search ─────────────────────────────────────────────────────
+        disc_top = QWidget()
+        disc_top.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
+        disc_top_l = QHBoxLayout(disc_top)
+        disc_top_l.setContentsMargins(16,10,16,10)
+        disc_top_l.setSpacing(8)
+
+        self._disc_input = QLineEdit()
+        self._disc_input.setPlaceholderText(
+            "Search by title… (switch to Groq AI source to describe what you want)")
+        self._disc_input.setFixedHeight(36)
+        self._disc_input.setStyleSheet(
+            f"background:{BG3};border:1px solid {BORDER};color:{TEXT};"
+            f"font-size:12px;padding:4px 10px;border-radius:4px;")
+        self._disc_input.returnPressed.connect(self._disc_search)
+        disc_top_l.addWidget(self._disc_input, 1)
+
+        self._disc_search_btn = QPushButton("🔍  SEARCH")
+        self._disc_search_btn.setFixedHeight(36)
+        self._disc_search_btn.setStyleSheet(
+            f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+            f"font-size:9px;letter-spacing:1px;padding:0 16px;border-radius:4px;")
+        self._disc_search_btn.clicked.connect(self._disc_search)
+        disc_top_l.addWidget(self._disc_search_btn)
+
+        self._disc_spin = QProgressBar()
+        self._disc_spin.setRange(0, 0)
+        self._disc_spin.setFixedSize(4, 36)
+        self._disc_spin.setVisible(False)
+        disc_top_l.addWidget(self._disc_spin)
+
+        self._disc_next_btn = QPushButton("Next Page →")
+        self._disc_next_btn.setFixedHeight(36)
+        self._disc_next_btn.setStyleSheet(
+            f"background:{BG3};color:{ACCENT};border:1px solid {ACCENT};font-weight:bold;"
+            f"font-size:9px;letter-spacing:1px;padding:0 14px;border-radius:4px;")
+        self._disc_next_btn.setVisible(False)
+        self._disc_next_btn.clicked.connect(lambda: self._disc_load_next_page(manual=True))
+        disc_top_l.addWidget(self._disc_next_btn)
+
+        disc_v.addWidget(disc_top)
+
+        # ── Filter bar: status label + Source combo + Genre combo + Status combo ─
+        disc_filter = QWidget()
+        disc_filter.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
+        disc_filter_l = QHBoxLayout(disc_filter)
+        disc_filter_l.setContentsMargins(16,6,16,6)
+        disc_filter_l.setSpacing(10)
+
+        self._disc_status_lbl = lbl("Checking sources…", MUTED, 10)
+        disc_filter_l.addWidget(self._disc_status_lbl, 1)
+
+        _combo_ss = (
+            f"QComboBox{{background:{BG3};color:{TEXT};border:1px solid {BORDER};"
+            f"font-size:11px;padding:2px 8px;border-radius:3px;min-width:120px;}}"
+            f"QComboBox::drop-down{{border:none;width:16px;}}"
+            f"QComboBox QAbstractItemView{{background:{BG2};color:{TEXT};"
+            f"selection-background-color:{BG3};border:1px solid {BORDER};}}")
+
+        self._disc_src_combo = QComboBox()
+        self._disc_src_combo.setFixedHeight(26)
+        self._disc_src_combo.setStyleSheet(_combo_ss)
+        for name, sid in self._disc_sources:
+            self._disc_src_combo.addItem(name, sid)
+        self._disc_src_combo.currentIndexChanged.connect(self._disc_src_combo_changed)
+
+        self._disc_genre_combo = QComboBox()
+        self._disc_genre_combo.setFixedHeight(26)
+        self._disc_genre_combo.setStyleSheet(_combo_ss)
+        self._disc_genre_combo.addItems([
+            "All Genres","Action","Adventure","Comedy","Drama","Fantasy",
+            "Harem","Horror","Martial Arts","Mystery","Romance","Sci-fi",
+            "Slice of Life","Supernatural","Wuxia","Xianxia","Xuanhuan",
+        ])
+        self._disc_genre_combo.currentTextChanged.connect(self._disc_filter_changed)
+
+        self._disc_status_combo = QComboBox()
+        self._disc_status_combo.setFixedHeight(26)
+        self._disc_status_combo.setStyleSheet(_combo_ss)
+        self._disc_status_combo.addItems(["All Status","Ongoing","Completed"])
+        self._disc_status_combo.currentTextChanged.connect(self._disc_filter_changed)
+
+        disc_filter_l.addWidget(lbl("Source:", MUTED, 10))
+        disc_filter_l.addWidget(self._disc_src_combo)
+        disc_filter_l.addWidget(lbl("Genre:", MUTED, 10))
+        disc_filter_l.addWidget(self._disc_genre_combo)
+        disc_filter_l.addWidget(lbl("Status:", MUTED, 10))
+        disc_filter_l.addWidget(self._disc_status_combo)
+        disc_v.addWidget(disc_filter)
+
+        # ── Results grid ────────────────────────────────────────────────────────
+        self.discover_list = self._make_icon_list()
+        self.discover_list.setIconSize(QSize(130, 185))
+        self.discover_list.setGridSize(QSize(155, 275))
+        self.discover_list.itemClicked.connect(self._disc_book_clicked)
+        disc_v.addWidget(self.discover_list, 1)
+
+        self._disc_results      = []
+        self._disc_worker       = None
+        self._disc_page         = 1
+        self._disc_loading_more = False   # True while a next-page fetch is in flight
+        self._disc_exhausted    = False   # True when a page returned 0 results
+        self._disc_seen_titles  = set()   # deduplication across pages
+
+        # Infinite scroll — trigger next page when near the bottom
+        self.discover_list.verticalScrollBar().valueChanged.connect(self._disc_on_scroll)
+
+        self._right_stack.addWidget(disc_w)   # index 2
+
+        # ── Dummy widgets to hold old slot indices ─────────────────────────────
+        # Old code: detail=0, reader=1, downloads=2
+        # New code: jumpin=0, bookmarks=1, discover=2, reader=3, downloads=4
+
+        # We keep _detail_* attributes as no-ops so nothing else breaks
+        self._detail_title     = QLabel()
+        self._detail_meta      = QLabel()
+        self._detail_synopsis  = QTextEdit()
+        self._detail_progress  = QLabel()
+        self._detail_dl_status = QLabel()
+
+        def _noop_btn(text):
+            b = QPushButton(text); b.setVisible(False); return b
+        self._btn_read      = _noop_btn("▶  READ")
+        self._btn_download  = _noop_btn("↓  DOWNLOAD")
+        self._btn_dl_pause  = _noop_btn("⏸  PAUSE")
+        self._btn_dl_resume = _noop_btn("▶  RESUME")
+        self._btn_dl_cancel = _noop_btn("✕  CANCEL")
+        self._btn_refresh   = _noop_btn("↺  INFO")
+        self._btn_new_chs   = _noop_btn("↓  NEW CH")
+        self._btn_delete    = _noop_btn("REMOVE")
+        self._btn_reset_time= _noop_btn("↺  RESET TIME")
 
         # ── 1: Reader view ────────────────────────────────────────────────────
         reader_w = QWidget()
         reader_w.setStyleSheet(f"background:{BG};")
-        rw = QVBoxLayout(reader_w); rw.setContentsMargins(0,0,0,0); rw.setSpacing(0)
+        rw = QVBoxLayout(reader_w)
+        rw.setContentsMargins(0,0,0,0)
+        rw.setSpacing(0)
 
         # Reader top bar
         top_bar_w = QWidget()
         top_bar_w.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};border-radius:0;")
         top_bar_w.setFixedHeight(44)
-        tb = QHBoxLayout(top_bar_w); tb.setContentsMargins(16,0,16,0); tb.setSpacing(10)
+        tb = QHBoxLayout(top_bar_w)
+        tb.setContentsMargins(16,0,16,0)
+        tb.setSpacing(10)
         self._back_btn = QPushButton("← INFO")
         self._back_btn.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
             f"font-size:9px;letter-spacing:1.5px;padding:4px 6px;")
-        self._back_btn.clicked.connect(lambda: (self._save_reading_time(), self._right_stack.setCurrentIndex(0))[-1])
+        self._back_btn.clicked.connect(lambda: (self._save_reading_time(), self._right_stack.setCurrentIndex(getattr(self, "_current_tab_idx", 0)))[-1])
         tb.addWidget(self._back_btn)
         sep = QLabel("│"); sep.setStyleSheet(f"color:{BORDER};")
         tb.addWidget(sep)
@@ -274,7 +471,17 @@ class LegionPage(QWidget):
         self._fb_btn = QPushButton("A+"); self._fb_btn.setFixedWidth(32)
         self._fb_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:11px;")
         self._fb_btn.clicked.connect(lambda: self._font_delta(+1))
+
+        self._rs_btn = QPushButton("⚙ READER")
+        self._rs_btn.setFixedWidth(76)
+        self._rs_btn.setStyleSheet(
+            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+        self._rs_btn.setToolTip("Reader display settings")
+        self._rs_btn.clicked.connect(self._toggle_reader_settings)
+
         self._rr_btn = QPushButton("\u2b1b ROOM")
+
         self._rr_btn.setFixedWidth(62)
         self._rr_btn.setStyleSheet(
             f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
@@ -296,8 +503,17 @@ class LegionPage(QWidget):
             f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
         self._notes_top_btn.setToolTip("Toggle chapter notes panel")
         self._notes_top_btn.clicked.connect(self._toggle_notes_panel)
+        
+        self._tts_btn = QPushButton("◎ TTS")
+        self._tts_btn.setFixedWidth(58)
+        self._tts_btn.setStyleSheet(
+            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+        self._tts_btn.setCheckable(True)
+        self._tts_btn.clicked.connect(self._toggle_tts)
+
         for b_ in (self._prev_btn, self._next_btn, self._fa_btn, self._fb_btn,
-                   self._rr_btn, self._sage_top_btn, self._notes_top_btn):
+                   self._rs_btn, self._rr_btn, self._sage_top_btn, self._notes_top_btn, self._tts_btn):
             tb.addWidget(b_)
         rw.addWidget(top_bar_w)
 
@@ -318,7 +534,112 @@ class LegionPage(QWidget):
         reader_body.setHandleWidth(2)
         reader_body.setStyleSheet(f"QSplitter::handle{{background:{BORDER};}}")
 
-        self.reader = QTextEdit(); self.reader.setReadOnly(True)
+        # Reader settings panel
+        self._rs_panel = QFrame()
+        self._rs_panel.setFixedWidth(220)
+        self._rs_panel.setStyleSheet(f"background:{BG2};border-right:1px solid {BORDER};")
+        self._rs_panel.setVisible(False)
+        rsv = QVBoxLayout(self._rs_panel)
+        rsv.setContentsMargins(14, 14, 14, 14)
+        rsv.setSpacing(12)
+
+        # Header
+        rs_hdr = QHBoxLayout()
+        rs_hdr.addWidget(lbl("READER  SETTINGS", ACCENT, 10, True))
+        rs_close = QPushButton("✕")
+        rs_close.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:12px;")
+        rs_close.clicked.connect(self._toggle_reader_settings)
+        rs_hdr.addStretch(); rs_hdr.addWidget(rs_close)
+        rsv.addLayout(rs_hdr); rsv.addWidget(hline())
+
+        # Section: TEXT
+        rsv.addWidget(lbl("TEXT", TEXT2, 9, True))
+        
+        # Font size
+        fs_row = QHBoxLayout()
+        fs_row.addWidget(lbl("Font Size", MUTED, 10))
+        self._rs_fs_val = lbl(f"{self._rs['font_size']}px", TEXT2, 10)
+        fs_row.addStretch(); fs_row.addWidget(self._rs_fs_val)
+        rsv.addLayout(fs_row)
+        
+        self._rs_fs_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rs_fs_slider.setRange(12, 32)
+        self._rs_fs_slider.setValue(self._rs['font_size'])
+        self._rs_fs_slider.valueChanged.connect(lambda v: self._on_rs_changed("font_size", v))
+        rsv.addWidget(self._rs_fs_slider)
+
+        # Line height
+        lh_row = QHBoxLayout()
+        lh_row.addWidget(lbl("Line Height", MUTED, 10))
+        self._rs_lh_val = lbl(f"{self._rs['line_height']}", TEXT2, 10)
+        lh_row.addStretch(); lh_row.addWidget(self._rs_lh_val)
+        rsv.addLayout(lh_row)
+        
+        self._rs_lh_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rs_lh_slider.setRange(120, 300)
+        self._rs_lh_slider.setValue(int(self._rs['line_height'] * 100))
+        self._rs_lh_slider.valueChanged.connect(lambda v: self._on_rs_changed("line_height", v/100.0))
+        rsv.addWidget(self._rs_lh_slider)
+
+        rsv.addSpacing(4); rsv.addWidget(hline())
+        
+        # Section: LAYOUT
+        rsv.addWidget(lbl("LAYOUT", TEXT2, 9, True))
+        
+        # H. Margin
+        hm_row = QHBoxLayout()
+        hm_row.addWidget(lbl("H. Margin", MUTED, 10))
+        self._rs_hm_val = lbl(f"{self._rs['padding_h']}px", TEXT2, 10)
+        hm_row.addStretch(); hm_row.addWidget(self._rs_hm_val)
+        rsv.addLayout(hm_row)
+        
+        self._rs_hm_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rs_hm_slider.setRange(10, 200)
+        self._rs_hm_slider.setValue(self._rs['padding_h'])
+        self._rs_hm_slider.valueChanged.connect(lambda v: self._on_rs_changed("padding_h", v))
+        rsv.addWidget(self._rs_hm_slider)
+
+        # V. Padding
+        vp_row = QHBoxLayout()
+        vp_row.addWidget(lbl("V. Padding", MUTED, 10))
+        self._rs_vp_val = lbl(f"{self._rs['padding_v']}px", TEXT2, 10)
+        vp_row.addStretch(); vp_row.addWidget(self._rs_vp_val)
+        rsv.addLayout(vp_row)
+        
+        self._rs_vp_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rs_vp_slider.setRange(10, 100)
+        self._rs_vp_slider.setValue(self._rs['padding_v'])
+        self._rs_vp_slider.valueChanged.connect(lambda v: self._on_rs_changed("padding_v", v))
+        rsv.addWidget(self._rs_vp_slider)
+
+        rsv.addSpacing(4); rsv.addWidget(hline())
+
+        # Section: BACKGROUND
+        rsv.addWidget(lbl("BACKGROUND", TEXT2, 9, True))
+        bg_row = QHBoxLayout()
+        bg_row.setSpacing(4)
+        self._bg_btns = {}
+        for mode in ["dark", "sepia", "white"]:
+            b = QPushButton(mode.capitalize())
+            b.setCheckable(True)
+            b.setChecked(self._rs["bg_mode"] == mode)
+            b.setFixedHeight(24)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda checked, m=mode: self._on_rs_changed("bg_mode", m))
+            bg_row.addWidget(b)
+            self._bg_btns[mode] = b
+        rsv.addLayout(bg_row)
+
+        rsv.addStretch()
+        
+        reset_btn = QPushButton("RESET DEFAULTS")
+        reset_btn.setStyleSheet(f"background:transparent;border:1px solid {BORDER};color:{MUTED};font-size:9px;padding:6px;border-radius:3px;")
+        reset_btn.clicked.connect(self._reset_rs)
+        rsv.addWidget(reset_btn)
+
+        reader_body.addWidget(self._rs_panel)
+        self.reader = QTextEdit()
+        self.reader.setReadOnly(True)
         self.reader.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         self.reader.setStyleSheet(
             f"background:{BG};border:none;padding:36px 80px;"
@@ -337,13 +658,16 @@ class LegionPage(QWidget):
         self._sage_panel = QFrame()
         self._sage_panel.setStyleSheet(f"background:{BG2};border-left:1px solid {BORDER};")
         self._sage_panel.setVisible(False)
-        sp = QVBoxLayout(self._sage_panel); sp.setContentsMargins(10,10,10,10); sp.setSpacing(8)
+        sp = QVBoxLayout(self._sage_panel)
+        sp.setContentsMargins(10,10,10,10)
+        sp.setSpacing(8)
         sp.addWidget(lbl("✦  SAGE", ACCENT, 13, True))
         sp.addWidget(lbl("Ask about characters, places, or anything", TEXT2, 10))
         sp.addWidget(hline())
 
         # Quick-ask chips
-        chips_row = QHBoxLayout(); chips_row.setSpacing(4)
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(4)
         for chip_text, chip_query in [("Who is…", "Who is "), ("What is…", "What is "), ("Ask", "")]:
             c = QPushButton(chip_text)
             c.setStyleSheet(
@@ -369,12 +693,14 @@ class LegionPage(QWidget):
         self._sage_ask_btn = btn("Ask Sage", "accent", self._sage_ask)
         sp.addWidget(self._sage_ask_btn)
 
-        self._sage_answer = QTextEdit(); self._sage_answer.setReadOnly(True)
+        self._sage_answer = QTextEdit()
+        self._sage_answer.setReadOnly(True)
         self._sage_answer.setStyleSheet(
             f"background:{BG3};border:none;padding:12px;"
             f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;")
         sp.addWidget(self._sage_answer, 1)
-        self._sage_busy = QProgressBar(); self._sage_busy.setRange(0,0)
+        self._sage_busy = QProgressBar()
+        self._sage_busy.setRange(0,0)
         self._sage_busy.setVisible(False); self._sage_busy.setFixedHeight(3)
         sp.addWidget(self._sage_busy)
         reader_body.addWidget(self._sage_panel)
@@ -449,7 +775,8 @@ class LegionPage(QWidget):
 
         self.reader_status = QLabel("")
         self.reader_status.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:1px;")
-        self.progress_bar = QProgressBar(); self.progress_bar.setRange(0,0)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0,0)
         self.progress_bar.setVisible(False); self.progress_bar.setFixedHeight(2)
         bnv.addWidget(self._bn_prev)
         bnv.addWidget(self._bn_toc)
@@ -462,24 +789,28 @@ class LegionPage(QWidget):
 
         status_row = QHBoxLayout()
         rw.addLayout(status_row)
-        self._right_stack.addWidget(reader_w)   # index 1
+        self._right_stack.addWidget(reader_w)   # index 3
 
         # ── 2: Downloads panel ────────────────────────────────────────────────
         dl_w = QWidget()
         dl_w.setStyleSheet(f"background:{BG};")
-        dlv = QVBoxLayout(dl_w); dlv.setContentsMargins(20, 16, 20, 16); dlv.setSpacing(12)
+        dlv = QVBoxLayout(dl_w)
+        dlv.setContentsMargins(20, 16, 20, 16)
+        dlv.setSpacing(12)
 
         dl_hdr = QHBoxLayout()
         dl_title = QLabel("↓  DOWNLOADS")
         dl_title.setStyleSheet(
             f"font-size:13px;font-weight:bold;color:{ACCENT};"
             f"letter-spacing:2px;font-family:{FONT_DISPLAY};")
+        self._dl_badge = QLabel("")
+        self._dl_badge.setStyleSheet(f"color:{MUTED};font-size:10px;margin-left:8px;")
         dl_close = QPushButton("✕  CLOSE")
         dl_close.setStyleSheet(
-            f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1px;padding:4px 8px;")
-        dl_close.clicked.connect(lambda: self._right_stack.setCurrentIndex(0))
-        dl_hdr.addWidget(dl_title); dl_hdr.addStretch(); dl_hdr.addWidget(dl_close)
+            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+            f"font-size:8px;letter-spacing:1px;padding:3px 8px;border-radius:3px;")
+        dl_close.clicked.connect(lambda: self._right_stack.setCurrentIndex(getattr(self, "_current_tab_idx", 0)))
+        dl_hdr.addWidget(dl_title); dl_hdr.addWidget(self._dl_badge); dl_hdr.addStretch(); dl_hdr.addWidget(dl_close)
         dlv.addLayout(dl_hdr)
         dlv.addWidget(hline())
 
@@ -494,19 +825,602 @@ class LegionPage(QWidget):
         dl_scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
         dlv.addWidget(dl_scroll, 1)
 
-        self._right_stack.addWidget(dl_w)   # index 2
+        self._right_stack.addWidget(dl_w)   # index 4
 
         rv.addWidget(self._right_stack, 1)
         root.addWidget(right, 1)
 
-        # Start on a welcome message
-        self._detail_title.setText("Great Sage  —  Legion")
-        self._detail_synopsis.setPlainText(
-            "Select a book from the list on the left to see its details.")
-        self._detail_progress.setText("")
-        self._detail_dl_status.setText("")
-        self._update_detail_buttons(None)
+        # Start on Jump In tab
+        self._switch_tab(0)
 
+
+    # ── Tab switching ──────────────────────────────────────────────────────────
+    def _switch_tab(self, idx: int):
+        self._current_tab_idx = idx
+        self._right_stack.setCurrentIndex(idx)
+        for i, b in enumerate(self._tab_btns):
+            b.setStyleSheet(
+                self._tab_btn_style_active if i == idx else self._tab_btn_style_idle)
+        # On first Discover open: run health check which auto-browses first live source
+        if idx == 2 and self.discover_list.count() == 0:
+            QTimer.singleShot(80, self._disc_start_health_check)
+
+    # ── BookDetailDialog signal handlers ───────────────────────────────────────
+    def _detail_delete_name(self, name: str):
+        """Delete a book by name — called from BookDetailDialog signal."""
+        self._detail_book_name = name
+        self._detail_book      = legion_data().get("books", {}).get(name, {})
+        self._detail_from_list = "jumpin"
+        self._detail_delete()
+
+    def _detail_reset_time_name(self, name: str):
+        self._detail_book_name = name
+        self._detail_reset_time()
+
+    def _detail_download_name(self, name: str):
+        ld   = legion_data()
+        book = ld.get("books", {}).get(name, {})
+        self._detail_book_name = name
+        self._detail_book      = book
+        self._detail_from_list = "jumpin"
+        self._detail_download()
+
+    # ── Discovery — source / browse / search ───────────────────────────────────
+
+    def _disc_src_combo_changed(self, idx: int):
+        """User picked a new source from the combo."""
+        sid = self._disc_src_combo.itemData(idx)
+        if sid == self._disc_active_src_id:
+            return
+        self._disc_active_src_id = sid
+        self._disc_input.clear()
+        if sid == "groq":
+            self._disc_status_lbl.setText("Groq AI — type a description and press Search")
+            self.discover_list.clear()
+        else:
+            self._disc_browse()
+
+    def _disc_select_source(self, src: dict):
+        """Legacy pill-based selector — still works if called."""
+        sid = src["id"] if isinstance(src, dict) else src
+        idx = self._disc_src_combo.findData(sid)
+        if idx >= 0:
+            self._disc_src_combo.setCurrentIndex(idx)
+
+    def _disc_filter_changed(self):
+        query = self._disc_input.text().strip()
+        if query:
+            self._disc_search()
+        else:
+            self._disc_browse()
+
+    def _disc_src_style(self, active: bool) -> str:
+        if active:
+            return (f"background:{ACCENT};color:{BG};border:1px solid {ACCENT};"
+                    f"border-radius:10px;font-size:9px;padding:3px 12px;font-weight:bold;")
+        return (f"background:{BG3};color:{TEXT2};border:1px solid {BORDER};"
+                f"border-radius:10px;font-size:9px;padding:3px 12px;")
+
+    def _disc_start_health_check(self):
+        """Run health check in background; update combo labels and auto-browse first live source."""
+        self._disc_status_lbl.setText("Checking sources…")
+        self._disc_health_worker = _SourceHealthWorker()
+        self._disc_health_worker.first_live.connect(self._disc_on_first_live)
+        self._disc_health_worker.all_statuses.connect(self._disc_on_all_statuses)
+        self._disc_health_worker.start()
+
+    def _disc_on_first_live(self, src_id: str):
+        """Called as soon as the first working source is found."""
+        self._disc_active_src_id = src_id
+        idx = self._disc_src_combo.findData(src_id)
+        if idx >= 0:
+            # Block signals so we don't trigger another browse before health check finishes
+            self._disc_src_combo.blockSignals(True)
+            self._disc_src_combo.setCurrentIndex(idx)
+            self._disc_src_combo.blockSignals(False)
+        if src_id == "groq":
+            self._disc_status_lbl.setText("No live sources found — use Groq AI")
+        else:
+            name = self._disc_src_combo.currentText()
+            self._disc_status_lbl.setText(f"Loading {name}…")
+            self._disc_browse()
+
+    def _disc_on_all_statuses(self, statuses: dict):
+        """Update combo items to mark dead sources with ✕."""
+        self._disc_src_statuses = statuses
+        self._disc_src_combo.blockSignals(True)
+        for i in range(self._disc_src_combo.count()):
+            sid  = self._disc_src_combo.itemData(i)
+            name = next((n for n, s in self._disc_sources if s == sid), sid)
+            if sid == "groq":
+                self._disc_src_combo.setItemText(i, f"✦ {name}")
+            elif statuses.get(sid) is False:
+                self._disc_src_combo.setItemText(i, f"✕ {name}")
+            else:
+                self._disc_src_combo.setItemText(i, f"✓ {name}")
+        self._disc_src_combo.blockSignals(False)
+
+    def _disc_browse(self):
+        src_id = self._disc_active_src_id
+        if src_id == "groq":
+            self._disc_status_lbl.setText("Groq AI — type a description and press Search")
+            self.discover_list.clear()
+            return
+        genre  = self._disc_genre_combo.currentText()
+        status = self._disc_status_combo.currentText()
+        self._disc_search_btn.setEnabled(False)
+        self._disc_spin.setVisible(True)
+        name = next((n for n, s in self._disc_sources if s == src_id), src_id)
+        self._disc_status_lbl.setText(f"Loading {name}…")
+        self.discover_list.clear()
+        self._disc_page         = 1
+        self._disc_loading_more = False
+        self._disc_exhausted    = False
+        self._disc_seen_titles  = set()
+        self._disc_results      = []
+        self._disc_worker = _BrowseWorker(src_id, "", genre, status, page=1)
+        self._disc_worker.done.connect(self._disc_on_results)
+        self._disc_worker.error.connect(self._disc_on_error)
+        self._disc_worker.start()
+
+    def _disc_search(self):
+        query  = self._disc_input.text().strip()
+        src_id = self._disc_active_src_id
+        genre  = self._disc_genre_combo.currentText()
+        status = self._disc_status_combo.currentText()
+        self._disc_search_btn.setEnabled(False)
+        self._disc_spin.setVisible(True)
+        self._disc_next_btn.setVisible(False)
+        self.discover_list.clear()
+        self._disc_page         = 1
+        self._disc_loading_more = False
+        self._disc_exhausted    = False
+        self._disc_seen_titles  = set()
+        self._disc_results      = []
+        if src_id == "groq":
+            if not query:
+                self._disc_search_btn.setEnabled(True)
+                self._disc_spin.setVisible(False)
+                self._disc_status_lbl.setText("Enter a description and press Search")
+                return
+            self._disc_status_lbl.setText("Sage is searching…")
+            self._disc_worker = _DiscoveryWorker(query)
+        else:
+            name = next((n for n, s in self._disc_sources if s == src_id), src_id)
+            self._disc_status_lbl.setText(
+                f"Searching {name}…" if query else f"Loading {name}…")
+            self._disc_worker = _BrowseWorker(src_id, query, genre, status, page=1)
+        self._disc_worker.done.connect(self._disc_on_results)
+        self._disc_worker.error.connect(self._disc_on_error)
+        self._disc_worker.start()
+
+    def _disc_on_results(self, results: list):
+        self._disc_search_btn.setEnabled(True)
+        self._disc_spin.setVisible(False)
+        self._disc_loading_more = False
+
+        # Deduplicate against everything already shown
+        fresh = []
+        for r in results:
+            t = r.get("title", "")
+            if t and t not in self._disc_seen_titles:
+                self._disc_seen_titles.add(t)
+                fresh.append(r)
+
+        if not fresh:
+            # No new results — either source is exhausted or all dupes
+            if not self._disc_results:
+                self._disc_exhausted = True
+                self._disc_status_lbl.setText("No results — try another source or genre")
+            else:
+                # Show Next Page button so user can manually try next page
+                # Don't set exhausted — let the button try
+                self._disc_next_btn.setVisible(True)
+            return
+
+        self._disc_results.extend(fresh)
+        total = len(self._disc_results)
+        name = next((n for n, s in self._disc_sources
+                     if s == self._disc_active_src_id), self._disc_active_src_id)
+        self._disc_status_lbl.setText(f"{total} novel(s)  ·  {name}  ·  p{self._disc_page}")
+        self._disc_append_grid(fresh)
+
+        # Auto-prefetch until 80 items are loaded with a polite delay; then show Next button
+        if total < 80 and not self._disc_exhausted and self._disc_active_src_id != "groq":
+            QTimer.singleShot(1500, self._disc_load_next_page)  # 1.5s delay — avoids 429/403
+        else:
+            self._disc_next_btn.setVisible(True)
+
+    def _disc_on_scroll(self, value: int):
+        """Trigger next page fetch when user scrolls within 50% of the bottom (only after 200+ items)."""
+        sb = self.discover_list.verticalScrollBar()
+        if self._disc_exhausted or self._disc_loading_more:
+            return
+        if self._disc_active_src_id == "groq":
+            return  # AI discovery has no pagination
+        # Only trigger infinite scroll once we have 200+ items (auto-prefetch handles < 200)
+        if len(self._disc_results) < 200:
+            return
+        if self.discover_list.count() < 10:
+            return
+        if sb.maximum() > 0 and value >= sb.maximum() * 0.50:
+            self._disc_load_next_page()
+
+    def _disc_load_next_page(self, manual=False):
+        if self._disc_loading_more:
+            return
+        if self._disc_exhausted and not manual:
+            return
+        self._disc_loading_more = True
+        self._disc_exhausted    = False   # reset so new results can come in
+        self._disc_next_btn.setVisible(False)
+        self._disc_page += 1
+        self._disc_spin.setVisible(True)
+        query  = self._disc_input.text().strip()
+        genre  = self._disc_genre_combo.currentText()
+        status = self._disc_status_combo.currentText()
+        self._disc_worker = _BrowseWorker(
+            self._disc_active_src_id, query, genre, status, page=self._disc_page)
+        self._disc_worker.done.connect(self._disc_on_results)
+        self._disc_worker.error.connect(self._disc_on_error)
+        self._disc_worker.start()
+
+    def _disc_on_error(self, msg: str):
+        self._disc_search_btn.setEnabled(True)
+        self._disc_spin.setVisible(False)
+        self._disc_loading_more = False
+        self._disc_status_lbl.setText(f"⚠ {msg[:80]}")
+        log.legion.error("Discovery error", error=msg)
+
+    def _disc_append_grid(self, results: list):
+        """Add items to the grid immediately with placeholder covers, then load covers async."""
+        from PyQt6.QtGui import QIcon
+        new_items = []
+        for r in results:
+            title   = r.get("title", "Unknown")
+            display = title if len(title) <= 14 else title[:13] + "…"
+            item    = QListWidgetItem(display)
+            item.setToolTip(title + ("\n" + r.get("desc", "") if r.get("desc") else ""))
+            item.setData(Qt.ItemDataRole.UserRole, r)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+            # Placeholder cover immediately — real one loads async below
+            item.setIcon(QIcon(self._make_placeholder_cover(title, 130, 185)))
+            self.discover_list.addItem(item)
+            new_items.append(item)
+
+        # Fire async cover loader for this batch
+        cover_pairs = []
+        for item, r in zip(new_items, results):
+            cover_url = r.get("cover") or r.get("cover_url", "")
+            cover_pairs.append((item, r.get("title", ""), r.get("url", ""), cover_url))
+
+        if cover_pairs:
+            worker = _CoverLoaderWorker(cover_pairs)
+            worker.cover_ready.connect(self._disc_on_cover_ready)
+            worker.start()
+            # Keep a reference so it isn't GC'd mid-run
+            if not hasattr(self, "_cover_workers"):
+                self._cover_workers = []
+            self._cover_workers.append(worker)
+            worker.finished.connect(lambda w=worker: self._cover_workers.remove(w)
+                                    if w in self._cover_workers else None)
+
+    def _disc_on_cover_ready(self, item: "QListWidgetItem", px: "QPixmap"):
+        from PyQt6.QtGui import QIcon
+        try:
+            if item and item.listWidget() is not None and not px.isNull():
+                item.setIcon(QIcon(px))
+        except RuntimeError:
+            pass  # item was deleted before cover arrived
+
+    def _make_placeholder_cover(self, title: str, w: int, h: int) -> "QPixmap":
+        """Generate a dark styled cover card with title initials."""
+        from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient, QBrush, QPen
+        from PyQt6.QtCore import QRect
+        px = QPixmap(w, h)
+        px.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(px)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        grad = QLinearGradient(0, 0, 0, h)
+        grad.setColorAt(0, QColor(30, 28, 50))
+        grad.setColorAt(1, QColor(15, 14, 28))
+        painter.setBrush(QBrush(grad))
+        painter.setPen(QPen(QColor(ACCENT), 1))
+        painter.drawRoundedRect(1, 1, w-2, h-2, 6, 6)
+        initials = "".join(word[0].upper() for word in title.split()[:2] if word)
+        painter.setFont(QFont("Arial", 28, QFont.Weight.Bold))
+        painter.setPen(QColor(ACCENT))
+        painter.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, initials)
+        painter.setFont(QFont("Arial", 7))
+        painter.setPen(QColor(TEXT2))
+        painter.drawText(QRect(4, h-36, w-8, 32),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            | Qt.TextFlag.TextWordWrap, title[:30])
+        painter.end()
+        return px
+
+    def _disc_book_clicked(self, item):
+        r = item.data(Qt.ItemDataRole.UserRole)
+        if not r: return
+        dlg = DiscoverDetailDialog(r, self)
+        dlg.book_chosen.connect(self._on_disc_book_chosen)
+        dlg.exec()
+
+    def _on_disc_book_chosen(self, title: str, url: str):
+        """Ask user where to add the discovered book, resolve first chapter URL, fetch metadata, then save."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add to Collection")
+        dlg.setMinimumWidth(360)
+        dlg.setStyleSheet(f"background:{BG}; color:{TEXT};")
+        vlay = QVBoxLayout(dlg)
+        vlay.setContentsMargins(20, 20, 20, 20)
+        vlay.setSpacing(12)
+
+        title_lbl = QLabel(f"<b>{title}</b>")
+        title_lbl.setStyleSheet(f"color:{ACCENT};font-size:13px;")
+        title_lbl.setWordWrap(True)
+        vlay.addWidget(title_lbl)
+
+        status_lbl = QLabel("Resolving chapter URL and fetching metadata...")
+        status_lbl.setStyleSheet(f"color:{MUTED};font-size:11px;")
+        vlay.addWidget(status_lbl)
+
+        vlay.addWidget(QLabel("Where would you like to add this?"))
+
+        chosen = {"dest": None}
+
+        def _btn(text, dest, style=""):
+            b = QPushButton(text)
+            if style == "accent":
+                b.setStyleSheet(
+                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+                    f"font-size:10px;padding:8px 14px;border-radius:3px;")
+            else:
+                b.setStyleSheet(
+                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
+                    f"font-size:10px;padding:8px 14px;border-radius:3px;")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            def _pick(_, d=dest):
+                chosen["dest"] = d
+                dlg.accept()
+            b.clicked.connect(_pick)
+            return b
+
+        # Row 1: Jump In (adds to library) or Planning
+        row1 = QHBoxLayout(); row1.setSpacing(8)
+        row1.addWidget(_btn("📚  Jump In (Library)", "jumpin", "accent"))
+        row1.addWidget(_btn("📋  Planning", "planning"))
+        vlay.addLayout(row1)
+
+        # Row 2: other bookmark statuses
+        row2 = QHBoxLayout(); row2.setSpacing(8)
+        row2.addWidget(_btn("📖  Reading", "reading"))
+        row2.addWidget(_btn("✅  Completed", "completed"))
+        row2.addWidget(_btn("🚫  Dropped", "dropped"))
+        vlay.addLayout(row2)
+
+        # Cancel
+        cancel_b = QPushButton("Cancel")
+        cancel_b.setStyleSheet(
+            f"background:transparent;color:{MUTED};border:none;font-size:10px;padding:6px;")
+        cancel_b.clicked.connect(dlg.reject)
+        vlay.addWidget(cancel_b, 0, Qt.AlignmentFlag.AlignRight)
+
+        # Pre-resolve the first chapter URL and metadata in background
+        chapter_url = None
+        metadata = {}
+
+        if url:
+            mod, _ = _get_legion_mod()
+            if mod and hasattr(mod, "resolve_first_chapter_url"):
+                try:
+                    chapter_url = mod.resolve_first_chapter_url(url)
+                except Exception as e:
+                    log.legion.warning("Failed to resolve first chapter", error=str(e))
+            # Fallback: use original URL if resolution failed
+            if not chapter_url:
+                chapter_url = url
+
+            # Fetch metadata from book page
+            if mod and hasattr(mod, "fetch_book_metadata"):
+                try:
+                    metadata = mod.fetch_book_metadata(url) or {}
+                except Exception as e:
+                    log.legion.warning("Failed to fetch metadata", error=str(e))
+
+        status_lbl.setText("Ready to add." if chapter_url else "Using book URL (chapter resolution failed).")
+
+        if not dlg.exec() or not chosen["dest"]:
+            return
+
+        dest = chosen["dest"]
+        final_url = chapter_url or url
+
+        if dest == "jumpin":
+            # Add to the main library (Jump In) — same structure as _add_book
+            ld = legion_data()
+            if title not in ld.get("books", {}):
+                ld.setdefault("books", {})[title] = {
+                    "current_url": final_url, "next_url": None, "last_title": "Not started",
+                    "chapters_read": 0, "words_read": 0, "minutes_read": 0,
+                    "current_chapter": None, "new_chapters_waiting": 0, "metadata": metadata,
+                    "download_state": {"status": "idle", "last_downloaded_chapter": None,
+                        "last_downloaded_chapter_num": 0, "total_chapters_downloaded": 0,
+                        "download_path": None, "failed_chapters": [], "timestamp": None,
+                        "pause_requested": False}}
+                save_json(LEGION_PROGRESS, ld)
+                self.refresh()
+                main_win = self.window()
+                if hasattr(main_win, "_run_auto_sync"):
+                    QTimer.singleShot(500, main_win._run_auto_sync)
+            self._switch_tab(0)
+        else:
+            # Add to bookmarks list (planning / reading / completed / dropped)
+            bm = bookmarks_data()
+            already = any(
+                (e.get("title", "") if isinstance(e, dict) else str(e)).lower() == title.lower()
+                for lst in bm.values() for e in lst
+            )
+            if not already:
+                bm.setdefault(dest, []).append({
+                    "title": title, "url": final_url,
+                    "metadata": metadata, "added": time.time()
+                })
+                save_json(LEGION_BOOKMARKS, bm)
+                self.refresh()
+            self._switch_tab(1)
+            # Switch to the right sub-tab in bookmarks
+            tab_map = {"planning": 0, "reading": 1, "dropped": 2, "completed": 3}
+            if dest in tab_map:
+                self._bm_tabs.setCurrentIndex(tab_map[dest])
+
+    def _open_discovery(self):
+        """Legacy entry point — switches to Discover tab."""
+        self._switch_tab(2)
+
+    def _toggle_tts(self, checked: bool):
+        if checked:
+            self._start_tts()
+        else:
+            self._stop_tts()
+
+    def _start_tts(self):
+        text = self.reader.toPlainText()
+        self._tts_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not self._tts_paragraphs:
+            self._tts_btn.setChecked(False)
+            return
+        self._tts_index  = 0
+        self._tts_active = True
+        self._tts_worker = _TTSWorker(self._tts_paragraphs, 0)
+        self._tts_worker.paragraph_started.connect(self._on_tts_paragraph)
+        self._tts_worker.finished.connect(self._on_tts_finished)
+        self._tts_worker.error.connect(self._on_tts_error)
+        self._tts_worker.start()
+        self._tts_btn.setStyleSheet(
+            f"background:transparent;border:1px solid #3CBF7A;color:#3CBF7A;"
+            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+
+    def _stop_tts(self):
+        if self._tts_worker:
+            self._tts_worker.stop()
+            self._tts_worker.wait(2000)
+            self._tts_worker = None
+        self._tts_active = False
+        self._tts_btn.setChecked(False)
+        self._tts_btn.setStyleSheet(
+            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+        self._tts_clear_highlight()
+
+    def _on_tts_paragraph(self, index: int, text: str):
+        self._tts_index = index
+        self._tts_highlight(text)
+
+    def _on_tts_finished(self):
+        self._stop_tts()
+
+    def _on_tts_error(self, msg: str):
+        self._stop_tts()
+        if hasattr(self, "_show_toast"):
+            self._show_toast(f"TTS error: {msg}")
+        else:
+            log.error("TTS error", error=msg)
+
+    def _tts_highlight(self, para_text: str):
+        # Clear previous
+        self._tts_clear_highlight()
+        # Find and highlight
+        doc = self.reader.document()
+        # search by first 60 chars to be safe and fast
+        cursor = doc.find(para_text[:60])
+        if not cursor.isNull():
+            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor(BG3))
+            fmt.setForeground(QColor(ACCENT))
+            cursor.mergeCharFormat(fmt)
+            self.reader.setTextCursor(cursor)
+            self.reader.ensureCursorVisible()
+            self._tts_highlight_cursor = cursor
+
+    def _tts_clear_highlight(self):
+        if hasattr(self, "_tts_highlight_cursor") and self._tts_highlight_cursor:
+            cur = QTextCursor(self.reader.document())
+            cur.select(QTextCursor.SelectionType.Document)
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor(BG))
+            fmt.setForeground(QColor(TEXT))
+            cur.mergeCharFormat(fmt)
+            self._tts_highlight_cursor = None
+
+    def _toggle_reader_settings(self):
+        visible = self._rs_panel.isVisible()
+        self._rs_panel.setVisible(not visible)
+        if not visible:
+            self._rs_btn.setStyleSheet(
+                f"background:transparent;border:1px solid {ACCENT};color:{ACCENT};"
+                f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+        else:
+            self._rs_btn.setStyleSheet(
+                f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+                f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
+
+    def _on_rs_changed(self, key, value):
+        self._rs[key] = value
+        
+        # Update UI labels
+        if key == "font_size":
+            self._rs_fs_val.setText(f"{value}px")
+            self._font_size = value
+        elif key == "line_height":
+            self._rs_lh_val.setText(f"{value:.1f}")
+        elif key == "padding_h":
+            self._rs_hm_val.setText(f"{value}px")
+        elif key == "padding_v":
+            self._rs_vp_val.setText(f"{value}px")
+        elif key == "bg_mode":
+            self._update_bg_btn_styles()
+            
+        self._apply_font()
+        
+        # Debounced save
+        if not hasattr(self, "_rs_save_timer"):
+            self._rs_save_timer = QTimer(self)
+            self._rs_save_timer.setSingleShot(True)
+            self._rs_save_timer.setInterval(500)
+            self._rs_save_timer.timeout.connect(self._save_rs)
+        self._rs_save_timer.start()
+
+    def _update_bg_btn_styles(self):
+        for mode, btn in self._bg_btns.items():
+            active = (self._rs["bg_mode"] == mode)
+            btn.setChecked(active)
+            if active:
+                btn.setStyleSheet(f"background:{ACCENT}; color:{BG}; font-size:9px; border-radius:3px;")
+            else:
+                btn.setStyleSheet(f"background:{BG3}; color:{TEXT2}; border:1px solid {BORDER}; font-size:9px; border-radius:3px;")
+
+    def _reset_rs(self):
+        self._rs = dict(self._rs_defaults)
+        self._font_size = self._rs["font_size"]
+        
+        # Sync sliders
+        self._rs_fs_slider.setValue(self._rs["font_size"])
+        self._rs_lh_slider.setValue(int(self._rs["line_height"] * 100))
+        self._rs_hm_slider.setValue(self._rs["padding_h"])
+        self._rs_vp_slider.setValue(self._rs["padding_v"])
+        
+        self._update_bg_btn_styles()
+        self._apply_font()
+        self._save_rs()
+
+    def _save_rs(self):
+        ld = legion_data()
+        ld["reader_settings"] = dict(self._rs)
+        save_json(LEGION_PROGRESS, ld)
 
     def _toggle_sage_panel(self):
         visible = self._sage_panel.isVisible()
@@ -564,13 +1478,20 @@ class LegionPage(QWidget):
         self._sage_answer.setPlainText(answer or "(No response)")
 
     def _apply_font(self):
+        bg, fg = _BG_MODES.get(self._rs.get("bg_mode", "dark"), (BG3, TEXT))
+        ph = self._rs.get("padding_h", 80)
+        pv = self._rs.get("padding_v", 36)
+        lh = self._rs.get("line_height", 1.9)
+        fs = self._rs.get("font_size", self._font_size)
         self.reader.setStyleSheet(
-            f"background:{BG3};color:{TEXT};border:none;padding:18px;"
-            f"font-family:{FONT_BODY};font-size:{self._font_size}px;line-height:1.9;")
+            f"background:{bg};color:{fg};border:none;"
+            f"padding:{pv}px {ph}px;"
+            f"font-family:{FONT_BODY};font-size:{fs}px;line-height:{lh};")
 
     def _on_scroll(self, value=None):
         sb  = self.reader.verticalScrollBar()
-        top = sb.minimum(); bot = sb.maximum()
+        top = sb.minimum()
+        bot = sb.maximum()
         if bot <= top:
             frac = 1.0
         else:
@@ -632,24 +1553,38 @@ class LegionPage(QWidget):
     def _open_downloads_panel(self):
         """Switch right panel to downloads view and populate it."""
         self._refresh_downloads_panel()
-        self._right_stack.setCurrentIndex(2)
+        self._right_stack.setCurrentIndex(4)
         # Start a refresh timer while panel is visible
         if not hasattr(self, "_dl_panel_timer"):
             self._dl_panel_timer = QTimer(self)
             self._dl_panel_timer.timeout.connect(self._refresh_downloads_panel)
-        self._dl_panel_timer.start(3000)
+        self._dl_panel_timer.start(1500)
 
     def _refresh_downloads_panel(self):
         """Rebuild the downloads panel content from current legion data."""
         # Stop if panel not visible
-        if self._right_stack.currentIndex() != 2:
+        if self._right_stack.currentIndex() != 4:
             if hasattr(self, "_dl_panel_timer"):
                 self._dl_panel_timer.stop()
             return
 
         ld  = legion_data()
         books = ld.get("books", {})
+        mod, _ = _get_legion_mod()
 
+        # Update header count badge
+        count = 0
+        if mod and hasattr(mod, "download_manager"):
+            count = len(mod.download_manager.active_downloads) + \
+                    len(mod.download_manager.get_queue_snapshot())
+        if hasattr(self, "_dl_badge"):
+            self._dl_badge.setText(f"({count})" if count else "")
+        
+        # Find header to insert/update badge
+        # In _build, downloads header is at the top of the layout
+        # We'll just find it by name if possible, or search
+        # Actually I'll just look at _build again to see where it is
+        
         # Clear existing rows
         layout = self._dl_panel_list.layout()
         while layout.count():
@@ -674,10 +1609,13 @@ class LegionPage(QWidget):
 
             row = QWidget()
             row.setStyleSheet(f"background:{BG2};border-radius:6px;")
-            rl  = QVBoxLayout(row); rl.setContentsMargins(14, 10, 14, 10); rl.setSpacing(4)
+            rl  = QVBoxLayout(row)
+            rl.setContentsMargins(14, 10, 14, 10)
+            rl.setSpacing(4)
 
             # Title + badge
-            top = QHBoxLayout(); top.setSpacing(8)
+            top = QHBoxLayout()
+            top.setSpacing(8)
             name_lbl = QLabel(name)
             name_lbl.setStyleSheet(f"font-size:13px;font-weight:bold;color:{TEXT};")
             badge_colors = {
@@ -687,7 +1625,7 @@ class LegionPage(QWidget):
                 "failed":      ("#FF4060", "#1A0008"),
                 "completed":   ("#4080FF", "#000D1A"),
             }
-            bc, bg = badge_colors.get(stat, (MUTED, BG3))
+            bc, b_bg = badge_colors.get(stat, (MUTED, BG3))
             badge_text = {
                 "downloading": f"⏳ Downloading",
                 "queued":      "⏸ Queued",
@@ -697,22 +1635,64 @@ class LegionPage(QWidget):
             }.get(stat, stat)
             badge = QLabel(badge_text)
             badge.setStyleSheet(
-                f"background:{bg};color:{bc};border:1px solid {bc};"
+                f"background:{b_bg};color:{bc};border:1px solid {bc};"
                 f"font-size:9px;letter-spacing:1px;padding:2px 8px;border-radius:3px;")
             top.addWidget(name_lbl); top.addStretch(); top.addWidget(badge)
             rl.addLayout(top)
 
-            # Chapter count
-            info_parts = [f"{cnt} chapters downloaded"]
-            if fails:
-                info_parts.append(f"{fails} failed")
-            info_lbl = QLabel("  ·  ".join(info_parts))
+            # Chapter count / Queue position
+            if stat == "queued":
+                position = 1
+                if mod and hasattr(mod, "download_manager"):
+                    snapshot = mod.download_manager.get_queue_snapshot()
+                    if name in snapshot:
+                        position = snapshot.index(name) + 1
+                info_lbl = QLabel(f"Position {position} in queue  ·  {cnt} chapters downloaded")
+            else:
+                info_parts = [f"{cnt} chapters downloaded"]
+                if fails:
+                    info_parts.append(f"{fails} failed")
+                info_lbl = QLabel("  ·  ".join(info_parts))
+            
             info_lbl.setStyleSheet(f"font-size:10px;color:{MUTED};letter-spacing:0.5px;")
             rl.addWidget(info_lbl)
 
+            # Progress bar for downloading
+            if stat == "downloading":
+                pbar = QProgressBar()
+                known_total = book.get("total_chapters")
+                if known_total and known_total > 0:
+                    pbar.setRange(0, known_total)
+                    pbar.setValue(cnt)
+                else:
+                    pbar.setRange(0, 0)
+                pbar.setFixedHeight(3)
+                pbar.setTextVisible(False)
+                pbar.setStyleSheet(
+                    f"QProgressBar{{background:{BG3};border:none;border-radius:0;}}"
+                    f"QProgressBar::chunk{{background:{ACCENT};border-radius:0;}}")
+                rl.addWidget(pbar)
+                
+                # ETA
+                eta_text = ""
+                if mod and hasattr(mod, "download_manager"):
+                    rate = mod.download_manager.get_chapter_rate(name)
+                    if rate > 0 and known_total and known_total > cnt:
+                        remaining = known_total - cnt
+                        minutes   = remaining / rate
+                        if minutes < 60:
+                            eta_text = f"~{int(minutes)}m remaining"
+                        else:
+                            eta_text = f"~{int(minutes/60)}h {int(minutes%60)}m remaining"
+                if eta_text:
+                    eta_lbl = QLabel(eta_text)
+                    eta_lbl.setStyleSheet(f"font-size:9px;color:{MUTED};letter-spacing:0.5px;")
+                    rl.addWidget(eta_lbl)
+
             # Action buttons row
             if stat in ("downloading", "queued", "paused"):
-                btn_rl = QHBoxLayout(); btn_rl.setSpacing(6)
+                btn_rl = QHBoxLayout()
+                btn_rl.setSpacing(6)
                 if stat == "downloading":
                     pb = QPushButton("⏸ Pause")
                     pb.setStyleSheet(
@@ -746,59 +1726,65 @@ class LegionPage(QWidget):
         layout.addStretch()
 
     def _dl_panel_pause(self, name):
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         if mod and hasattr(mod, "download_manager"):
             mod.download_manager.pause_download(name)
 
     def _dl_panel_resume(self, name):
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         if not mod: return
         ld = legion_data()
-        b  = ld.get("books", {}).get(name)
-        if b:
-            b["download_state"]["status"] = "queued"
-            b["download_state"]["pause_requested"] = False
+        book_data = ld.get("books", {}).get(name)
+        if book_data:
+            book_data["download_state"]["status"] = "queued"
+            book_data["download_state"]["pause_requested"] = False
             save_json(LEGION_PROGRESS, ld)
             if hasattr(mod, "download_manager"):
-                mod.download_manager.queue_download(name, b, ld)
+                mod.download_manager.queue_download(name, book_data, ld)
 
     def _dl_panel_cancel(self, name):
         ld = legion_data()
-        b  = ld.get("books", {}).get(name)
-        if b:
-            b["download_state"]["status"] = "cancelled"
+        book_data = ld.get("books", {}).get(name)
+        if book_data:
+            book_data["download_state"]["status"] = "cancelled"
             save_json(LEGION_PROGRESS, ld)
         self._refresh_downloads_panel()
 
     def _show_toast(self, message):
         """Sync notification — just refresh downloads panel if it's open."""
-        if self._right_stack.currentIndex() == 2:
+        if self._right_stack.currentIndex() == 4:
             self._refresh_downloads_panel()
 
     def refresh(self):
         ld = legion_data(); books = ld.get("books",{})
-        self.jumpin_list.clear(); self._book_data = {}
+        self.jumpin_list.clear()
+        self._book_data = {}
         sorted_books = sorted(books.items(),
             key=lambda x: x[1].get("last_read", x[1].get("chapters_read", 0)),
             reverse=True)
-        for name, b in sorted_books:
-            ch = b.get("chapters_read", 0); w = b.get("words_read", 0)
+        for name, book in sorted_books:
+            ch = book.get("chapters_read", 0); w = book.get("words_read", 0)
             display = name if len(name) <= 20 else name[:18] + "…"
             item = QListWidgetItem(display)
             item.setToolTip(f"{name}\nChapter {ch} · {w:,} words read")
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
+            cover_set = False
             try:
                 from plugins.book_covers import get_cover
                 from PyQt6.QtGui import QIcon
-                source_url = b.get("current_url", "") or b.get("url", "")
+                source_url = book.get("current_url", "") or book.get("url", "")
                 px = get_cover(name, source_url)
                 if px and not px.isNull():
                     item.setIcon(QIcon(px))
+                    cover_set = True
             except Exception:
                 pass
+            if not cover_set:
+                from PyQt6.QtGui import QIcon
+                item.setIcon(QIcon(self._make_placeholder_cover(name, 100, 140)))
             self.jumpin_list.addItem(item)
-            self._book_data[name] = b
+            self._book_data[name] = book
         bm = bookmarks_data()
         for lst_name, lw in self._bm_lists.items():
             lw.clear()
@@ -831,19 +1817,22 @@ class LegionPage(QWidget):
         if not name: return
         b = self._book_data.get(name, {})
         self._current_book = name
-        # Reset local-file navigation state for this new book
         self._current_ch_num = 0
         self._total_ch_local = 0
         self._reading_local  = False
         self._next_url = ""; self._prev_url = ""
-        self._right_stack.setCurrentIndex(0)  # always show detail on explicit click
-        self._show_detail(name, b, from_list="jumpin")
-        # Auto-fetch metadata if we have a URL but no metadata yet
+        # Auto-fetch metadata if missing
         url = b.get("current_url","") or b.get("url","")
         if url and not b.get("metadata"):
             self._refresh_meta_silent(name, url)
+        dlg = BookDetailDialog(name, b, self)
+        dlg.read_requested.connect(self._detail_read)
+        dlg.delete_requested.connect(self._detail_delete_name)
+        dlg.reset_time_requested.connect(self._detail_reset_time_name)
+        dlg.download_requested.connect(self._detail_download_name)
+        dlg.exec()
 
-    def _bm_double(self, item, list_name):
+    def _bm_clicked(self, item, list_name):
         e = item.data(Qt.ItemDataRole.UserRole)
         if not e: return
         title = e.get("title","?") if isinstance(e,dict) else str(e)
@@ -853,13 +1842,26 @@ class LegionPage(QWidget):
         for k in ("chapters_read","words_read","current_url","last_title",
                   "metadata","minutes_read","download_state"):
             if k in prog: entry.setdefault(k, prog[k])
+        # Normalise: bookmark entries store the url under "url"; ensure
+        # "current_url" is always populated so BookDetailDialog and
+        # _detail_read can find it regardless of which key was used.
+        if not entry.get("current_url"):
+            entry["current_url"] = entry.get("url", "")
         self._current_book = title
-        # Reset navigation state for this book
         self._current_ch_num = 0
         self._total_ch_local = 0
         self._reading_local  = False
         self._next_url = ""; self._prev_url = ""
-        self._show_detail(title, entry, from_list=list_name)
+        dlg = BookDetailDialog(title, entry, self)
+        dlg.read_requested.connect(self._detail_read)
+        dlg.delete_requested.connect(self._detail_delete_name)
+        dlg.reset_time_requested.connect(self._detail_reset_time_name)
+        dlg.download_requested.connect(self._detail_download_name)
+        dlg.exec()
+
+    def _bm_double(self, item, list_name):
+        """Keep for backward compat — delegates to _bm_clicked."""
+        self._bm_clicked(item, list_name)
 
     def _refresh_meta_silent(self, name, url):
         """Silently fetch and cache metadata for a book without user interaction."""
@@ -944,7 +1946,7 @@ class LegionPage(QWidget):
         last_label = ""
         cur_ch = book.get("current_chapter")
         if cur_ch:
-            mod, _ = legion_mod()
+            mod, _ = _get_legion_mod()
             if mod and hasattr(mod, "get_chapter_from_file"):
                 try:
                     t, _ = mod.get_chapter_from_file(name, int(cur_ch))
@@ -979,9 +1981,7 @@ class LegionPage(QWidget):
         self._detail_dl_status.setText(dl_labels.get(dl_status, ""))
 
         self._update_detail_buttons(book)
-        # Switch to detail unless user is reading (1) or browsing downloads (2)
-        if self._right_stack.currentIndex() not in (1, 2):
-            self._right_stack.setCurrentIndex(0)
+        # _show_detail no longer drives the right stack; BookDetailDialog handles display
 
     def _update_detail_buttons(self, book):
         self._btn_read.setVisible(bool(book))
@@ -990,9 +1990,11 @@ class LegionPage(QWidget):
 
     def _detail_read(self):
         """Open the book at the last chapter the user was on."""
-        name = getattr(self, "_detail_book_name", None)
+        # When called via signal from BookDetailDialog, _current_book is already set.
+        # Fall back to _detail_book_name for legacy call paths.
+        name = self._current_book or getattr(self, "_detail_book_name", None)
         if not name: return
-        self._current_book = name
+        self._detail_book_name = name
 
         # Always read fresh from disk
         ld   = legion_data()
@@ -1004,12 +2006,26 @@ class LegionPage(QWidget):
 
         # Auto-bookmark
         bm = bookmarks_data()
+
+        # If legion_data has no URL (book lives only in Bookmarks, never added
+        # to Jump In), fall back to whichever bookmark list has it.
+        if not url:
+            for _lst in bm.values():
+                for _bm_e in _lst:
+                    if isinstance(_bm_e, dict) and                             _bm_e.get("title", "").lower() == name.lower():
+                        url = (_bm_e.get("current_url", "")
+                               or _bm_e.get("url", ""))
+                        if url:
+                            break
+                if url:
+                    break
+
         already = any(
             (e.get("title", "") if isinstance(e, dict) else str(e)).lower() == name.lower()
             for lst in bm.values() for e in lst
         )
         if not already:
-            bm.setdefault("Reading", []).append({
+            bm.setdefault("reading", []).append({
                 "title": name, "url": url,
                 "metadata": book.get("metadata", {}),
                 "added": time.time()
@@ -1018,7 +2034,7 @@ class LegionPage(QWidget):
 
         # Get the real chapter list from the file (story numbers, e.g. [549, 550, ...])
         ch_list = []
-        mod2, _ = legion_mod()
+        mod2, _ = _get_legion_mod()
         if mod2 and hasattr(mod2, "_get_chapter_list_from_file"):
             try:
                 ch_list = mod2._get_chapter_list_from_file(name)
@@ -1063,21 +2079,22 @@ class LegionPage(QWidget):
 
         self._load_chapter(resume_ch, url)
 
-
     def _load_chapter(self, ch_num, fallback_url=""):
         """
         Central chapter loader.
         1. Try local .txt file for ch_num.
         2. If not found, try fallback_url via web scrape.
         3. If no url either, tell the user.
+
         Always updates _current_ch_num, _reading_local, _total_ch_local.
         """
+        self._stop_tts()
         name = self._current_book
         if not name: return
         log.legion.info("Loading chapter", book=name, chapter=ch_num, has_url=bool(fallback_url))
 
         # Count how many chapters are in the local file
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         total_local = 0
         chapters = []  # always defined — prevents NameError in the body block below
         if mod and hasattr(mod, "_get_chapter_list_from_file"):
@@ -1095,13 +2112,13 @@ class LegionPage(QWidget):
                 title_f, paras_f = mod.get_chapter_from_file(name, ch_num)
                 if paras_f:
                     file_ch = (title_f, paras_f)
-            except Exception: pass
+            except Exception: pass  # Ignored
 
         if file_ch:
             title_f, paras_f = file_ch
             self._current_ch_num = ch_num
             self._reading_local  = True
-            self._right_stack.setCurrentIndex(1)
+            self._right_stack.setCurrentIndex(3)
             self._read_progress.setValue(0)
             # Show real chapter number from title if available (e.g. "Chapter 549: ...")
             real_num = ch_num
@@ -1162,30 +2179,30 @@ class LegionPage(QWidget):
             # (chapter_loading released by the scroll timer above)
 
             # Save current_chapter = open chapter; chapters_read = completed count (unchanged here)
-            ld = legion_data(); b = ld.get("books",{}).get(name)
-            if b:
-                b["current_chapter"] = ch_num
-                b["last_title"]      = title_f
+            ld = legion_data(); book_data = ld.get("books", {}).get(name)
+            if book_data:
+                book_data["current_chapter"] = ch_num
+                book_data["last_title"]      = title_f
                 # words_read accumulated in _next_chapter on completion, not on every open
                 save_json(LEGION_PROGRESS, ld)
                 # Update in-memory cache
-                self._book_data[name] = b
+                self._book_data[name] = book_data
                 for i in range(self.jumpin_list.count()):
                     it = self.jumpin_list.item(i)
                     if it and it.data(Qt.ItemDataRole.UserRole) == name:
                         it.setText(f"  {name}")
-                        it.setToolTip(f"Chapter {ch_num} - {b.get('words_read',0):,} words read")
+                        it.setToolTip(f"Chapter {ch_num} - {book_data.get('words_read',0):,} words read")
                         break
             # Record chapter open time for minutes_read tracking
             self._chapter_open_time = time.time()
             self._chapter_open_words = words
-            track_event("words_read", {"words": words, "book": name})
+            self._words_tracked_this_chapter = False
             # Update catalogue panel context
             if self._catalogue_panel:
                 self._catalogue_panel.set_context(name, ch_num)
             # Start/restart heartbeat timer — saves progress every 2 min while reading
             if not hasattr(self, "_heartbeat_timer"):
-                self._heartbeat_timer = QTimer()
+                self._heartbeat_timer = QTimer(self)
                 self._heartbeat_timer.timeout.connect(self._heartbeat_save)
             self._heartbeat_timer.start(60_000)  # 1 minute
             return
@@ -1196,13 +2213,13 @@ class LegionPage(QWidget):
         if self._catalogue_panel:
             self._catalogue_panel.set_context(name, ch_num)
         if fallback_url:
-            self._right_stack.setCurrentIndex(1)
+            self._right_stack.setCurrentIndex(3)
             self._load_url(fallback_url)
         else:
             book = self._book_data.get(name, {})
             saved_url = book.get("current_url","") or book.get("url","")
             if saved_url:
-                self._right_stack.setCurrentIndex(1)
+                self._right_stack.setCurrentIndex(3)
                 self._load_url(saved_url)
             else:
                 QMessageBox.information(self, "No Chapter",
@@ -1219,7 +2236,7 @@ class LegionPage(QWidget):
             log.legion.warning("Download attempted with no URL", book=name)
             QMessageBox.warning(self, "No URL", "No chapter URL saved — can't download."); return
 
-        mod, err = legion_mod()
+        mod, err = _get_legion_mod()
         if not mod:
             log.legion.error("legion.py unavailable for download", error=err, book=name)
             QMessageBox.warning(self, "Error", f"Can't load legion.py:\n{err}"); return
@@ -1240,13 +2257,13 @@ class LegionPage(QWidget):
 
         # Set up download_state and queue
         ld = legion_data()
-        b  = ld.get("books", {}).get(name, {})
-        if not b:
+        book_data = ld.get("books", {}).get(name, {})
+        if not book_data:
             QMessageBox.warning(self, "Error", f"Book '{name}' not found in library."); return
 
         # Preserve already-downloaded count if resuming
-        existing_state = b.get("download_state", {})
-        b["download_state"] = {
+        existing_state = book_data.get("download_state", {})
+        book_data["download_state"] = {
             "status":                    "queued",
             "last_downloaded_chapter":   existing_state.get("last_downloaded_chapter"),
             "last_downloaded_chapter_num": existing_state.get("last_downloaded_chapter_num", 0),
@@ -1256,12 +2273,12 @@ class LegionPage(QWidget):
             "timestamp":                 time.time(),
             "pause_requested":           False,
         }
-        ld["books"][name] = b
+        ld["books"][name] = book_data
         save_json(LEGION_PROGRESS, ld)
         log.legion.info("Download queued", book=name, url=url, already_downloaded=already)
 
         try:
-            mod.download_manager.queue_download(name, b, ld)
+            mod.download_manager.queue_download(name, book_data, ld)
         except Exception as e:
             log.legion.exc("Failed to queue download", e, book=name)
             QMessageBox.critical(self, "Queue Failed",
@@ -1269,8 +2286,8 @@ class LegionPage(QWidget):
                 "Check that legion.py loaded correctly and try again.")
             return
 
-        self._detail_book = b
-        self._show_detail(name, b, self._detail_from_list)
+        self._detail_book = book_data
+        self._show_detail(name, book_data, self._detail_from_list)
 
         # Start live progress polling (every 3s while active)
         self._start_download_poll(name)
@@ -1289,19 +2306,19 @@ class LegionPage(QWidget):
         if not name:
             self._dl_poll_timer.stop(); return
         ld = legion_data()
-        b  = ld.get("books", {}).get(name)
-        if not b:
+        book_data = ld.get("books", {}).get(name)
+        if not book_data:
             self._dl_poll_timer.stop()
             self._detail_dl_status.setText("")  # clear stale label
             return
-        status = b.get("download_state", {}).get("status", "idle")
+        status = book_data.get("download_state", {}).get("status", "idle")
         # Update detail labels live — but never kick user out of reader
         if getattr(self, "_detail_book_name", "") == name:
-            self._detail_book = b
+            self._detail_book = book_data
             # Only do a full _show_detail refresh if NOT currently reading
-            if self._right_stack.currentIndex() == 1:
+            if self._right_stack.currentIndex() == 3:
                 # User is reading — just silently update the book data and buttons
-                dl_state  = b.get("download_state", {})
+                dl_state  = book_data.get("download_state", {})
                 dl_status = dl_state.get("status", "idle")
                 dl_count  = dl_state.get("total_chapters_downloaded", 0)
                 dl_labels = {
@@ -1313,9 +2330,9 @@ class LegionPage(QWidget):
                     "cancelled":   "✕ Download cancelled",
                 }
                 self._detail_dl_status.setText(dl_labels.get(dl_status, ""))
-                self._update_detail_buttons(b)
+                self._update_detail_buttons(book_data)
             else:
-                self._show_detail(name, b, getattr(self, "_detail_from_list", "jumpin"))
+                self._show_detail(name, book_data, getattr(self, "_detail_from_list", "jumpin"))
         # Stop polling once done
         if status not in ("queued", "downloading"):
             self._dl_poll_timer.stop()
@@ -1326,39 +2343,42 @@ class LegionPage(QWidget):
     def _detail_pause(self):
         name = getattr(self,"_detail_book_name",None)
         if not name: return
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         if mod and hasattr(mod,"download_manager"):
             try: mod.download_manager.pause_download(name)
-            except Exception: pass
-        ld = legion_data(); b = ld.get("books",{}).get(name,{})
-        b.setdefault("download_state",{})["pause_requested"] = True
-        b["download_state"]["status"] = "paused"
+            except Exception: pass  # Ignored
+        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
+        book_data.setdefault("download_state",{})["pause_requested"] = True
+        book_data["download_state"]["status"] = "paused"
         save_json(LEGION_PROGRESS, ld)
-        self._detail_book = b; self._show_detail(name, b, self._detail_from_list)
+        self._detail_book = book_data
+        self._show_detail(name, book_data, self._detail_from_list)
 
     def _detail_resume(self):
         name = getattr(self,"_detail_book_name",None)
         if not name: return
-        mod, _ = legion_mod()
-        ld = legion_data(); b = ld.get("books",{}).get(name,{})
-        if not b: return
-        b.setdefault("download_state",{})["status"] = "queued"
-        b["download_state"]["pause_requested"] = False
+        mod, _ = _get_legion_mod()
+        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
+        if not book_data: return
+        book_data.setdefault("download_state",{})["status"] = "queued"
+        book_data["download_state"]["pause_requested"] = False
         save_json(LEGION_PROGRESS, ld)
         if mod and hasattr(mod,"download_manager"):
-            try: mod.download_manager.queue_download(name, b, ld)
-            except Exception: pass
-        self._detail_book = b; self._show_detail(name, b, self._detail_from_list)
+            try: mod.download_manager.queue_download(name, book_data, ld)
+            except Exception: pass  # Ignored
+        self._detail_book = book_data
+        self._show_detail(name, book_data, self._detail_from_list)
         self._start_download_poll(name)
 
     def _detail_cancel(self):
         name = getattr(self,"_detail_book_name",None)
         if not name: return
-        ld = legion_data(); b = ld.get("books",{}).get(name,{})
-        b.setdefault("download_state",{})["status"] = "cancelled"
-        b["download_state"]["pause_requested"] = True
+        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
+        book_data.setdefault("download_state",{})["status"] = "cancelled"
+        book_data["download_state"]["pause_requested"] = True
         save_json(LEGION_PROGRESS, ld)
-        self._detail_book = b; self._show_detail(name, b, self._detail_from_list)
+        self._detail_book = book_data
+        self._show_detail(name, book_data, self._detail_from_list)
 
 
     def _detail_check_new(self):
@@ -1391,16 +2411,16 @@ class LegionPage(QWidget):
 
     def _queue_incremental_download(self, name, book):
         """Queue an incremental download — appends from last downloaded chapter."""
-        mod, err = legion_mod()
+        mod, err = _get_legion_mod()
         if not mod:
             QMessageBox.warning(self, "Error", f"Can't load legion.py:\n{err}"); return
         if not hasattr(mod, "download_manager"):
             QMessageBox.warning(self, "Error", "download_manager not found in legion.py"); return
-        ld = legion_data(); b = ld.get("books", {}).get(name, {})
-        if not b: return
-        existing = b.get("download_state", {})
+        ld = legion_data(); book_data = ld.get("books", {}).get(name, {})
+        if not book_data: return
+        existing = book_data.get("download_state", {})
         # Keep last_downloaded_chapter so it resumes from where it left off
-        b["download_state"] = {
+        book_data["download_state"] = {
             "status":                      "queued",
             "last_downloaded_chapter":     existing.get("last_downloaded_chapter"),
             "last_downloaded_chapter_num": existing.get("last_downloaded_chapter_num", 0),
@@ -1410,14 +2430,14 @@ class LegionPage(QWidget):
             "timestamp":                   time.time(),
             "pause_requested":             False,
         }
-        ld["books"][name] = b
+        ld["books"][name] = book_data
         save_json(LEGION_PROGRESS, ld)
         try:
-            mod.download_manager.queue_download(name, b, ld)
+            mod.download_manager.queue_download(name, book_data, ld)
         except Exception as e:
             QMessageBox.critical(self, "Queue Failed", str(e)); return
-        self._detail_book = b
-        self._show_detail(name, b, self._detail_from_list)
+        self._detail_book = book_data
+        self._show_detail(name, book_data, self._detail_from_list)
         self._start_download_poll(name)
 
     def _detail_refresh_meta(self):
@@ -1436,8 +2456,8 @@ class LegionPage(QWidget):
     def _on_meta_refreshed(self, name, meta, err):
         if err:
             self._detail_meta.setText(f"⚠ {err}"); return
-        ld = legion_data(); b = ld.get("books",{}).get(name,{})
-        b["metadata"] = meta
+        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
+        book_data["metadata"] = meta
         save_json(LEGION_PROGRESS, ld)
         self._detail_book["metadata"] = meta
         self._show_detail(name, self._detail_book, self._detail_from_list)
@@ -1452,7 +2472,7 @@ class LegionPage(QWidget):
 
         # 1. Work out where the .txt file is — it always lives next to legion.py
         txt_path = None
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         if mod:
             legion_dir = os.path.dirname(os.path.abspath(mod.__file__))
             fname = re.sub(r'[^\w\-_\. ]', '_', name) + ".txt"
@@ -1521,7 +2541,7 @@ class LegionPage(QWidget):
         menu.exec(lw.mapToGlobal(pos))
 
     def _bm_move(self, title, url, target):
-        mod, err = legion_mod()
+        mod, err = _get_legion_mod()
         if mod:
             try: mod.add_to_bookmarks(title, url, target)
             except Exception: self._bm_move_raw(title, url, target)
@@ -1537,10 +2557,10 @@ class LegionPage(QWidget):
         save_json(LEGION_BOOKMARKS, bm)
 
     def _bm_remove(self, title):
-        mod, err = legion_mod()
+        mod, err = _get_legion_mod()
         if mod:
             try: mod.remove_from_bookmarks(title); self.refresh(); return
-            except Exception: pass
+            except Exception: pass  # Ignored
         bm = bookmarks_data()
         for k in bm:
             bm[k] = [e for e in bm[k]
@@ -1563,7 +2583,8 @@ class LegionPage(QWidget):
 
     def _chapter_done(self, title, paragraphs, next_url, prev_url, url_ch_num=0):
         self.progress_bar.setVisible(False)
-        self._next_url = next_url; self._prev_url = prev_url
+        self._next_url = next_url
+        self._prev_url = prev_url
         self._reading_local = False   # came from web scrape
         self.chapter_title.setText(title)
         text = "\n\n".join(paragraphs)
@@ -1575,23 +2596,23 @@ class LegionPage(QWidget):
         self._prev_btn.setEnabled(bool(prev_url))
         self._next_btn.setEnabled(bool(next_url))
         if self._current_book:
-            ld = legion_data(); b = ld.get("books",{}).get(self._current_book)
-            if b:
-                b["current_url"]     = self._current_url
+            ld = legion_data(); book_data = ld.get("books", {}).get(self._current_book)
+            if book_data:
+                book_data["current_url"]     = self._current_url
                 # Extract real chapter number from title e.g. "Chapter 551: ..."
                 m_ch = re.search(r'[Cc]hapter\s+(\d+)', title)
                 if m_ch:
-                    b["current_chapter"] = int(m_ch.group(1))
+                    book_data["current_chapter"] = int(m_ch.group(1))
                     self._current_ch_num = int(m_ch.group(1))
                 elif url_ch_num:
-                    b["current_chapter"] = url_ch_num
+                    book_data["current_chapter"] = url_ch_num
                     self._current_ch_num = url_ch_num
-                b["last_title"]      = title
-                if next_url: b["next_url"] = next_url
-                b["words_read"]      = b.get("words_read", 0) + words
+                book_data["last_title"]      = title
+                if next_url: book_data["next_url"] = next_url
+                book_data["words_read"]      = book_data.get("words_read", 0) + words
                 save_json(LEGION_PROGRESS, ld)
                 if self._current_book in self._book_data:
-                    self._book_data[self._current_book] = b
+                    self._book_data[self._current_book] = book_data
             # Update catalogue panel with resolved chapter number
             if self._catalogue_panel:
                 self._catalogue_panel.set_context(self._current_book, self._current_ch_num)
@@ -1610,12 +2631,17 @@ class LegionPage(QWidget):
     def _heartbeat_save(self):
         """Called every 2 minutes while reading — saves scroll position and time."""
         name = getattr(self, "_current_book", None)
-        if not name or self._right_stack.currentIndex() != 1: return
+        if not name or self._right_stack.currentIndex() != 3: return
         # Save scroll position
         sb = self.reader.verticalScrollBar()
         if sb.maximum() > 0:
             frac = (sb.value() - sb.minimum()) / (sb.maximum() - sb.minimum())
             self._scroll_positions.setdefault(name, {})[self._current_ch_num] = frac
+            
+            # When a chapter is completed (scroll position >= 95%), track words:
+            if frac >= 0.95 and not getattr(self, "_words_tracked_this_chapter", False):
+                track_event("words_read", {"words": getattr(self, "_chapter_open_words", 0), "book": name})
+                self._words_tracked_this_chapter = True
         # Save elapsed time
         self._save_reading_time()
         # Restart timer for next interval
@@ -1633,26 +2659,27 @@ class LegionPage(QWidget):
         # This prevents idle time (left app open, download running) inflating the count.
         elapsed_mins = min(elapsed_mins, 15.0)
         try:
-            ld = legion_data(); b = ld.get("books", {}).get(name)
-            if b:
-                b["minutes_read"] = round(b.get("minutes_read", 0) + elapsed_mins, 1)
+            ld = legion_data(); book_data = ld.get("books", {}).get(name)
+            if book_data:
+                book_data["minutes_read"] = round(book_data.get("minutes_read", 0) + elapsed_mins, 1)
                 save_json(LEGION_PROGRESS, ld)
-                self._book_data[name] = b
-        except Exception: pass
+                self._book_data[name] = book_data
+        except Exception: pass  # Ignored
         self._chapter_open_time = None
 
     def _next_chapter(self):
+        self._stop_tts()
         if self._reading_local and self._current_ch_num > 0:
             self._save_reading_time()
             # Accumulate words_read on chapter completion (not on open)
             words_just_read = len(self.reader.toPlainText().split())
-            ld = legion_data(); b = ld.get("books", {}).get(self._current_book)
-            if b:
-                b["chapters_read"] = b.get("chapters_read", 0) + 1
-                b["words_read"]    = b.get("words_read", 0) + words_just_read
+            ld = legion_data(); book_data = ld.get("books", {}).get(self._current_book)
+            if book_data:
+                book_data["chapters_read"] = book_data.get("chapters_read", 0) + 1
+                book_data["words_read"]    = book_data.get("words_read", 0) + words_just_read
                 save_json(LEGION_PROGRESS, ld)
-                self._book_data[self._current_book] = b
-            genre = _detect_genre(self._current_book, b) if b else ""
+                self._book_data[self._current_book] = book_data
+            genre = _detect_genre(self._current_book, book_data) if book_data else ""
             track_event("chapter_finished", {
                 "book": self._current_book, 
                 "ch": self._current_ch_num,
@@ -1661,7 +2688,7 @@ class LegionPage(QWidget):
 
             # Look up actual next story chapter number from the file
             next_num = None
-            mod, _ = legion_mod()
+            mod, _ = _get_legion_mod()
             if mod and hasattr(mod, "_get_chapter_list_from_file"):
                 try:
                     ch_list = mod._get_chapter_list_from_file(self._current_book)
@@ -1718,7 +2745,7 @@ class LegionPage(QWidget):
 
         # Build chapter list — local chapters first, then web-based count
         chapters = []  # list of (story_ch_num, label)
-        mod, _ = legion_mod()
+        mod, _ = _get_legion_mod()
         if mod and hasattr(mod, "_get_chapter_list_from_file"):
             try:
                 raw = mod._get_chapter_list_from_file(name)
@@ -1726,7 +2753,7 @@ class LegionPage(QWidget):
                 for num, subtitle in raw:
                     label = f"Chapter {num}" + (f": {subtitle}" if subtitle and subtitle != f"Chapter {num}" else "")
                     chapters.append((num, label))
-            except Exception: pass
+            except Exception: pass  # Ignored
 
         if not chapters and total > 0:
             chapters = [(i+1, f"Chapter {i+1}") for i in range(total)]
@@ -1743,7 +2770,9 @@ class LegionPage(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, num)
                 if num == current_ch:
                     item.setForeground(QColor(ACCENT))
-                    f = item.font(); f.setBold(True); item.setFont(f)
+                    f = item.font()
+                    f.setBold(True)
+                    item.setFont(f)
                 lw.addItem(item)
             for i in range(lw.count()):
                 if lw.item(i).data(Qt.ItemDataRole.UserRole) == current_ch:
@@ -1762,7 +2791,8 @@ class LegionPage(QWidget):
 
         lw.itemDoubleClicked.connect(lambda _: _jump())
 
-        btns = QHBoxLayout(); btns.setSpacing(8)
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet(
             f"QPushButton{{background:{BG3};color:{TEXT};border:1px solid {BORDER};"
@@ -1780,11 +2810,12 @@ class LegionPage(QWidget):
         dlg.exec()
 
     def _prev_chapter(self):
+        self._stop_tts()
         self._save_reading_time()
         if self._reading_local and self._current_ch_num > 0:
             # Look up actual previous chapter number from the file (handles gaps)
             prev_num = None
-            mod, _ = legion_mod()
+            mod, _ = _get_legion_mod()
             if mod and hasattr(mod, "_get_chapter_list_from_file"):
                 try:
                     ch_list = mod._get_chapter_list_from_file(self._current_book)
@@ -1808,7 +2839,12 @@ class LegionPage(QWidget):
             self.reader_status.setText("Already at the first chapter.")
 
     def _font_delta(self, d):
-        self._font_size = max(10, min(30, self._font_size + d)); self._apply_font()
+        self._rs["font_size"] = max(12, min(32, self._rs.get("font_size", 18) + d))
+        self._font_size = self._rs["font_size"]
+        if hasattr(self, "_rs_fs_slider"):
+            self._rs_fs_slider.setValue(self._font_size)
+        self._apply_font()
+        self._save_rs()
 
     def _open_reading_room(self):
         text = self.reader.toPlainText()
@@ -1857,37 +2893,6 @@ class LegionPage(QWidget):
         self._reading_room.setFocus()
         self._reading_room.grabKeyboard()
 
-    def _open_discovery(self):
-        dlg = LegionDiscoveryDialog(self)
-        def _on_book_chosen(title, url):
-            # If this book was deleted this session, un-delete it
-            # Add the book to Jump In so user can then download it
-            ld = legion_data()
-            if title not in ld.get("books", {}):
-                ld.setdefault("books", {})[title] = {
-                    "current_url": url, "next_url": None, "last_title": "Not started",
-                    "chapters_read": 0, "words_read": 0, "minutes_read": 0,
-                    "current_chapter": None,
-                    "new_chapters_waiting": 0, "metadata": {},
-                    "download_state": {"status": "idle", "last_downloaded_chapter": None,
-                        "last_downloaded_chapter_num": 0, "total_chapters_downloaded": 0,
-                        "download_path": None, "failed_chapters": [], "timestamp": None,
-                        "pause_requested": False}}
-                save_json(LEGION_PROGRESS, ld)
-                self.refresh()
-            # Show the book's detail panel
-            book = ld["books"][title]
-            self._book_data[title] = book
-            self._show_detail(title, book, "jumpin")
-            # Select it in the list
-            for i in range(self.jumpin_list.count()):
-                it = self.jumpin_list.item(i)
-                if it and it.data(Qt.ItemDataRole.UserRole) == title:
-                    self.jumpin_list.setCurrentItem(it)
-                    break
-        dlg.book_chosen.connect(_on_book_chosen)
-        dlg.exec()
-
     def _add_book(self):
         dlg = AddBookDialog(self)
         if dlg.exec():
@@ -1910,108 +2915,825 @@ class LegionPage(QWidget):
                     QTimer.singleShot(500, main_win._run_auto_sync)
 
 
-class LegionDiscoveryDialog(QDialog):
-    """AI-powered novel discovery — describe what you want, Sage finds it."""
-    book_chosen = pyqtSignal(str, str)  # emits (title, url)
+# ═══════════════════════════════════════════════════════════════════════════════
+# BOOK DETAIL DIALOG  (opened when clicking any book in Jump In or Bookmarks)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    def __init__(self, parent=None):
+class BookDetailDialog(QDialog):
+    """Full book detail popup window — title, metadata, synopsis, action buttons."""
+    read_requested       = pyqtSignal()
+    delete_requested     = pyqtSignal(str)
+    reset_time_requested = pyqtSignal(str)
+    download_requested   = pyqtSignal(str)
+
+    def __init__(self, name: str, book: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("◈  Discover Novels")
+        self._name = name
+        self._book = book
+        self.setWindowTitle(name)
         self.setModal(True)
-        self.resize(720, 580)
+        self.setMinimumSize(700, 480)
         self.setStyleSheet(f"background:{BG}; color:{TEXT};")
         if parent:
             pg = parent.window().geometry()
-            self.move(pg.x() + (pg.width() - 720) // 2,
-                      pg.y() + (pg.height() - 580) // 2)
-        self._worker = None
+            w, h = 720, 520
+            self.setGeometry(pg.x() + (pg.width()-w)//2, pg.y() + (pg.height()-h)//2, w, h)
         self._build()
 
     def _build(self):
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 20); v.setSpacing(14)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        title_lbl = lbl("◈  LEGION DISCOVERY", ACCENT, 15, True)
-        sub_lbl   = lbl("Describe the novel you're looking for in plain language", MUTED, 11)
-        v.addWidget(title_lbl); v.addWidget(sub_lbl); v.addWidget(hline())
+        # ── Left: cover art ────────────────────────────────────────────────────
+        cover_panel = QWidget()
+        cover_panel.setFixedWidth(200)
+        cover_panel.setStyleSheet(f"background:{BG2};")
+        cv = QVBoxLayout(cover_panel)
+        cv.setContentsMargins(16, 20, 16, 20)
+        cv.setSpacing(0)
 
-        self._input = QTextEdit()
-        self._input.setPlaceholderText(
-            "e.g. A cultivation novel with a cold, calculating MC who uses politics and strategy "
-            "rather than brute force. Ongoing, at least 500 chapters, no harem.")
-        self._input.setFixedHeight(90)
-        self._input.setStyleSheet(
-            f"background:{BG3}; border:1px solid {BORDER}; color:{TEXT};"
-            f"font-size:13px; padding:10px; border-radius:4px;")
-        v.addWidget(self._input)
+        self._cover_lbl = QLabel()
+        self._cover_lbl.setFixedSize(168, 236)
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_lbl.setStyleSheet(
+            f"background:{BG3};border-radius:6px;color:{MUTED};font-size:11px;")
+        self._cover_lbl.setText("Loading\ncover…")
+        cv.addWidget(self._cover_lbl)
+        cv.addStretch()
 
-        row = QHBoxLayout()
-        self._search_btn = btn("◈  FIND NOVELS", "accent", self._search)
-        self._spin = QProgressBar(); self._spin.setRange(0, 0)
-        self._spin.setFixedHeight(4); self._spin.setVisible(False)
-        row.addWidget(self._search_btn); row.addWidget(self._spin, 1)
-        v.addLayout(row)
+        # Download status badge (below cover)
+        dl_state  = self._book.get("download_state", {})
+        dl_status = dl_state.get("status", "idle")
+        dl_count  = dl_state.get("total_chapters_downloaded", 0)
+        if dl_status not in ("idle", "cancelled"):
+            badge_map = {
+                "downloading": (f"⏳ Downloading ({dl_count} ch)", ACCENT2),
+                "completed":   (f"✅ Downloaded ({dl_count} ch)",  NEON),
+                "paused":      (f"⏸ Paused ({dl_count} ch)",      ACCENT),
+                "failed":      (f"❌ Failed",                       RED),
+                "queued":      (f"⏳ Queued",                       PURPLE),
+            }
+            badge_text, badge_col = badge_map.get(dl_status, ("", MUTED))
+            if badge_text:
+                dl_badge = QLabel(badge_text)
+                dl_badge.setWordWrap(True)
+                dl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                dl_badge.setStyleSheet(
+                    f"color:{badge_col};font-size:9px;letter-spacing:0.5px;"
+                    f"padding:6px 4px;")
+                cv.addWidget(dl_badge)
 
-        v.addWidget(hline())
-        self._results_lbl = lbl("Results will appear here", MUTED, 11)
-        v.addWidget(self._results_lbl)
+        root.addWidget(cover_panel)
+        root.addWidget(vline())
 
-        self._results_list = QListWidget()
-        self._results_list.setStyleSheet(
-            f"QListWidget{{background:{BG3}; border:1px solid {BORDER}; color:{TEXT}; font-size:13px;}}"
-            f"QListWidget::item{{padding:6px 10px; border-radius:4px;}}"
-            f"QListWidget::item:hover{{background:{BG2};}}"
-            f"QListWidget::item:selected{{background:{ACCENT}; color:{BG};}}")
-        self._results_list.itemDoubleClicked.connect(self._open_book)
-        v.addWidget(self._results_list, 1)
+        # ── Right: info + actions ──────────────────────────────────────────────
+        info_panel = QWidget()
+        iv = QVBoxLayout(info_panel)
+        iv.setContentsMargins(24, 20, 24, 16)
+        iv.setSpacing(8)
 
-        hint = lbl("Double-click a result to add it to your Jump In list", MUTED, 10)
-        v.addWidget(hint)
+        # Title
+        title_lbl = QLabel(self._name)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet(
+            f"font-size:20px;font-weight:bold;color:{ACCENT};"
+            f"font-family:{FONT_BODY};")
+        iv.addWidget(title_lbl)
 
-    def _search(self):
-        query = self._input.toPlainText().strip()
-        if not query: return
-        self._search_btn.setEnabled(False)
-        self._spin.setVisible(True)
-        self._results_list.clear()
-        self._results_lbl.setText("Sage is searching...")
-        self._worker = _DiscoveryWorker(query)
-        self._worker.done.connect(self._on_results)
-        self._worker.error.connect(self._on_error)
-        self._worker.start()
+        # Meta line: author · genres · status
+        meta = self._book.get("metadata", {})
+        meta_parts = []
+        if meta.get("author"):  meta_parts.append(meta["author"])
+        if meta.get("status"):  meta_parts.append(meta["status"])
+        meta_lbl = QLabel("  ·  ".join(meta_parts) if meta_parts else "No metadata yet")
+        meta_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
+        meta_lbl.setWordWrap(True)
+        iv.addWidget(meta_lbl)
 
-    def _on_results(self, results: list):
-        self._search_btn.setEnabled(True); self._spin.setVisible(False)
-        if not results:
-            self._results_lbl.setText("No results found — try a different description")
-            return
-        self._results_lbl.setText(f"{len(results)} novel(s) found — double-click to add to Jump In")
-        for r in results:
-            title = r.get("title", "Unknown")
-            url   = r.get("url", "")
-            desc  = r.get("desc", "")
-            text  = f"  {title}\n  {desc[:90]}{'…' if len(desc) > 90 else ''}" if desc else f"  {title}"
-            item  = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, (title, url))
-            item.setSizeHint(QSize(0, 58 if desc else 34))
-            self._results_list.addItem(item)
+        # Genre pills
+        if meta.get("genres"):
+            genre_row = QHBoxLayout()
+            genre_row.setSpacing(6)
+            genre_row.setContentsMargins(0,0,0,0)
+            for g in str(meta["genres"]).split(",")[:6]:
+                g = g.strip()
+                if not g: continue
+                pill = QLabel(g)
+                pill.setStyleSheet(
+                    f"background:{BG3};color:{ACCENT2};border:1px solid {BORDER};"
+                    f"border-radius:10px;font-size:9px;padding:3px 10px;"
+                    f"letter-spacing:0.5px;")
+                genre_row.addWidget(pill)
+            genre_row.addStretch()
+            iv.addLayout(genre_row)
 
-    def _on_error(self, msg: str):
-        self._search_btn.setEnabled(True); self._spin.setVisible(False)
-        self._results_lbl.setText(f"Error: {msg}")
+        iv.addWidget(hline())
 
-    def _open_book(self, item):
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if data:
-            title, url = data
-            self.book_chosen.emit(title, url)
+        # Progress stats
+        ch_read = self._book.get("chapters_read", 0)
+        words   = self._book.get("words_read", 0)
+        mins    = int(round(self._book.get("minutes_read", 0)))
+        cur_ch  = self._book.get("current_chapter")
+        last_t  = self._book.get("last_title", "")
+        dl_total= self._book.get("total_chapters")
+
+        stat_parts = []
+        if ch_read:  stat_parts.append(f"📖  {ch_read} chapters read")
+        if words:    stat_parts.append(f"📝  {words:,} words")
+        if mins >= 60: stat_parts.append(f"⏱  {mins//60}h {mins%60}m")
+        elif mins:     stat_parts.append(f"⏱  {mins}m")
+        if cur_ch:   stat_parts.append(f"📌  Ch.{cur_ch}")
+        if dl_total: stat_parts.append(f"📚  {dl_total} chapters total")
+
+        for s in stat_parts:
+            sl = QLabel(s)
+            sl.setStyleSheet(f"color:{TEXT2};font-size:11px;letter-spacing:0.3px;")
+            iv.addWidget(sl)
+
+        if last_t and last_t != "Not started":
+            ll = QLabel(f"Last: {last_t[:80]}")
+            ll.setStyleSheet(f"color:{MUTED};font-size:10px;")
+            ll.setWordWrap(True)
+            iv.addWidget(ll)
+
+        iv.addWidget(hline())
+
+        # Synopsis
+        syn = (meta.get("synopsis","") or meta.get("description","")
+               or meta.get("summary","") or meta.get("overview",""))
+        if not syn and not ch_read:
+            syn = "No synopsis available — click ↻ Refresh Info to fetch it."
+        syn_box = QTextEdit()
+        syn_box.setReadOnly(True)
+        syn_box.setPlainText(syn or "No synopsis available.")
+        syn_box.setStyleSheet(
+            f"background:{BG3};border:none;padding:12px;color:{TEXT};"
+            f"font-family:{FONT_BODY};font-size:13px;")
+        iv.addWidget(syn_box, 1)
+
+        iv.addWidget(hline())
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        def _mk(text, style="", cb=None):
+            b = QPushButton(text)
+            if style == "accent":
+                b.setStyleSheet(
+                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+                    f"font-size:9px;letter-spacing:1.2px;padding:8px 18px;border-radius:3px;")
+            elif style == "danger":
+                b.setStyleSheet(
+                    f"background:transparent;color:{RED};border:1px solid #2A1018;"
+                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
+            else:
+                b.setStyleSheet(
+                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
+                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            if cb: b.clicked.connect(cb)
+            return b
+
+        def _read():
+            self.read_requested.emit()
             self.accept()
+
+        def _delete():
+            reply = QMessageBox.question(self, "Remove Book",
+                f"Remove '{self._name}' from your library?\n"
+                "This will also delete the downloaded .txt file.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.delete_requested.emit(self._name)
+                self.accept()
+
+        def _reset():
+            self.reset_time_requested.emit(self._name)
+            self.accept()
+
+        btn_row.addWidget(_mk("▶  READ",        "accent", _read))
+        btn_row.addWidget(_mk("REMOVE",          "danger", _delete))
+        btn_row.addWidget(_mk("↺  RESET TIME",   "",       _reset))
+        btn_row.addStretch()
+        btn_row.addWidget(_mk("✕  CLOSE",        "",       self.reject))
+        iv.addLayout(btn_row)
+
+        root.addWidget(info_panel, 1)
+
+        # Load cover art in background
+        QTimer.singleShot(0, self._load_cover)
+
+    def _load_cover(self):
+        try:
+            from plugins.book_covers import get_cover
+            src = self._book.get("current_url","") or self._book.get("url","")
+            px  = get_cover(self._name, src)
+            if px and not px.isNull():
+                scaled = px.scaled(168, 236,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
+                self._cover_lbl.setPixmap(scaled)
+                self._cover_lbl.setText("")
+        except Exception:
+            self._cover_lbl.setText("No cover")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISCOVER DETAIL DIALOG  (opened when clicking a discovery result card)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DiscoverDetailDialog(QDialog):
+    """Detail popup for a Groq AI discovery result."""
+    book_chosen = pyqtSignal(str, str)  # title, url
+
+    def __init__(self, result: dict, parent=None):
+        super().__init__(parent)
+        self._result = result
+        title = result.get("title", "Unknown Novel")
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumSize(700, 440)
+        self.setStyleSheet(f"background:{BG}; color:{TEXT};")
+        if parent:
+            pg = parent.window().geometry()
+            w, h = 720, 480
+            self.setGeometry(pg.x() + (pg.width()-w)//2, pg.y() + (pg.height()-h)//2, w, h)
+        self._build()
+
+    def _build(self):
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Left: cover art ────────────────────────────────────────────────────
+        cover_panel = QWidget()
+        cover_panel.setFixedWidth(200)
+        cover_panel.setStyleSheet(f"background:{BG2};")
+        cv = QVBoxLayout(cover_panel)
+        cv.setContentsMargins(16, 20, 16, 20)
+        cv.setSpacing(10)
+
+        self._cover_lbl = QLabel()
+        self._cover_lbl.setFixedSize(168, 236)
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_lbl.setStyleSheet(
+            f"background:{BG3};border-radius:6px;color:{MUTED};font-size:11px;")
+        self._cover_lbl.setText("Loading\ncover…")
+        cv.addWidget(self._cover_lbl)
+
+        # Source badge
+        src = self._result.get("source","GROQ AI").upper()
+        src_lbl = QLabel(src)
+        src_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        src_lbl.setStyleSheet(
+            f"background:{BG3};color:{ACCENT2};border:1px solid {BORDER};"
+            f"border-radius:3px;font-size:9px;letter-spacing:1px;padding:4px;")
+        cv.addWidget(src_lbl)
+        cv.addStretch()
+        root.addWidget(cover_panel)
+        root.addWidget(vline())
+
+        # ── Right: info + actions ──────────────────────────────────────────────
+        info_panel = QWidget()
+        iv = QVBoxLayout(info_panel)
+        iv.setContentsMargins(24, 20, 24, 16)
+        iv.setSpacing(8)
+
+        title_lbl = QLabel(self._result.get("title","Unknown Novel"))
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet(
+            f"font-size:20px;font-weight:bold;color:{ACCENT};font-family:{FONT_BODY};")
+        iv.addWidget(title_lbl)
+
+        # Author / chapters if provided
+        meta_parts = []
+        if self._result.get("author"):   meta_parts.append(self._result["author"])
+        if self._result.get("chapters"): meta_parts.append(f"~{self._result['chapters']} chapters")
+        if meta_parts:
+            iv.addWidget(QLabel("  ·  ".join(meta_parts)))
+
+        # Genre pills
+        genres = self._result.get("genres","") or self._result.get("genre","")
+        if genres:
+            genre_row = QHBoxLayout()
+            genre_row.setSpacing(6)
+            for g in str(genres).split(",")[:6]:
+                g = g.strip()
+                if not g: continue
+                pill = QLabel(g)
+                pill.setStyleSheet(
+                    f"background:{BG3};color:{ACCENT2};border:1px solid {BORDER};"
+                    f"border-radius:10px;font-size:9px;padding:3px 10px;")
+                genre_row.addWidget(pill)
+            genre_row.addStretch()
+            iv.addLayout(genre_row)
+
+        iv.addWidget(hline())
+
+        # Full description
+        desc_box = QTextEdit()
+        desc_box.setReadOnly(True)
+        desc_box.setPlainText(self._result.get("desc","No description available."))
+        desc_box.setStyleSheet(
+            f"background:{BG3};border:none;padding:12px;color:{TEXT};"
+            f"font-family:{FONT_BODY};font-size:13px;")
+        iv.addWidget(desc_box, 1)
+
+        iv.addWidget(hline())
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        def _mk(text, style="", cb=None):
+            b = QPushButton(text)
+            if style == "accent":
+                b.setStyleSheet(
+                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+                    f"font-size:9px;letter-spacing:1.2px;padding:8px 18px;border-radius:3px;")
+            elif style == "danger":
+                b.setStyleSheet(
+                    f"background:transparent;color:{RED};border:1px solid #2A1018;"
+                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
+            else:
+                b.setStyleSheet(
+                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
+                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            if cb: b.clicked.connect(cb)
+            return b
+
+        def _add():
+            title = self._result.get("title","Unknown")
+            url   = self._result.get("url","")
+            if not url:
+                # Open AddBookDialog to let user supply URL
+                dlg = AddBookDialog(self)
+                dlg.t.setText(title)
+                if dlg.exec():
+                    t2, u2 = dlg.result_data
+                    if u2:
+                        self.book_chosen.emit(t2, u2)
+                        self.accept()
+            else:
+                self.book_chosen.emit(title, url)
+                self.accept()
+
+        btn_row.addWidget(_mk("+ ADD TO COLLECTION", "accent", _add))
+        btn_row.addStretch()
+        btn_row.addWidget(_mk("✕  CLOSE",            "",       self.reject))
+        iv.addLayout(btn_row)
+
+        root.addWidget(info_panel, 1)
+        QTimer.singleShot(0, self._load_cover)
+
+    def _load_cover(self):
+        try:
+            from plugins.book_covers import get_cover
+            px = get_cover(self._result.get("title",""), self._result.get("url",""))
+            if px and not px.isNull():
+                scaled = px.scaled(168, 236,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
+                self._cover_lbl.setPixmap(scaled)
+                self._cover_lbl.setText("")
+        except Exception:
+            self._cover_lbl.setText("No cover")
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BROWSE WORKER  — scrapes novel listings from real sources
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COVER LOADER WORKER  — fetches cover images off the main thread
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _CoverLoaderWorker(QThread):
+    """Loads cover images for a batch of grid items without blocking the UI."""
+    cover_ready = pyqtSignal(object, object)   # (QListWidgetItem, QPixmap)
+
+    HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
+
+    def __init__(self, cover_pairs: list):
+        """
+        cover_pairs: list of (QListWidgetItem, title, book_url, cover_url)
+        """
+        super().__init__()
+        self._pairs = cover_pairs
+
+    def run(self):
+        try:
+            import requests as _req
+        except ImportError:
+            return
+        from PyQt6.QtGui import QPixmap
+
+        for item, title, book_url, cover_url in self._pairs:
+            px = None
+            # 1. Try book_covers plugin cache first (instant if cached)
+            try:
+                from plugins.book_covers import get_cover
+                cached = get_cover(title, book_url)
+                if cached and not cached.isNull():
+                    px = cached
+            except Exception:
+                pass
+            # 2. Fetch from URL
+            if px is None and cover_url:
+                try:
+                    resp = _req.get(cover_url, timeout=6, headers=self.HEADERS)
+                    if resp.status_code == 200:
+                        pm = QPixmap()
+                        pm.loadFromData(resp.content)
+                        if not pm.isNull():
+                            px = pm.scaled(
+                                130, 185,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation)
+                except Exception:
+                    pass
+            if px is not None:
+                self.cover_ready.emit(item, px)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SOURCE HEALTH WORKER  — probes all sources, returns first live one
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _SourceHealthWorker(QThread):
+    """On startup, pings every source in order and emits the first live one."""
+    first_live   = pyqtSignal(str)          # src_id of first working source
+    all_statuses = pyqtSignal(dict)         # {src_id: True/False}
+
+    PROBE_URLS = {
+        "novelbin":"https://novelbin.com", "novelfire":"https://novelfire.net/home",
+        "lightnovelpub":"https://lightnovelpub.me", "royalroad":"https://www.royalroad.com/home",
+        "scribblehub":"https://www.scribblehub.com", "wuxiaworld":"https://www.wuxiaworld.com"
+    }
+
+    HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+
+    def run(self):
+        try:
+            import requests
+        except ImportError:
+            self.first_live.emit("groq")
+            return
+
+        import concurrent.futures, threading
+
+        statuses      = {}
+        lock          = threading.Lock()
+        first_lock    = threading.Lock()
+        first_emitted = [False]  # list so closure can mutate
+
+        def probe(src_id):
+            url = self.PROBE_URLS[src_id]
+            try:
+                r = requests.get(url, headers=self.HEADERS, timeout=6, allow_redirects=True)
+                ok = r.status_code < 400 and len(r.text) > 500
+            except Exception:
+                ok = False
+            with lock:
+                statuses[src_id] = ok
+            return src_id, ok
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=14) as pool:
+            future_map = {pool.submit(probe, sid): sid for sid in self.PROBE_URLS}
+            for future in concurrent.futures.as_completed(future_map):
+                src_id, ok = future.result()
+                if ok:
+                    with first_lock:
+                        if not first_emitted[0]:
+                            first_emitted[0] = True
+                            self.first_live.emit(src_id)
+
+        if not first_emitted[0]:
+            self.first_live.emit("groq")
+        self.all_statuses.emit(statuses)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BROWSE WORKER  — scrapes novel listings from real sources
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _BrowseWorker(QThread):
+    """Fetches a paginated listing or search from a novel site."""
+    done  = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    SOURCES = {
+        "novelbin":      {"base": "https://novelbin.com",        "browse": "https://novelbin.com/sort/top-view-novel?page={page}",                                                                                          "search": "https://novelbin.com/search?keyword={q}&page={page}"},
+        "novelfire":     {"base": "https://novelfire.net",       "browse": "https://novelfire.net/genre-all/sort-popular/status-all/all-novel?page={page}",                                                                  "search": "https://novelfire.net/search-adv?keyword={q}&type=novel&status=all&sort=popular&page={page}"},
+        "lightnovelpub": {"base": "https://lightnovelpub.me",    "browse": "https://lightnovelpub.me/list/most-popular-novels/?page={page}",  "search": "https://lightnovelpub.me/search/?keyword={q}&page={page}",        "genre": "https://lightnovelpub.me/genres/{genre}/?page={page}"},
+        "royalroad":     {"base": "https://www.royalroad.com",   "browse": "https://www.royalroad.com/fictions/best-rated?page={page}",                                                                                      "search": "https://www.royalroad.com/fictions/search?title={q}&page={page}"},
+        "scribblehub":   {"base": "https://www.scribblehub.com", "browse": "https://www.scribblehub.com/series-finder/?sf=1&sort=ratings&order=desc&pg={page}",                                                             "search": "https://www.scribblehub.com/?s={q}&post_type=fictionposts&pg={page}"},
+        "wuxiaworld":    {"base": "https://www.wuxiaworld.com",  "browse": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular",                                                                  "search": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular&title={q}"},
+    }
+
+    GENRE_MAP = {
+        "_default": {
+            "Action":"action","Adventure":"adventure","Fantasy":"fantasy",
+            "Martial Arts":"martial-arts","Wuxia":"wuxia","Xianxia":"xianxia",
+            "Xuanhuan":"xuanhuan","Romance":"romance","Comedy":"comedy",
+            "Horror":"horror","Mystery":"mystery","Sci-fi":"sci-fi",
+            "Harem":"harem","Supernatural":"supernatural","Drama":"drama",
+            "Slice of Life":"slice-of-life",
+        },
+        "lightnovelpub": {
+            "Action":"Action","Adventure":"Adventure","Fantasy":"Fantasy",
+            "Martial Arts":"Martial+Arts","Wuxia":"Wuxia","Xianxia":"Xianxia",
+            "Xuanhuan":"Xuanhuan","Romance":"Romance","Comedy":"Comedy",
+            "Horror":"Horror","Mystery":"Mystery","Sci-fi":"Sci-fi",
+            "Harem":"Harem","Supernatural":"Supernatural","Drama":"Drama",
+            "Slice of Life":"School+Life",
+        },
+        "royalroad": {
+            "Action":"action","Adventure":"adventure","Fantasy":"fantasy",
+            "Romance":"romance","Comedy":"comedy","Horror":"horror",
+            "Mystery":"mystery","Sci-fi":"science-fiction","Supernatural":"supernatural",
+            "Drama":"drama","Slice of Life":"slice-of-life",
+        },
+        "scribblehub": {
+            "Action":"1","Adventure":"2","Fantasy":"4","Romance":"9",
+            "Comedy":"7","Horror":"8","Mystery":"10","Sci-fi":"11",
+            "Supernatural":"14","Drama":"3","Harem":"5",
+        },
+        "wuxiaworld": {
+            "Action":"action","Fantasy":"fantasy","Wuxia":"wuxia",
+            "Xianxia":"xianxia","Xuanhuan":"xuanhuan","Romance":"romance",
+            "Martial Arts":"martial-arts",
+        },
+        "novelfire": {
+            "Action":"action","Adventure":"adventure","Fantasy":"fantasy",
+            "Martial Arts":"martial-arts","Wuxia":"wuxia","Xianxia":"xianxia",
+            "Xuanhuan":"xuanhuan","Romance":"romance","Comedy":"comedy",
+            "Horror":"horror","Mystery":"mystery","Sci-fi":"sci-fi",
+            "Harem":"harem","Supernatural":"supernatural","Drama":"drama",
+        },
+    }
+
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+    }
+
+    def __init__(self, src_id: str, query: str, genre: str, status: str, page: int = 1):
+        super().__init__()
+        self.src_id = src_id
+        self.query  = query.strip()
+        self.genre  = genre
+        self.status = status
+        self.page   = page
+
+    def run(self):
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            results = self._fetch(requests, BeautifulSoup)
+            self.done.emit(results)
+        except ImportError:
+            self.error.emit("beautifulsoup4 not installed — run: pip install beautifulsoup4")
+        except StopIteration as e:
+            # Graceful rate-limit stop — emit done with empty list so UI shows Next Page button
+            log.legion.warning("BrowseWorker rate-limited", src=self.src_id, page=self.page)
+            self.done.emit([])
+        except Exception as e:
+            log.legion.error("BrowseWorker error", src=self.src_id, error=str(e))
+            self.error.emit(f"{self._src_name()} error: {e}")
+
+    def _src_name(self):
+        return self.SOURCES.get(self.src_id, {}).get("name", self.src_id)
+
+    def _fetch(self, requests, BeautifulSoup):
+        src_cfg = self.SOURCES.get(self.src_id)
+        if not src_cfg:
+            return []
+
+        # Resolve genre slug
+        genre_map  = self.GENRE_MAP.get(self.src_id, self.GENRE_MAP["_default"])
+        genre_slug = genre_map.get(self.genre, "") if self.genre not in ("All Genres", "") else ""
+        query_enc  = requests.utils.quote(self.query) if self.query else ""
+        base       = src_cfg["base"]
+
+        if self.query:
+            url = src_cfg["search"].format(q=query_enc, page=self.page)
+        elif genre_slug:
+            url = src_cfg["genre"].format(genre=genre_slug, page=self.page)
+        else:
+            url = src_cfg["browse"].format(page=self.page)
+
+        req_headers = dict(self.HEADERS)
+        req_headers["Referer"] = src_cfg["base"] + "/"
+        resp = requests.get(url, headers=req_headers, timeout=14, allow_redirects=True)
+        if resp.status_code in (403, 429):
+            # Site is rate-limiting or blocking — stop gracefully, don't crash
+            raise StopIteration(f"HTTP {resp.status_code} — site is rate-limiting, try another source")
+        resp.raise_for_status()
+
+        # WuxiaWorld returns JSON from its API
+        if self.src_id == "wuxiaworld":
+            return self._parse_wuxiaworld_json(resp.json())
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Dispatch to parser
+        parsers = {
+            "novelbin":      self._parse_novelbin,
+            "novelfire":     self._parse_novelfire,
+            "lightnovelpub": self._parse_lightnovelpub,
+            "royalroad":     self._parse_royalroad,
+            "scribblehub":   self._parse_scribblehub,
+            # wuxiaworld handled above
+        }
+        parser = parsers.get(self.src_id); return parser(soup,base) if parser else []
+
+    def _make_result(self, title, href, cover, desc, base):
+        if not title: return None
+        if href and not href.startswith("http"):
+            href = base + href
+        if cover and not cover.startswith("http"):
+            cover = base + cover
+        return {"title": title, "url": href, "cover": cover,
+                "desc": desc[:200] if desc else "", "source": self._src_name()}
+
+    @staticmethod
+    def _clean_title(el):
+        """Strip rating/badge/score child elements from an anchor before extracting title text."""
+        import re as _re, copy
+        el2 = copy.copy(el)
+        for tag in el2.find_all(
+                ["span","small","em","i","b","sup","sub"],
+                class_=_re.compile(r"rate|rating|score|badge|tag|label|count|num", _re.I)):
+            tag.decompose()
+        return el2.get_text(separator=" ", strip=True)
+
+    def _parse_novelbin(self, soup, base):
+        """_parse_novelbin: select ".list-novel .row", a=h3.novel-title a, img=img.cover[data-src]"""
+        results = []
+        for item in soup.select(".list-novel .row"):
+            a   = item.select_one("h3.novel-title a")
+            img = item.select_one("img.cover[data-src]")
+            if not a: continue
+            cover = img.get("data-src", "") if img else ""
+            desc_el = item.select_one(".novel-synopsis, .description p")
+            desc  = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(a.get_text(strip=True), a.get("href", ""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
+
+    def _parse_novelfire(self, soup, base):
+        """_parse_novelfire: select ".list-novel li,.novel-item", fallback scan a[href*='/novel/']"""
+        import re as _re
+
+        results = []
+        for item in soup.select(".list-novel li, .novel-item, .novel-item-wrap"):
+            a   = item.select_one(".novel-title a, h3 a, h4 a, h5 a")
+            img = item.select_one("img")
+            if not a: continue
+            cover = img.get("data-src") or img.get("src", "") if img else ""
+            desc_el = item.select_one(
+                ".novel-synopsis, .description p, .summary p, "
+                ".content p, [class*=synopsis], [class*=description], [class*=summary]")
+            desc  = desc_el.get_text(strip=True) if desc_el else ""
+            title = self._clean_title(a)
+            if not title or len(title) < 2: continue
+            r = self._make_result(title, a.get("href", ""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        if not results: # Fallback — scan anchors pointing to /novel/ paths
+            seen = set()
+            for a in soup.select("a[href*='/novel/'], a[href*='/book/']"):
+                href = a.get("href", "")
+                # Only take the title text from a heading child, not all nested text
+                heading = a.find(["h3","h4","h5","span"],
+                                  class_=_re.compile(r"title|name", _re.I))
+                if heading:
+                    title = self._clean_title(heading)
+                else:
+                    # Strip all child elements and take what's left
+                    import copy
+                    a2 = copy.copy(a)
+                    for tag in a2.find_all(["span","small","em","i","b","div"]):
+                        tag.decompose()
+                    title = a2.get_text(strip=True)
+                if not title or title in seen or len(title) < 3: continue
+                # Skip nav/UI links masquerading as novel links
+                if title.lower() in ("read", "details", "more", "chapter", "next", "prev"): continue
+                seen.add(title)
+                img = a.find("img")
+                cover = img.get("data-src") or img.get("src", "") if img else ""
+                r = self._make_result(title, href, cover, "", base)
+                if r: results.append(r)
+                if len(results) >= 40: break
+        return results
+
+    def _parse_lightnovelpub(self, soup, base):
+        """_parse_lightnovelpub: select ".list-novel li,.novel-list li", fallback scan a[href*='/novel/'] on lightnovelpub.me"""
+        results = []
+        for item in soup.select(".list-novel li, .novel-list li"):
+            a   = item.select_one("h3 a, h4 a, .novel-title a")
+            img = item.select_one("img")
+            if not a: continue
+            cover = img.get("data-src") or img.get("src", "") if img else ""
+            desc_el = item.select_one(".novel-synopsis, .description p")
+            desc  = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(a.get_text(strip=True), a.get("href", ""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        if not results: # Fallback
+            seen = set()
+            for a in soup.select("a[href]"):
+                href = a.get("href", "")
+                if "lightnovelpub.me" not in href and not href.startswith("/"): continue
+                if "/novel/" not in href and "/book/" not in href: continue
+                title = a.get_text(strip=True)
+                if not title or title in seen or len(title) < 3: continue
+                seen.add(title)
+                img = a.find("img")
+                cover = img.get("data-src") or img.get("src", "") if img else ""
+                r = self._make_result(title, href, cover, "", base)
+                if r: results.append(r)
+                if len(results) >= 40: break
+        return results
+
+    def _parse_royalroad(self, soup, base):
+        """_parse_royalroad: select ".fiction-list-item,.search-result", a=h2 a/h3 a"""
+        results = []
+        for item in soup.select(".fiction-list-item, .search-result"):
+            a   = item.select_one("h2 a, h3 a")
+            img = item.select_one("img")
+            if not a: continue
+            cover = img.get("src", "") if img else ""
+            desc_el = item.select_one(".fiction-description p, .description p")
+            desc  = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(a.get_text(strip=True), a.get("href", ""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
+
+    def _parse_scribblehub(self, soup, base):
+        """_parse_scribblehub: select ".search_main_box,.wi-novel-item", fallback scan a[href*='scribblehub.com/series/']"""
+        results = []
+        for item in soup.select(".search_main_box, .wi-novel-item"):
+            a   = item.select_one("a[href*='/series/']")
+            img = item.select_one("img")
+            if not a: continue
+            cover = img.get("src", "") or img.get("data-src", "") if img else ""
+            desc_el = item.select_one(".blurb, .search_preview, .wi-novel-synopsis")
+            desc  = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(a.get_text(strip=True), a.get("href", ""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        if not results: # Fallback
+            seen = set()
+            for a in soup.select("a[href*='scribblehub.com/series/'], a[href*='/series/']"):
+                href  = a.get("href", "")
+                title = a.get_text(strip=True) or a.get("title", "")
+                if not title or title in seen or len(title) < 3: continue
+                if title.lower() in ("series ranking", "series finder", "random"): continue
+                seen.add(title)
+                img = a.find("img")
+                cover = img.get("src", "") if img else ""
+                r = self._make_result(title, href, cover, "", base)
+                if r: results.append(r)
+                if len(results) >= 40: break
+        return results
+
+    def _parse_wuxiaworld_json(self, data: dict):
+        """_parse_wuxiaworld_json(data): parse JSON items[], name->title, slug->url as /novel/{slug}, coverUrl->cover, synopsis->desc (strip HTML tags)"""
+        results = []
+        base = "https://www.wuxiaworld.com"
+        for item in data.get("items", []):
+            title = item.get("name", "")
+            slug  = item.get("slug", "")
+            if not title or not slug: continue
+            href  = f"{base}/novel/{slug}"
+            cover = item.get("coverUrl", "")
+            import re
+            synopsis = re.sub(r"<[^>]+>", " ", item.get("synopsis", "")).strip()
+            r = self._make_result(title, href, cover, synopsis[:200], base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
 
 
 class AddBookDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent); self.result_data = ("","")
         self.setWindowTitle("Add Book"); self.setMinimumWidth(440); self.setStyleSheet(QSS)
-        lay = QFormLayout(self); lay.setSpacing(12); lay.setContentsMargins(18,18,18,18)
+        lay = QFormLayout(self)
+        lay.setSpacing(12)
+        lay.setContentsMargins(18,18,18,18)
         self.t = QLineEdit(); self.t.setPlaceholderText("Auto-filled from URL")
         self.u = QLineEdit(); self.u.setPlaceholderText("https://novelbin.com/b/.../chapter-1")
         self.u.textChanged.connect(self._url_changed)
@@ -2037,522 +3759,6 @@ class AddBookDialog(QDialog):
             self.t.setText(title)
 
     def _ok(self):
-        self.result_data = (self.t.text().strip(), self.u.text().strip()); self.accept()
-
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CALENDAR DIALOG
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class _CalendarWorker(QThread):
-    done = pyqtSignal(dict, str)  # {date_str: [(time, show, ep)]}
-
-    HEADERS = {
-        "Content-Type": "application/json",
-        "Accept":       "application/json",
-        "User-Agent":   "GreatSage/1.0 (personal media app)",
-    }
-
-    @staticmethod
-    def _match_score(watchlist_title, show_name):
-        """
-        Match a watchlist title against a schedule entry.
-        Rules (in order):
-          1. Exact match (case-insensitive)
-          2. Watchlist title is fully contained in show name (handles "Demon Slayer" vs
-             "Demon Slayer: Kimetsu no Yaiba" or "Solo Leveling Season 2")
-          3. Show name is fully contained in watchlist title
-          4. Word overlap >= 70% of watchlist words (minimum 2 words, 3+ chars each)
-        Single-word titles must exact-match or be contained to avoid false positives.
-        """
-        a = watchlist_title.lower().strip()
-        b = show_name.lower().strip()
-        if not a or not b or len(a) < 3: return False
-        # Exact
-        if a == b: return True
-        words_a = [w for w in a.split() if len(w) > 2]
-        words_b = set(w for w in b.split() if len(w) > 2)
-        # Single-word titles: only match if exact (already handled above)
-        if len(words_a) <= 1: return False
-        # Multi-word: watchlist title must be a leading substring of show name
-        # e.g. "Demon Slayer" matches "Demon Slayer: Kimetsu" but not the reverse loosely
-        if b.startswith(a) or b.startswith(a.rstrip(":")):
-            return True
-        if a.startswith(b):
-            return True
-        # Word overlap — at least 70% of watchlist meaningful words appear in show name
-        overlap = sum(1 for w in words_a if w in words_b) / len(words_a)
-        return overlap >= 0.7
-
-    def run(self):
-        import datetime as dt, urllib.request, urllib.parse
-        import concurrent.futures, threading
-
-        md = matrix_data()
-        wl = md.get("watchlist", {})
-        all_titles = []
-        for lst in wl.values():
-            for e in lst:
-                t = e.get("title","") if isinstance(e,dict) else str(e)
-                if t: all_titles.append(t)
-        for info in md.get("watching",{}).values():
-            if isinstance(info,dict):
-                t = info.get("title","")
-                if t and t not in all_titles: all_titles.append(t)
-
-        if not all_titles:
-            self.done.emit({}, "Add shows to your watchlist first."); return
-
-        now        = dt.datetime.now()
-        week_later = now + dt.timedelta(days=7)
-        by_date    = {}
-        lock       = threading.Lock()
-        anilist_ok = threading.Event()
-        tvmaze_ok  = threading.Event()
-
-        def fetch_anilist(title):
-            q = """query($s:String){Media(search:$s,type:ANIME,status:RELEASING){
-                title{romaji english}
-                nextAiringEpisode{airingAt episode}}}"""
-            try:
-                payload = json.dumps({"query": q, "variables": {"s": title}}).encode()
-                req = urllib.request.Request(
-                    "https://graphql.anilist.co", data=payload, headers=self.HEADERS)
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    resp = json.loads(r.read())
-                anilist_ok.set()
-                media = (resp.get("data") or {}).get("Media")
-                if not media: return
-                romaji  = (media.get("title") or {}).get("romaji","")
-                english = (media.get("title") or {}).get("english","")
-                if not (self._match_score(title, romaji) or
-                        self._match_score(title, english)): return
-                nae = media.get("nextAiringEpisode")
-                if not nae: return
-                at = dt.datetime.fromtimestamp(nae["airingAt"])
-                if now <= at <= week_later:
-                    date_key  = at.strftime("%Y-%m-%d")
-                    show_name = english or romaji or title
-                    with lock:
-                        by_date.setdefault(date_key, []).append(
-                            (at.strftime("%H:%M"), show_name, nae["episode"]))
-            except Exception:
-                pass
-
-        def fetch_tvmaze(title):
-            try:
-                search_url = (f"https://api.tvmaze.com/singlesearch/shows"
-                              f"?q={urllib.parse.quote(title)}&embed=nextepisode")
-                req = urllib.request.Request(
-                    search_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    show_data = json.loads(r.read())
-                tvmaze_ok.set()
-                show_name = show_data.get("name","")
-                show_id   = show_data.get("id")
-                if not show_name or not show_id: return
-                if not self._match_score(title, show_name): return
-
-                # Try nextepisode from embedded data first (fastest path)
-                embedded = (show_data.get("_embedded") or {})
-                next_ep  = embedded.get("nextepisode")
-                if next_ep:
-                    airdate = next_ep.get("airdate","")
-                    airtime = next_ep.get("airtime","") or "00:00"
-                    ep_num  = next_ep.get("number") or 0
-                    if airdate:
-                        try:
-                            ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
-                            if now.date() <= ep_dt.date() <= week_later.date():
-                                with lock:
-                                    by_date.setdefault(airdate, []).append(
-                                        (airtime, show_name, ep_num))
-                                return
-                        except Exception:
-                            pass
-
-                # Fallback: scan last 20 episodes for upcoming ones
-                ep_url = f"https://api.tvmaze.com/shows/{show_id}/episodes?specials=0"
-                req2   = urllib.request.Request(
-                    ep_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
-                with urllib.request.urlopen(req2, timeout=8) as r2:
-                    all_eps = json.loads(r2.read())
-                for ep in all_eps[-20:]:
-                    airdate = ep.get("airdate","")
-                    if not airdate: continue
-                    try:
-                        ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
-                    except Exception: continue
-                    if not (now.date() <= ep_dt.date() <= week_later.date()): continue
-                    airtime = ep.get("airtime","") or "00:00"
-                    ep_num  = ep.get("number") or 0
-                    with lock:
-                        by_date.setdefault(airdate, []).append(
-                            (airtime, show_name, ep_num))
-            except urllib.request.HTTPError as e:
-                if e.code == 404: return
-            except Exception:
-                pass
-
-        # Fetch all titles in parallel — AniList and TVMaze simultaneously
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
-            futures = []
-            for title in all_titles:
-                futures.append(pool.submit(fetch_anilist, title))
-                futures.append(pool.submit(fetch_tvmaze,  title))
-            # Wait for all with a hard timeout of 25s
-            concurrent.futures.wait(futures, timeout=25)
-
-        # Deduplicate and sort each day
-        for k in by_date:
-            seen = set(); unique = []
-            for entry in sorted(by_date[k]):
-                key = (entry[1], entry[2])  # show + ep
-                if key not in seen:
-                    seen.add(key); unique.append(entry)
-            by_date[k] = unique
-
-        total = sum(len(v) for v in by_date.values())
-        sources = []
-        if anilist_ok.is_set(): sources.append("Anime")
-        if tvmaze_ok.is_set():  sources.append("TV")
-
-        if total:
-            day_word = "day" if len(by_date) == 1 else "days"
-            src_str  = " + ".join(sources) if sources else ""
-            suffix   = f"  [{src_str}]" if src_str else ""
-            msg = f"Found episodes on {len(by_date)} {day_word} this week{suffix}"
-        elif not sources:
-            msg = "Could not connect — check your internet connection"
-        else:
-            msg = f"Checked {len(all_titles)} title(s) — none airing this week"
-
-        self.done.emit(by_date, msg)
-
-
-
-
-class HighlightsDialog(QDialog):
-    """Currently reading + watching + planning at a glance."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Highlights")
-        self.resize(820, 560)
-        self.setStyleSheet(f"background:{BG};")
-        root = QVBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
-
-        hdr = QWidget(); hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
-        hdr.setFixedHeight(52)
-        hv = QHBoxLayout(hdr); hv.setContentsMargins(28,0,28,0)
-        tl = QLabel("HIGHLIGHTS")
-        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;color:{ACCENT};letter-spacing:4px;")
-        hv.addWidget(tl); hv.addStretch()
-        root.addWidget(hdr)
-
-        body = QHBoxLayout(); body.setContentsMargins(20,16,20,16); body.setSpacing(12)
-
-        ld = legion_data(); md = matrix_data()
-        books    = ld.get("books", {})
-        watching = md.get("watching", {})
-        wl       = md.get("watchlist", {})
-
-        for col_title, color, items in [
-            ("CURRENTLY READING",  ACCENT,  [
-                (f"{n}  Ch.{b.get('current_chapter',0)}",
-                 f"{b.get('chapters_read',0)} chapters read  ·  {b.get('words_read',0):,} words")
-                for n, b in books.items() if b.get("chapters_read",0)>0 or b.get("current_chapter",0)>0
-            ]),
-            ("CONTINUE WATCHING",  BLUE,    [
-                ((info.get("title", k) if isinstance(info,dict) else k),
-                 f"Ep.{info.get('current_episode',0) if isinstance(info,dict) else 0}")
-                for k, info in watching.items()
-            ]),
-            ("PLANNING",           PURPLE,  [
-                (e.get("title","?") if isinstance(e,dict) else str(e), "")
-                for e in wl.get("planning",[])[:20]
-            ]),
-        ]:
-            col = QFrame()
-            col.setStyleSheet(f"background:{BG2};border:1px solid {BORDER};border-radius:6px;")
-            cv = QVBoxLayout(col); cv.setContentsMargins(0,0,0,0); cv.setSpacing(0)
-            hdr2 = QWidget()
-            hdr2.setStyleSheet(f"background:{BG3};border-bottom:1px solid {BORDER};border-radius:6px 6px 0 0;")
-            hv2 = QHBoxLayout(hdr2); hv2.setContentsMargins(14,10,14,10)
-            hl = QLabel(col_title); hl.setStyleSheet(f"color:{color};font-size:9px;letter-spacing:2px;")
-            cnt = QLabel(str(len(items))); cnt.setStyleSheet(f"color:{MUTED};font-size:9px;")
-            hv2.addWidget(hl); hv2.addStretch(); hv2.addWidget(cnt)
-            cv.addWidget(hdr2)
-            lst = QListWidget()
-            lst.setStyleSheet(
-                f"QListWidget{{background:transparent;border:none;padding:4px;}}"
-                f"QListWidget::item{{color:{TEXT2};padding:8px 14px;border-bottom:1px solid {BG3};}}"
-                f"QListWidget::item:hover{{color:{TEXT};background:{BG3};}}")
-            for title, sub in (items or [("Nothing here yet", "")]):
-                item = QListWidgetItem(title)
-                if sub: item.setToolTip(sub)
-                item.setForeground(QColor(TEXT2))
-                lst.addItem(item)
-            cv.addWidget(lst, 1)
-            body.addWidget(col, 1)
-
-        root.addLayout(body, 1)
-
-        close_btn = QPushButton("CLOSE")
-        close_btn.setObjectName("accent")
-        close_btn.setStyleSheet(
-            f"background:{BG2};color:{MUTED};border:1px solid {BORDER};"
-            f"font-size:9px;letter-spacing:1px;padding:8px 20px;border-radius:3px;margin:0 20px 14px 20px;")
-        close_btn.clicked.connect(self.accept)
-        root.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
-
-
-class CalendarDialog(QDialog):
-    """Calendar grid — click a date to see what's airing."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("📅  What\'s Airing This Week")
-        self.setMinimumSize(700, 460); self.setStyleSheet(QSS)
-        self._data = {}  # {date_str: [(time, show, ep)]}
-
-        lay = QVBoxLayout(self); lay.setContentsMargins(16,16,16,16); lay.setSpacing(10)
-        lay.addWidget(lbl("What\'s Airing This Week", ACCENT, 16, True))
-        lay.addWidget(hline())
-
-        # ── Calendar grid (7 day buttons) ─────────────────────────────────
-        import datetime as dt
-        self._today = dt.datetime.now()
-        grid = QHBoxLayout(); grid.setSpacing(6)
-        self._day_btns = {}
-        for i in range(7):
-            day    = self._today + dt.timedelta(days=i)
-            date_s = day.strftime("%Y-%m-%d")
-            label  = day.strftime("%a") + "\n" + day.strftime("%d")
-            b      = QPushButton(label)
-            b.setCheckable(True)
-            b.setFixedSize(80, 54)
-            b.setStyleSheet(
-                f"QPushButton{{background:{BG3};border:1px solid {BORDER};"
-                f"border-radius:8px;color:{TEXT};font-size:12px;}}"
-                f"QPushButton:checked{{background:{ACCENT};color:{BG};"
-                f"border-color:{ACCENT};font-weight:bold;}}"
-                f"QPushButton:hover{{border-color:{ACCENT};}}")
-            b.clicked.connect(lambda _, d=date_s: self._select_day(d))
-            grid.addWidget(b)
-            self._day_btns[date_s] = b
-        grid.addStretch()
-        lay.addLayout(grid)
-
-        lay.addWidget(hline())
-
-        # ── Episode list for selected day ──────────────────────────────────
-        self._day_label = lbl("Select a day above", TEXT2, 13, True)
-        lay.addWidget(self._day_label)
-        self._list = QListWidget()
-        self._list.setStyleSheet(f"background:{BG3};border:none;")
-        lay.addWidget(self._list, 1)
-
-        self._status = lbl("Fetching schedule...", MUTED, 11)
-        lay.addWidget(self._status)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        bb.rejected.connect(self.reject); lay.addWidget(bb)
-
-        # Select today by default, fetch data
-        self._selected = self._today.strftime("%Y-%m-%d")
-        self._data     = {}
-        self._worker   = _CalendarWorker()
-        self._worker.done.connect(self._on_data)
-        self._worker.start()
-
-        # Animate status while loading
-        self._dots = 0
-        self._anim = QTimer(self)
-        self._anim.timeout.connect(self._tick_loading)
-        self._anim.start(500)
-
-        # Hard timeout — if worker takes > 30s, show partial results anyway
-        self._timeout = QTimer(self)
-        self._timeout.setSingleShot(True)
-        self._timeout.timeout.connect(self._force_done)
-        self._timeout.start(60000)
-
-    def _tick_loading(self):
-        self._dots = (self._dots + 1) % 4
-        self._status.setText("Fetching schedule" + "." * (self._dots + 1))
-
-    def _force_done(self):
-        """Called if worker takes too long — show whatever we have."""
-        if not self._data:
-            self._status.setText("Timed out — check your internet connection.")
-            self._list.clear()
-            item = QListWidgetItem("  Could not load schedule in time. Try again.")
-            item.setForeground(QColor(RED)); self._list.addItem(item)
-
-    def _on_data(self, data, status_msg):
-        self._data = data
-        # Stop loading animation and timeout guard
-        if hasattr(self, "_anim"):   self._anim.stop()
-        if hasattr(self, "_timeout"): self._timeout.stop()
-        self._status.setText(status_msg)
-        # Mark days that have episodes with a dot indicator
-        for date_s, btn in self._day_btns.items():
-            has = bool(data.get(date_s))
-            text = btn.text()
-            if has and "●" not in text:
-                btn.setText(text + "\n●")
-        # Select today
-        self._select_day(self._selected)
-
-    def _select_day(self, date_s):
-        import datetime as dt
-        self._selected = date_s
-        # Update button states
-        for d, b in self._day_btns.items():
-            b.setChecked(d == date_s)
-        # Update label
-        try:
-            dt_obj = dt.datetime.strptime(date_s, "%Y-%m-%d")
-            self._day_label.setText(dt_obj.strftime("%A, %d %B %Y"))
-        except Exception:
-            self._day_label.setText(date_s)
-        # Populate list
-        self._list.clear()
-        eps = self._data.get(date_s, [])
-        if not eps:
-            if self._data or self._status.text() != "Fetching schedule...":
-                item = QListWidgetItem("  Nothing airing from your watchlist on this day.")
-                item.setForeground(QColor(MUTED)); self._list.addItem(item)
-            else:
-                item = QListWidgetItem("  Loading...")
-                item.setForeground(QColor(MUTED)); self._list.addItem(item)
-        else:
-            for time_s, show, ep in eps:
-                ep_str = f"Ep {ep}" if ep else ""
-                item   = QListWidgetItem(f"  {time_s}   {show}   {ep_str}")
-                item.setForeground(QColor(TEXT)); self._list.addItem(item)
-
-class WrappedDialog(QDialog):
-    """Stats & Wrapped — year or all-time."""
-    def __init__(self, period="year", parent=None):
-        super().__init__(parent)
-        import datetime as dt
-        self._period = period
-        year = dt.datetime.now().year
-        title = f"🏆  Your {year} Wrapped" if period == "year" else "📊  All-Time Stats"
-        self.setWindowTitle(title)
-        self.setMinimumSize(560, 580); self.setStyleSheet(QSS)
-        lay = QVBoxLayout(self); lay.setContentsMargins(20,20,20,16); lay.setSpacing(12)
-        lay.addWidget(lbl(title, ACCENT, 18, True))
-        lay.addWidget(hline())
-        self._body = QVBoxLayout(); lay.addLayout(self._body, 1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        bb.rejected.connect(self.reject); lay.addWidget(bb)
-        self._populate()
-
-    def _stat(self, label, value, color=TEXT):
-        row = QHBoxLayout()
-        row.addWidget(lbl(label, TEXT2, 13))
-        row.addStretch()
-        v = lbl(str(value), color, 14, True)
-        row.addWidget(v)
-        return row
-
-    def _populate(self):
-        import datetime as dt
-        ld = legion_data(); md = matrix_data()
-        bd = behaviour_data()
-        sigs = bd.get("signals", {})
-        sessions = bd.get("sessions", [])
-        year = dt.datetime.now().year
-
-        # Filter sessions by period
-        cutoff = 0
-        if self._period == "year":
-            cutoff = dt.datetime(year, 1, 1).timestamp()
-            sessions = [s for s in sessions if s.get("timestamp", 0) >= cutoff]
-
-        books = ld.get("books", {})
-        watching = md.get("watching", {})
-        wl = md.get("watchlist", {})
-
-        # Compute stats from filtered sessions
-        chapters_read = sum(1 for s in sessions if s.get("type") == "chapter_finished")
-        words_read    = sum(s.get("data",{}).get("words",0) for s in sessions if s.get("type")=="words_read")
-        watch_mins    = sum(s.get("data",{}).get("minutes",0) for s in sessions if s.get("type")=="watch_time")
-        eps_finished  = sum(1 for s in sessions if s.get("type")=="episode_finished")
-
-        # If all-time, merge with cumulative signals (since sessions are capped)
-        if self._period == "alltime":
-            # For chapters_read, words_read, etc., we want the maximum of (sessions_sum, sigs_total)
-            # because sigs_total is cumulative all-time, while sessions is capped.
-            # However, sigs is more reliable for all-time.
-            chapters_read = max(chapters_read, sigs.get("chapters_finished", 0))
-            words_read    = max(words_read, sigs.get("total_words", 0))
-            eps_finished  = max(eps_finished, sigs.get("episodes_finished", 0))
-            watch_mins    = max(watch_mins, sigs.get("total_watch_minutes", 0))
-
-        # Completed / Abandoned shows from watchlist (not period-filtered yet, usually okay)
-        completed = len(wl.get("completed", []))
-        abandoned = len(wl.get("dropped", []))
-
-        # Busiest hour
-        hours = [s.get("hour") for s in sessions if s.get("hour") is not None]
-        busiest_hour = ""
-        if hours:
-            from collections import Counter
-            peak = Counter(hours).most_common(1)[0][0]
-            period_name = ("morning" if peak < 12 else
-                           "afternoon" if peak < 17 else
-                           "evening" if peak < 21 else "night")
-            busiest_hour = f"{peak:02d}:00 ({period_name})"
-
-        # Top genres from behavior
-        # For year view, we need to count genres from the filtered sessions
-        if self._period == "year":
-            gc = {}
-            for s in sessions:
-                g = s.get("data", {}).get("genre")
-                if g: gc[g] = gc.get(g, 0) + 1
-        else:
-            gc = sigs.get("genre_counts", {})
-        
-        top_genre = sorted(gc.items(), key=lambda x: -x[1])[0][0] if gc else "—"
-
-        # Finish rate
-        if self._period == "year":
-            fin = sum(1 for s in sessions if s.get("type") == "chapter_finished")
-            abd = sum(1 for s in sessions if s.get("type") == "chapter_abandoned")
-        else:
-            fin = sigs.get("chapters_finished", 0)
-            abd = sigs.get("chapters_abandoned", 0)
-        
-        finish_rate = f"{int(fin/(fin+abd)*100)}%" if fin+abd > 0 else "—"
-
-        stats = [
-            ("📖  Chapters read",        chapters_read,  NEON),
-            ("📝  Words read",           f"{int(words_read):,}" if words_read else "—", TEXT),
-            ("🎬  Episodes watched",     eps_finished,   BLUE),
-            ("⏱  Hours watched",        f"{int(watch_mins)//60}h {int(watch_mins)%60}m" if watch_mins else "—", BLUE),
-            ("✅  Shows completed",      completed,      ACCENT2),
-            ("❌  Shows dropped",        abandoned,      RED),
-            ("💪  Chapter finish rate",  finish_rate,    ACCENT),
-            ("🎯  Favourite genre",      top_genre,      PURPLE),
-            ("🌙  Peak viewing time",    busiest_hour or "—", MUTED),
-            ("📚  Books in library",     len(books),     ACCENT),
-        ]
-
-        for label, value, color in stats:
-            self._body.addLayout(self._stat(label, value, color))
-
-        self._body.addStretch()
-
-        if self._period == "year" and not sessions:
-            note = lbl("Start reading and watching to build up your stats!", MUTED, 12)
-            note.setWordWrap(True)
-            self._body.addWidget(note)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MATRIX
-# ═══════════════════════════════════════════════════════════════════════════════
+        self.result_data = (self.t.text().strip(), self.u.text().strip())
+        self.accept()
 
