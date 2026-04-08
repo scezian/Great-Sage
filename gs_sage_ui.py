@@ -457,7 +457,7 @@ class SagePage(QWidget):
         self.chat_input.setPlaceholderText("Message Sage...")
         self.chat_input.returnPressed.connect(self._send_chat)
         send_btn = QPushButton("SEND")
-        send_btn.setObjectName("accent")
+        send_btn.setStyleSheet(accent_btn_style())
         send_btn.setStyleSheet(f"font-size:9px;letter-spacing:1.5px;padding:8px 18px;")
         send_btn.clicked.connect(self._send_chat)
         clear_btn = QPushButton("✕")

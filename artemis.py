@@ -59,7 +59,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QColor, QFont, QTextCursor, QTextCharFormat, QTextBlockFormat,
-    QKeySequence, QShortcut, QAction, QTextDocument, QPainter,
+    QTextListFormat, QKeySequence, QShortcut, QAction, QTextDocument, QPainter,
     QLinearGradient, QBrush, QPen, QIcon,
 )
 from PyQt6.QtWidgets import (
@@ -69,7 +69,11 @@ from PyQt6.QtWidgets import (
     QSpinBox, QColorDialog, QSplitter, QListWidget, QListWidgetItem,
     QDialog, QDialogButtonBox, QLineEdit, QMenu, QToolButton,
 )
-from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+try:
+    from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+    _HAS_PRINT = True
+except ImportError:
+    _HAS_PRINT = False
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 DOCS_DIR = Path.home() / "Documents" / "artemis"
@@ -171,8 +175,11 @@ class DocumentSidebar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(220)
-        self.setStyleSheet(f"background:{BG2}; border-right:1px solid {BORDER};")
+        self.setFixedWidth(240)
+        self.setStyleSheet(
+            "background: #0A0A0D;"
+            "border-right: 1px solid #1A1A24;"
+        )
         self._build()
         self.refresh()
 
@@ -181,65 +188,100 @@ class DocumentSidebar(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
-        # Header
-        hdr = QWidget()
-        hdr.setFixedHeight(48)
-        hdr.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
-        hh = QHBoxLayout(hdr)
-        hh.setContentsMargins(14, 0, 10, 0)
-        title = QLabel("DOCUMENTS")
-        title.setStyleSheet(
-            f"color:{MUTED}; font-family:{FONT_UI}; font-size:9px; letter-spacing:2px;")
-        new_btn = _ToolBtn("＋", "New document")
-        new_btn.setFixedWidth(28)
-        new_btn.clicked.connect(self.new_doc.emit)
-        hh.addWidget(title)
-        hh.addStretch()
-        hh.addWidget(new_btn)
-        v.addWidget(hdr)
+        # ── Brand bar at very top
+        brand = QWidget()
+        brand.setFixedHeight(56)
+        brand.setStyleSheet("background: #0A0A0D; border-bottom: 1px solid #1A1A24;")
+        bh = QHBoxLayout(brand)
+        bh.setContentsMargins(16, 0, 12, 0)
 
-        # List
+        logo = QLabel("✦")
+        logo.setStyleSheet(f"color:{ACCENT}; font-size:18px; font-family:serif;")
+
+        app_name = QLabel("Artemis")
+        app_name.setStyleSheet(
+            f"color:{TEXT}; font-size:14px; font-weight:bold; font-family:{FONT_UI}; letter-spacing:1px;"
+        )
+
+        self.back_btn = QPushButton("⌂")
+        self.back_btn.setFixedSize(28, 28)
+        self.back_btn.setToolTip("Back to Home")
+        self.back_btn.setStyleSheet(
+            f"background:transparent; border:none; color:{MUTED}; font-size:16px;"
+            f"border-radius:6px;"
+        )
+        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.back_btn.clicked.connect(self._on_home)
+
+        bh.addWidget(logo)
+        bh.addSpacing(8)
+        bh.addWidget(app_name)
+        bh.addStretch()
+        bh.addWidget(self.back_btn)
+        v.addWidget(brand)
+
+        # ── Section label + new button
+        sec = QWidget()
+        sec.setFixedHeight(36)
+        sec.setStyleSheet("background: #0A0A0D;")
+        sh = QHBoxLayout(sec)
+        sh.setContentsMargins(16, 0, 8, 0)
+
+        sec_lbl = QLabel("DOCUMENTS")
+        sec_lbl.setStyleSheet(
+            f"color:#3A3A4A; font-family:{FONT_UI}; font-size:9px; letter-spacing:2.5px;"
+        )
+
+        new_btn = QPushButton("+")
+        new_btn.setFixedSize(24, 24)
+        new_btn.setToolTip("New document")
+        new_btn.setStyleSheet(
+            f"background:#1A1A24; border:1px solid #252530; border-radius:6px;"
+            f"color:{TEXT2}; font-size:14px;"
+        )
+        new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        new_btn.clicked.connect(self.new_doc.emit)
+
+        sh.addWidget(sec_lbl)
+        sh.addStretch()
+        sh.addWidget(new_btn)
+        v.addWidget(sec)
+
+        # ── Document list
         self._list = QListWidget()
-        self._list.setStyleSheet(f"""
-            QListWidget {{
+        self._list.setStyleSheet("""
+            QListWidget {
                 background: transparent;
                 border: none;
                 outline: none;
-                font-family: {FONT_UI};
-            }}
-            QListWidget::item {{
-                padding: 10px 14px;
-                border-bottom: 1px solid {BG3};
-                color: {TEXT2};
-                font-size: 12px;
-            }}
-            QListWidget::item:hover {{
-                background: {BG3};
-                color: {TEXT};
-            }}
-            QListWidget::item:selected {{
-                background: {BG3};
-                color: {ACCENT};
-                border-left: 2px solid {ACCENT};
-            }}
+            }
+            QListWidget::item {
+                padding: 10px 16px 10px 16px;
+                margin: 1px 0px;
+                border-radius: 0px;
+                background: transparent;
+                color: #7070A0;
+                font-size: 13px;
+            }
+            QListWidget::item:hover {
+                background: #111118;
+                color: #C8C4BC;
+            }
+            QListWidget::item:selected {
+                background: #131320;
+                color: #C9A84C;
+                border-left: 2px solid #C9A84C;
+            }
         """)
         self._list.itemDoubleClicked.connect(self._on_open)
         v.addWidget(self._list, 1)
-
-        # Bottom hint
-        hint = QLabel("Double-click to open")
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; font-family:{FONT_UI}; "
-            f"padding:8px; border-top:1px solid {BORDER};")
-        v.addWidget(hint)
 
     def refresh(self):
         self._list.clear()
         files = sorted(DOCS_DIR.glob("*.art"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not files:
-            item = QListWidgetItem("No documents yet")
-            item.setForeground(QColor(MUTED))
+            item = QListWidgetItem("  No documents yet")
+            item.setForeground(QColor("#3A3A4A"))
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self._list.addItem(item)
             return
@@ -261,6 +303,10 @@ class DocumentSidebar(QWidget):
                 self._list.setCurrentItem(item)
                 return
 
+    def _on_home(self):
+        mw = self.window()
+        if hasattr(mw, "_navigate"):
+            mw._navigate("dashboard")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIMPLE TOOLBAR (Single Row)
@@ -283,168 +329,265 @@ class EditorToolbar(QWidget):
     def __init__(self, editor: QTextEdit, parent=None):
         super().__init__(parent)
         self._editor = editor
-        self.setFixedHeight(44)
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: #111116;
-                border-bottom: 1px solid #1c1c24;
-            }}
-            QPushButton {{
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 4px;
-                color: #a0a0b4;
-                font-family: {FONT_UI};
-                font-size: 13px;
-                padding: 6px 12px;
-            }}
-            QPushButton:hover {{
-                background: #1c1c24;
-                color: #e8e4dc;
-            }}
-            QPushButton:pressed {{
-                background: #252530;
-            }}
-            QPushButton#primary {{
-                background: #c9a84c;
-                border-color: #c9a84c;
-                color: #0c0c0e;
-                font-weight: 500;
-            }}
-            QPushButton#primary:hover {{
-                background: #d4b460;
-            }}
-            QPushButton#icon {{
-                padding: 6px 8px;
-                font-size: 14px;
-            }}
-            QPushButton#checkable:checked {{
-                background: #c9a84c22;
-                color: #c9a84c;
-                border-color: #c9a84c55;
-            }}
-            QFrame#divider {{
-                background: #252530;
-            }}
-        """)
+        self.setFixedHeight(80)
+        self.setStyleSheet(
+            "QWidget { background: #0D0D10; border-bottom: 1px solid #1A1A22; }"
+            "QPushButton { background: transparent; border: none; border-radius: 4px;"
+            "  color: #50506A; font-size: 12px; padding: 4px 10px; margin: 1px; }"
+            "QPushButton:hover { background: #16161E; color: #C8C4BC; }"
+            "QPushButton:pressed { background: #1C1C28; color: #E8E4DC; }"
+            "QLabel { color: #3A3A4A; font-size: 11px; }"
+        )
         self._build()
         self._connect_editor()
 
     def _build(self):
-        h = QHBoxLayout(self)
-        h.setContentsMargins(16, 0, 16, 0)
-        h.setSpacing(4)
+        main = QVBoxLayout(self)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
 
-        # File ops (icon buttons)
-        self._btn_new = QPushButton("+")
-        self._btn_new.setObjectName("icon")
-        self._btn_new.setToolTip("New (Ctrl+N)")
-        
-        self._btn_open = QPushButton("↑")
-        self._btn_open.setObjectName("icon")
-        self._btn_open.setToolTip("Open (Ctrl+O)")
-        
-        self._btn_save = QPushButton("↓")
-        self._btn_save.setObjectName("icon")
-        self._btn_save.setToolTip("Save (Ctrl+S)")
-        
-        for btn in (self._btn_new, self._btn_open, self._btn_save):
-            h.addWidget(btn)
-        
-        self._btn_new.clicked.connect(self.sig_new.emit)
-        self._btn_open.clicked.connect(self.sig_open.emit)
-        self._btn_save.clicked.connect(self.sig_save.emit)
-        
-        # Divider
-        div1 = QFrame()
-        div1.setObjectName("divider")
-        div1.setFixedWidth(1)
-        div1.setFixedHeight(20)
-        h.addSpacing(8)
-        h.addWidget(div1)
-        h.addSpacing(8)
-        
-        # Formatting
+        # ── ROW 1: Undo/Redo | Font | Size | B I U S sub sup | Color | Alignment
+        row1 = QWidget()
+        row1.setStyleSheet("background: #0D0D10; border-bottom: 1px solid #141420;")
+        h1 = QHBoxLayout(row1)
+        h1.setContentsMargins(12, 0, 12, 0)
+        h1.setSpacing(2)
+
+        def div():
+            f = QFrame(); f.setObjectName("divider")
+            f.setFixedWidth(1); f.setFixedHeight(18)
+            return f
+
+        # Undo / Redo
+        self._btn_undo = QPushButton("↶")
+        self._btn_undo.setToolTip("Undo (Ctrl+Z)")
+        self._btn_undo.clicked.connect(self._editor.undo)
+        self._btn_redo = QPushButton("↷")
+        self._btn_redo.setToolTip("Redo (Ctrl+Y)")
+        self._btn_redo.clicked.connect(self._editor.redo)
+        h1.addWidget(self._btn_undo)
+        h1.addWidget(self._btn_redo)
+        h1.addSpacing(4); h1.addWidget(div()); h1.addSpacing(4)
+
+        # Font family
+        self._font_combo = QFontComboBox()
+        self._font_combo.setFixedWidth(150)
+        self._font_combo.setToolTip("Font Family")
+        self._font_combo.setStyleSheet(
+            "QFontComboBox { background:#141420; border:1px solid #1A1A2A; "
+            "border-radius:4px; color:#C8C4BC; padding:0 6px; font-size:12px; }"
+            "QFontComboBox::drop-down { border:none; width:16px; }"
+        )
+        self._font_combo.currentFontChanged.connect(self._on_font_changed)
+        h1.addWidget(self._font_combo)
+        h1.addSpacing(4)
+
+        # Font size
+        self._size_spin = QSpinBox()
+        self._size_spin.setRange(6, 96)
+        self._size_spin.setValue(18)
+        self._size_spin.setFixedWidth(52)
+        self._size_spin.setToolTip("Font Size")
+        self._size_spin.setStyleSheet(
+            "QSpinBox { background:#141420; border:1px solid #1A1A2A; "
+            "border-radius:4px; color:#C8C4BC; padding:0 4px; font-size:12px; }"
+            "QSpinBox::up-button, QSpinBox::down-button { width:14px; }"
+        )
+        self._size_spin.valueChanged.connect(self._on_size_changed)
+        h1.addWidget(self._size_spin)
+        h1.addSpacing(4); h1.addWidget(div()); h1.addSpacing(4)
+
+        # B I U S sub sup
         self._btn_bold = QPushButton("B")
-        self._btn_bold.setObjectName("checkable")
         self._btn_bold.setCheckable(True)
         self._btn_bold.setToolTip("Bold (Ctrl+B)")
-        self._btn_bold.setFont(QFont("Palatino Linotype", 12, QFont.Weight.Bold))
-        
+        self._btn_bold.setFont(QFont("Georgia", 12, QFont.Weight.Bold))
         self._btn_italic = QPushButton("I")
-        self._btn_italic.setObjectName("checkable")
         self._btn_italic.setCheckable(True)
         self._btn_italic.setToolTip("Italic (Ctrl+I)")
-        
         self._btn_under = QPushButton("U")
-        self._btn_under.setObjectName("checkable")
         self._btn_under.setCheckable(True)
         self._btn_under.setToolTip("Underline (Ctrl+U)")
-        
-        for btn in (self._btn_bold, self._btn_italic, self._btn_under):
-            h.addWidget(btn)
-        
+        self._btn_strike = QPushButton("S̶")
+        self._btn_strike.setCheckable(True)
+        self._btn_strike.setToolTip("Strikethrough")
+        self._btn_sub = QPushButton("x₂")
+        self._btn_sub.setCheckable(True)
+        self._btn_sub.setToolTip("Subscript")
+        self._btn_sup = QPushButton("x²")
+        self._btn_sup.setCheckable(True)
+        self._btn_sup.setToolTip("Superscript")
+        for b in (self._btn_bold, self._btn_italic, self._btn_under,
+                  self._btn_strike, self._btn_sub, self._btn_sup):
+            h1.addWidget(b)
         self._btn_bold.clicked.connect(self._toggle_bold)
         self._btn_italic.clicked.connect(self._toggle_italic)
         self._btn_under.clicked.connect(self._toggle_underline)
-        
-        # Divider
-        div2 = QFrame()
-        div2.setObjectName("divider")
-        div2.setFixedWidth(1)
-        div2.setFixedHeight(20)
-        h.addSpacing(8)
-        h.addWidget(div2)
-        h.addSpacing(8)
-        
-        # Headings & Lists
+        self._btn_strike.clicked.connect(self._toggle_strikethrough)
+        self._btn_sub.clicked.connect(self._toggle_subscript)
+        self._btn_sup.clicked.connect(self._toggle_superscript)
+        h1.addSpacing(4); h1.addWidget(div()); h1.addSpacing(4)
+
+        # Text color + Highlight
+        self._btn_color = QPushButton("A")
+        self._btn_color.setToolTip("Text Color")
+        self._btn_color.clicked.connect(self._set_text_color)
+        self._btn_highlight = QPushButton("█")
+        self._btn_highlight.setToolTip("Highlight Color")
+        self._btn_highlight.clicked.connect(self._set_highlight_color)
+        h1.addWidget(self._btn_color)
+        h1.addWidget(self._btn_highlight)
+        h1.addSpacing(4); h1.addWidget(div()); h1.addSpacing(4)
+
+        # Alignment
+        self._btn_al = QPushButton("≡") ;
+        self._btn_al.setCheckable(True)
+        self._btn_al.setToolTip("Align Left")
+        self._btn_ac = QPushButton("≣") ;
+        self._btn_ac.setCheckable(True)
+        self._btn_ac.setToolTip("Align Center")
+        self._btn_ar = QPushButton("≡") ;
+        self._btn_ar.setCheckable(True)
+        self._btn_ar.setToolTip("Align Right")
+        self._btn_aj = QPushButton("☰") ;
+        self._btn_aj.setCheckable(True)
+        self._btn_aj.setToolTip("Justify")
+        self._align_btns = [self._btn_al, self._btn_ac, self._btn_ar, self._btn_aj]
+        self._btn_al.setChecked(True)
+        for b in self._align_btns:
+            h1.addWidget(b)
+        self._btn_al.clicked.connect(lambda: self._set_align(Qt.AlignmentFlag.AlignLeft))
+        self._btn_ac.clicked.connect(lambda: self._set_align(Qt.AlignmentFlag.AlignHCenter))
+        self._btn_ar.clicked.connect(lambda: self._set_align(Qt.AlignmentFlag.AlignRight))
+        self._btn_aj.clicked.connect(lambda: self._set_align(Qt.AlignmentFlag.AlignJustify))
+
+        h1.addStretch()
+        main.addWidget(row1)
+
+        # ── ROW 2: File | H1 H2 H3 | Lists | Indent | HR | Image | stretch | Find Export Save
+        row2 = QWidget()
+        row2.setStyleSheet("background: #0D0D10;")
+        h2 = QHBoxLayout(row2)
+        h2.setContentsMargins(12, 0, 12, 0)
+        h2.setSpacing(2)
+
+        # File ops
+        self._btn_new = QPushButton("+") ;
+        self._btn_new.setToolTip("New (Ctrl+N)")
+        self._btn_open = QPushButton("↑") ;
+        self._btn_open.setToolTip("Open (Ctrl+O)")
+        self._btn_save = QPushButton("↓") ;
+        self._btn_save.setToolTip("Save (Ctrl+S)")
+        self._btn_new.clicked.connect(self.sig_new.emit)
+        self._btn_open.clicked.connect(self.sig_open.emit)
+        self._btn_save.clicked.connect(self.sig_save.emit)
+        for b in (self._btn_new, self._btn_open, self._btn_save):
+            h2.addWidget(b)
+        h2.addSpacing(4); h2.addWidget(div()); h2.addSpacing(4)
+
+        # Headings
         self._btn_h1 = QPushButton("H1")
         self._btn_h1.setToolTip("Heading 1")
         self._btn_h1.clicked.connect(lambda: self._apply_heading(1))
-        
         self._btn_h2 = QPushButton("H2")
         self._btn_h2.setToolTip("Heading 2")
         self._btn_h2.clicked.connect(lambda: self._apply_heading(2))
-        
-        self._btn_list = QPushButton("☰")
-        self._btn_list.setObjectName("icon")
+        self._btn_h3 = QPushButton("H3")
+        self._btn_h3.setToolTip("Heading 3")
+        self._btn_h3.clicked.connect(lambda: self._apply_heading(3))
+        for b in (self._btn_h1, self._btn_h2, self._btn_h3):
+            h2.addWidget(b)
+        h2.addSpacing(4); h2.addWidget(div()); h2.addSpacing(4)
+
+        # Lists
+        self._btn_list = QPushButton("•") ;
         self._btn_list.setToolTip("Bullet List")
         self._btn_list.clicked.connect(self._insert_bullet)
-        
-        h.addWidget(self._btn_h1)
-        h.addWidget(self._btn_h2)
-        h.addWidget(self._btn_list)
-        
-        # Spacer
-        h.addStretch()
-        
-        # Right side: Export + Save
+        self._btn_num_list = QPushButton("1.") ;
+        self._btn_num_list.setToolTip("Numbered List")
+        self._btn_num_list.clicked.connect(self._insert_num_list)
+        h2.addWidget(self._btn_list)
+        h2.addWidget(self._btn_num_list)
+        h2.addSpacing(4); h2.addWidget(div()); h2.addSpacing(4)
+
+        # Indent
+        self._btn_indent_out = QPushButton("⇤") ;
+        self._btn_indent_out.setToolTip("Decrease Indent")
+        self._btn_indent_out.clicked.connect(self._indent_decrease)
+        self._btn_indent_in = QPushButton("⇥") ;
+        self._btn_indent_in.setToolTip("Increase Indent")
+        self._btn_indent_in.clicked.connect(self._indent_increase)
+        h2.addWidget(self._btn_indent_out)
+        h2.addWidget(self._btn_indent_in)
+        h2.addSpacing(4); h2.addWidget(div()); h2.addSpacing(4)
+
+        # HR + Image
+        self._btn_hr = QPushButton("─") ;
+        self._btn_hr.setToolTip("Insert Horizontal Rule")
+        self._btn_hr.clicked.connect(self._insert_hr)
+        self._btn_img = QPushButton("🖼") ;
+        self._btn_img.setToolTip("Insert Image")
+        self._btn_img.clicked.connect(self._insert_image)
+        h2.addWidget(self._btn_hr)
+        h2.addWidget(self._btn_img)
+
+        h2.addStretch()
+
+        # Right: Find, Export, Save
+        self._btn_find = QPushButton("🔍") ;
+        self._btn_find.setToolTip("Find & Replace (Ctrl+F)")
+        self._btn_find.clicked.connect(self.sig_find.emit)
         self._btn_export = QPushButton("Export")
         self._btn_export.setToolTip("Export as text")
-        
-        self._btn_save_main = QPushButton("Save")
-        self._btn_save_main.setObjectName("primary")
-        self._btn_save_main.setToolTip("Save document")
-        
-        h.addWidget(self._btn_export)
-        h.addWidget(self._btn_save_main)
-        
         self._btn_export.clicked.connect(self.sig_export.emit)
+        self._btn_save_main = QPushButton("Save")
+        self._btn_save_main.setStyleSheet("QPushButton { background: #C9A84C; border-radius: 6px; color: #0A0A0D; font-weight: bold; padding: 5px 16px; margin: 4px 8px; border: none; } QPushButton:hover { background: #DDB85A; }")
+        self._btn_save_main.setToolTip("Save document")
         self._btn_save_main.clicked.connect(self.sig_save.emit)
-        
-        # Word count label
         self._wc_lbl = QLabel("0 words")
-        self._wc_lbl.setStyleSheet("color: #606070; font-size: 12px; margin-left: 12px;")
-        h.addWidget(self._wc_lbl)
+        self._wc_lbl.setStyleSheet("color:#3A3A4A; font-size:11px; margin:0 8px;")
+        for w in (self._btn_find, self._btn_export, self._btn_save_main, self._wc_lbl):
+            h2.addWidget(w)
+
+        main.addWidget(row2)
 
     def _connect_editor(self):
         self._editor.currentCharFormatChanged.connect(self._sync_format)
+        self._editor.cursorPositionChanged.connect(self._sync_alignment)
         self._editor.textChanged.connect(self._update_wc)
+        self._signals_connected = True
 
     def _sync_format(self, fmt: QTextCharFormat):
         self._btn_bold.setChecked(fmt.fontWeight() >= QFont.Weight.Bold)
         self._btn_italic.setChecked(fmt.fontItalic())
         self._btn_under.setChecked(fmt.fontUnderline())
+        self._btn_strike.setChecked(fmt.fontStrikeOut())
+        vt = fmt.verticalAlignment()
+        self._btn_sub.setChecked(vt == QTextCharFormat.VerticalAlignment.AlignSubScript)
+        self._btn_sup.setChecked(vt == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+        # Update color underline indicator
+        col = fmt.foreground().color()
+        if col.isValid():
+            # Single-rule only — multi-rule QPushButton stylesheets crash Qt on Mesa
+            self._btn_color.setStyleSheet(
+                f"border-bottom: 2px solid {col.name()};"
+            )
+        # Sync font combo and size
+        self._font_combo.blockSignals(True)
+        if fmt.fontFamily():
+            self._font_combo.setCurrentFont(QFont(fmt.fontFamily()))
+        self._font_combo.blockSignals(False)
+        self._size_spin.blockSignals(True)
+        if fmt.fontPointSize() > 0:
+            self._size_spin.setValue(int(fmt.fontPointSize()))
+        self._size_spin.blockSignals(False)
+
+    def _sync_alignment(self):
+        align = self._editor.alignment()
+        self._btn_al.setChecked(align == Qt.AlignmentFlag.AlignLeft)
+        self._btn_ac.setChecked(align == Qt.AlignmentFlag.AlignHCenter)
+        self._btn_ar.setChecked(align == Qt.AlignmentFlag.AlignRight)
+        self._btn_aj.setChecked(align == Qt.AlignmentFlag.AlignJustify)
 
     def _update_wc(self):
         text = self._editor.toPlainText().strip()
@@ -467,8 +610,90 @@ class EditorToolbar(QWidget):
         fmt.setFontUnderline(self._btn_under.isChecked())
         self._merge_format(fmt)
 
+    def _toggle_strikethrough(self):
+        fmt = QTextCharFormat()
+        fmt.setFontStrikeOut(self._btn_strike.isChecked())
+        self._merge_format(fmt)
+
+    def _toggle_subscript(self):
+        fmt = QTextCharFormat()
+        if self._btn_sub.isChecked():
+            self._btn_sup.setChecked(False)
+            fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSubScript)
+        else:
+            fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+        self._merge_format(fmt)
+
+    def _toggle_superscript(self):
+        fmt = QTextCharFormat()
+        if self._btn_sup.isChecked():
+            self._btn_sub.setChecked(False)
+            fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignSuperScript)
+        else:
+            fmt.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignNormal)
+        self._merge_format(fmt)
+
+    def _set_align(self, alignment):
+        self._editor.setAlignment(alignment)
+        self._sync_alignment()
+
+    def _indent_increase(self):
+        cursor = self._editor.textCursor()
+        blk_fmt = cursor.blockFormat()
+        blk_fmt.setIndent(blk_fmt.indent() + 1)
+        cursor.setBlockFormat(blk_fmt)
+
+    def _indent_decrease(self):
+        cursor = self._editor.textCursor()
+        blk_fmt = cursor.blockFormat()
+        blk_fmt.setIndent(max(0, blk_fmt.indent() - 1))
+        cursor.setBlockFormat(blk_fmt)
+
+    def _insert_hr(self):
+        cursor = self._editor.textCursor()
+        cursor.insertHtml("<hr style='border:1px solid #2A2A36;'><p></p>")
+
+    def _insert_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Insert Image", str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp)"
+        )
+        if path:
+            cursor = self._editor.textCursor()
+            cursor.insertHtml(f'<img src="{path}" style="max-width:100%;">')
+
+    def _set_text_color(self):
+        color = QColorDialog.getColor(parent=self)
+        if color.isValid():
+            fmt = QTextCharFormat()
+            fmt.setForeground(QBrush(color))
+            self._merge_format(fmt)
+            self._btn_color.setStyleSheet(
+                f"border-bottom: 2px solid {color.name()};"
+            )
+
+    def _set_highlight_color(self):
+        color = QColorDialog.getColor(parent=self)
+        if color.isValid():
+            fmt = QTextCharFormat()
+            fmt.setBackground(QBrush(color))
+            self._merge_format(fmt)
+            self._btn_highlight.setStyleSheet(
+                f"color: {color.name()};"
+            )
+
+    def _on_font_changed(self, font: QFont):
+        fmt = QTextCharFormat()
+        fmt.setFontFamily(font.family())
+        self._merge_format(fmt)
+
+    def _on_size_changed(self, size: int):
+        fmt = QTextCharFormat()
+        fmt.setFontPointSize(size)
+        self._merge_format(fmt)
+
     def _apply_heading(self, level: int):
-        sizes = {1: 28, 2: 22}
+        sizes = {1: 28, 2: 22, 3: 17}
         fmt = QTextCharFormat()
         fmt.setFontPointSize(sizes[level])
         fmt.setFontWeight(QFont.Weight.Bold)
@@ -476,7 +701,15 @@ class EditorToolbar(QWidget):
 
     def _insert_bullet(self):
         cursor = self._editor.textCursor()
-        cursor.insertList(QTextCursor.BlockInsertionMode.ListSquare)
+        fmt = QTextListFormat()
+        fmt.setStyle(QTextListFormat.Style.ListDisc)
+        cursor.insertList(fmt)
+
+    def _insert_num_list(self):
+        cursor = self._editor.textCursor()
+        fmt = QTextListFormat()
+        fmt.setStyle(QTextListFormat.Style.ListDecimal)
+        cursor.insertList(fmt)
 
     def _merge_format(self, fmt: QTextCharFormat):
         cursor = self._editor.textCursor()
@@ -613,29 +846,30 @@ class WriterCanvas(QTextEdit):
         self.setWordWrapMode(
             __import__("PyQt6.QtGui", fromlist=["QTextOption"]).QTextOption.WrapMode.WordWrap
         )
-        self.setStyleSheet(f"""
-            QTextEdit {{
-                background: {BG};
-                border: none;
-                color: {TEXT};
-                font-family: {FONT_BODY};
+        self.setStyleSheet("""
+            QTextEdit {
+                background: #13131A;
+                border: 1px solid #1E1E2A;
+                border-radius: 12px;
+                color: #E8E4DC;
+                font-family: 'Palatino Linotype', Palatino, Georgia, serif;
                 font-size: 18px;
-                line-height: 1.8;
-                selection-background-color: #2A3020;
-                padding: 0;
-            }}
-            QScrollBar:vertical {{
-                background: {BG};
+                selection-background-color: rgba(201,168,76,0.2);
+                padding: 48px 64px;
+            }
+            QScrollBar:vertical {
+                background: transparent;
                 width: 4px;
                 border: none;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {BORDER};
+                margin: 12px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #2A2A36;
                 border-radius: 2px;
                 min-height: 30px;
-            }}
-            QScrollBar::handle:vertical:hover {{ background: {ACCENT}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            }
+            QScrollBar::handle:vertical:hover { background: #C9A84C; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         # Set default block format (line spacing)
         fmt = QTextBlockFormat()
@@ -690,6 +924,7 @@ class EditorPage(QWidget):
         self._auto_save_timer = QTimer(self)
         self._auto_save_timer.timeout.connect(self._auto_save)
         self._auto_save_timer.start(30_000)  # auto-save every 30 s
+        QTimer.singleShot(100, self._restore_last_open)
 
     # ── Construction ──────────────────────────────────────────────────────────
 
@@ -698,24 +933,24 @@ class EditorPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Sidebar
+        # ── Sidebar
         self._sidebar = DocumentSidebar()
         self._sidebar.new_doc.connect(self.new_document)
         self._sidebar.open_file.connect(self._load_file)
         root.addWidget(self._sidebar)
 
-        # Right pane: toolbar + canvas + status
+        # ── Right: dark workspace
         right = QWidget()
-        right.setStyleSheet(f"background:{BG};")
+        right.setStyleSheet("background: #0C0C10;")
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
 
-        # Canvas (created first so toolbar can reference it)
+        # Canvas created first so toolbar can ref it
         self._canvas = WriterCanvas()
         self._canvas.textChanged.connect(self._on_text_changed)
 
-        # Toolbar
+        # Toolbar (thin, at top)
         self._toolbar = EditorToolbar(self._canvas)
         self._toolbar.sig_new.connect(self.new_document)
         self._toolbar.sig_open.connect(self.open_document)
@@ -724,23 +959,15 @@ class EditorPage(QWidget):
         self._toolbar.sig_export.connect(self.export_txt)
         self._toolbar.sig_print.connect(self.print_document)
         self._toolbar.sig_find.connect(self.show_find)
-
         rv.addWidget(self._toolbar)
 
-        # Page area — centred column with margins
+        # Canvas centred with breathing room
         page_area = QWidget()
-        page_area.setStyleSheet(f"background:{BG};")
+        page_area.setStyleSheet("background: #0C0C10;")
         pa = QHBoxLayout(page_area)
-        pa.setContentsMargins(0, 0, 0, 0)
+        pa.setContentsMargins(32, 24, 32, 24)
         pa.setSpacing(0)
-
-        left_margin  = self._margin_widget()
-        right_margin = self._margin_widget()
-
-        pa.addWidget(left_margin, 1)
-        pa.addWidget(self._canvas, 5)
-        pa.addWidget(right_margin, 1)
-
+        pa.addWidget(self._canvas, 1)
         rv.addWidget(page_area, 1)
 
         # Status bar
@@ -756,15 +983,15 @@ class EditorPage(QWidget):
 
     def _build_status(self):
         bar = QWidget()
-        bar.setFixedHeight(28)
+        bar.setFixedHeight(26)
         bar.setStyleSheet(
-            f"background:{BG2}; border-top:1px solid {BORDER};")
+            "background:#0A0A0D; border-top:1px solid #1A1A22;")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(14, 0, 14, 0)
+        h.setContentsMargins(20, 0, 20, 0)
         h.setSpacing(20)
         self._status_path = QLabel("Untitled")
         self._status_path.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; font-family:{FONT_UI};")
+            f"color:#3A3A4A; font-size:10px; font-family:{FONT_UI};")
         self._status_modified = QLabel("")
         self._status_modified.setStyleSheet(
             f"color:{ACCENT}; font-size:10px; font-family:{FONT_UI};")
@@ -800,6 +1027,24 @@ class EditorPage(QWidget):
         self._modified = False
         self._update_status()
 
+    def _save_recent(self, path: str):
+        try:
+            with open(RECENT_FILE, "w") as f:
+                json.dump({"last_open": path}, f)
+        except Exception:
+            pass
+
+    def _restore_last_open(self):
+        try:
+            if RECENT_FILE.exists():
+                with open(RECENT_FILE, "r") as f:
+                    data = json.load(f)
+                last = data.get("last_open")
+                if last and Path(last).exists():
+                    self._load_file(last)
+        except Exception:
+            pass
+
     def open_document(self):
         if self._modified and not self._confirm_discard():
             return
@@ -814,14 +1059,26 @@ class EditorPage(QWidget):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
+            # Disconnect signals during load to prevent crash in currentCharFormatChanged
+            # when setHtml() fires the signal before the toolbar widgets are ready
+            # Disconnect format signals during load — setHtml fires currentCharFormatChanged
+            # which crashes Qt on Mesa when it tries to call setStyleSheet mid-load
+            try:
+                self._canvas.currentCharFormatChanged.disconnect()
+                self._canvas.cursorPositionChanged.disconnect()
+            except Exception:
+                pass
             if path.endswith(".html") or path.endswith(".art"):
                 self._canvas.setHtml(content)
             else:
                 self._canvas.setPlainText(content)
+            # Reconnect after load is complete
+            self._toolbar._connect_editor()
             self._current_path = path
             self._modified = False
             self._update_status()
             self._sidebar.set_active(path)
+            self._save_recent(path)
         except Exception as e:
             QMessageBox.warning(self, "Open Failed", f"Could not open file:\n{e}")
 
@@ -838,6 +1095,8 @@ class EditorPage(QWidget):
             "Artemis (*.art);;HTML Files (*.html)"
         )
         if path:
+            if not path.endswith(".art") and not path.endswith(".html"):
+                path += ".art"
             self._write_file(path)
             self._sidebar.refresh()
             self._sidebar.set_active(path)
@@ -849,6 +1108,7 @@ class EditorPage(QWidget):
             self._current_path = path
             self._modified = False
             self._update_status()
+            self._save_recent(path)
         except Exception as e:
             QMessageBox.warning(self, "Save Failed", f"Could not save file:\n{e}")
 
@@ -865,6 +1125,9 @@ class EditorPage(QWidget):
                 QMessageBox.warning(self, "Export Failed", str(e))
 
     def print_document(self):
+        if not _HAS_PRINT:
+            QMessageBox.information(self, "Print", "Print support is not available.\nInstall it with: pip install PyQt6[full]")
+            return
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dlg = QPrintDialog(printer, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -893,6 +1156,10 @@ class EditorPage(QWidget):
         name = Path(self._current_path).stem if self._current_path else "Untitled"
         self._status_path.setText(name)
         self._status_modified.setText("" if not self._modified else "● unsaved")
+
+    def refresh(self):
+        """Called by Great Sage when navigating to this page."""
+        self._sidebar.refresh()
 
     def _confirm_discard(self) -> bool:
         reply = QMessageBox.question(

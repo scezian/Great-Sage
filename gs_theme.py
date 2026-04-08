@@ -58,42 +58,7 @@ QPushButton:hover {{
     color: {ACCENT};
 }}
 QPushButton:pressed {{ background: {PANEL}; }}
-QPushButton#accent {{
-    background: {ACCENT};
-    color: {BG};
-    border: none;
-    font-weight: bold;
-    letter-spacing: 1px;
-}}
-QPushButton#accent:hover {{ background: #D4B460; }}
-QPushButton#danger {{
-    background: transparent;
-    color: {RED};
-    border: 1px solid #3D1A20;
-}}
-QPushButton#danger:hover {{ background: #2A0E14; border-color: {RED}; }}
-
-/* ── Nav rail buttons ── */
-QPushButton#nav {{
-    background: transparent;
-    border: none;
-    border-left: 2px solid transparent;
-    border-radius: 0px;
-    color: {MUTED};
-    text-align: left;
-    padding: 11px 20px 11px 18px;
-    font-size: 11px;
-    letter-spacing: 1.5px;
-}}
-QPushButton#nav:hover {{
-    background: {BG2};
-    color: {TEXT2};
-}}
-QPushButton#nav[active=true] {{
-    background: {BG2};
-    color: {ACCENT};
-    border-left: 2px solid {ACCENT};
-}}
+/* accent/danger/nav button styles applied directly on widgets */
 
 /* ── Inputs ── */
 QLineEdit {{
@@ -243,6 +208,38 @@ QStatusBar {{
 }}
 """
 
+
+
+# ── Per-widget style helpers (replaces global ID selectors) ───────────────────
+def accent_btn_style():
+    return (
+        f"QPushButton {{ background:{ACCENT}; color:{BG}; border:none; "
+        f"font-weight:bold; letter-spacing:1px; border-radius:3px; padding:6px 14px; }}"
+        f"QPushButton:hover {{ background:#D4B460; }}"
+        f"QPushButton:pressed {{ background:#B8923E; }}"
+    )
+
+def danger_btn_style():
+    return (
+        f"QPushButton {{ background:transparent; color:{RED}; border:1px solid #3D1A20; "
+        f"border-radius:3px; padding:6px 14px; }}"
+        f"QPushButton:hover {{ background:#2A0E14; border-color:{RED}; }}"
+    )
+
+def nav_btn_style(active=False):
+    if active:
+        return (
+            f"QPushButton {{ background:{BG2}; color:{ACCENT}; border:none; "
+            f"border-left:2px solid {ACCENT}; border-radius:0px; text-align:left; "
+            f"padding:11px 20px 11px 18px; font-size:11px; letter-spacing:1.5px; }}"
+            f"QPushButton:hover {{ background:{BG2}; color:{ACCENT}; }}"
+        )
+    return (
+        f"QPushButton {{ background:transparent; color:{MUTED}; border:none; "
+        f"border-left:2px solid transparent; border-radius:0px; text-align:left; "
+        f"padding:11px 20px 11px 18px; font-size:11px; letter-spacing:1.5px; }}"
+        f"QPushButton:hover {{ background:{BG2}; color:{TEXT2}; }}"
+    )
 
 # ── Shared painting utilities ──────────────────────────────────────────────────
 def paint_topbar(widget, event):

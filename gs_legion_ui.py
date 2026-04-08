@@ -199,7 +199,7 @@ class LegionPage(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(12,8,12,0)
         btn_row.setSpacing(6)
-        add_b = QPushButton("+ ADD BOOK"); add_b.setObjectName("accent")
+        add_b = QPushButton("+ ADD BOOK"); add_b.setStyleSheet(accent_btn_style())
         add_b.setStyleSheet(f"font-size:10px;letter-spacing:1px;padding:8px;")
         add_b.clicked.connect(self._add_book)
         ref_b = QPushButton("↻"); ref_b.setFixedWidth(34)

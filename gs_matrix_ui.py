@@ -2594,7 +2594,7 @@ class HighlightsDialog(QDialog):
         root.addLayout(body, 1)
 
         close_btn = QPushButton("CLOSE")
-        close_btn.setObjectName("accent")
+        close_btn.setStyleSheet(accent_btn_style())
         close_btn.setStyleSheet(
             f"background:{BG2};color:{MUTED};border:1px solid {BORDER};"
             f"font-size:9px;letter-spacing:1px;padding:8px 20px;border-radius:3px;margin:0 20px 14px 20px;")

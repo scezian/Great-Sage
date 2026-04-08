@@ -76,6 +76,7 @@ try:
         ACCENT, ACCENT2, NEON, RED, BLUE, PURPLE,
         TEXT, TEXT2, MUTED,
         FONT_UI, FONT_BODY, FONT_DISPLAY,
+        accent_btn_style, danger_btn_style, nav_btn_style,
     )
     _COLOURS = {
         "BG": BG, "BG2": BG2, "BG3": BG3, "PANEL": PANEL,
@@ -933,7 +934,7 @@ class PluginsPage(QWidget):
         for rec in enabled:
             label = f"{rec.icon}  {rec.name}"
             btn = QPushButton(label)
-            btn.setObjectName("nav")
+            btn.setStyleSheet(nav_btn_style())
             btn.clicked.connect(lambda _, r=rec: self._open_plugin(r))
             self._nav_layout.addWidget(btn)
             self._sidebar_btns[rec.filename] = btn

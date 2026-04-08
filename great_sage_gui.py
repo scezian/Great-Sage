@@ -9,10 +9,9 @@ Run:  python3 great_sage_gui.py
 import os, sys, json, time, re, subprocess, threading
 from pathlib import Path
 
-# Fix for flicker and rendering bugs on Linux (Hyprland/Wayland/Mesa)
-os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
-# Use EGL instead of GLX for better Wayland/Hyprland compatibility
-os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
+# Software rendering — avoids Mesa/EGL seg faults on stylesheet parse
+os.environ["QT_XCB_GL_INTEGRATION"] = "none"
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 try:
@@ -566,8 +565,6 @@ class MainWindow(QMainWindow):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    # Fix for black screen/rendering issues in QtWebEngine on Linux
-    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_UseOpenGLES)
     app = QApplication(sys.argv)
     app.setApplicationName("Great Sage")
     app.setStyleSheet(QSS)
