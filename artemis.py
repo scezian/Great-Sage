@@ -55,19 +55,19 @@ except ImportError:
     _HAS_THEME = False
 
 from PyQt6.QtCore import (
-    Qt, QTimer, QSize, pyqtSignal, QMimeData,
+    Qt, QTimer, QSize, pyqtSignal, QMimeData, QObject, QThread,
 )
 from PyQt6.QtGui import (
     QColor, QFont, QTextCursor, QTextCharFormat, QTextBlockFormat,
     QTextListFormat, QKeySequence, QShortcut, QAction, QTextDocument, QPainter,
-    QLinearGradient, QBrush, QPen, QIcon,
+    QLinearGradient, QBrush, QPen, QIcon, QTextOption,
 )
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QLabel, QPushButton, QFrame, QFileDialog, QMessageBox,
-    QComboBox, QSizePolicy, QScrollArea, QStatusBar, QFontComboBox,
+    QComboBox, QSizePolicy, QScrollArea, QScrollBar, QStatusBar, QFontComboBox,
     QSpinBox, QColorDialog, QSplitter, QListWidget, QListWidgetItem,
-    QDialog, QDialogButtonBox, QLineEdit, QMenu, QToolButton,
+    QDialog, QDialogButtonBox, QLineEdit, QMenu, QToolButton, QStackedWidget,
 )
 try:
     from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
@@ -325,6 +325,7 @@ class EditorToolbar(QWidget):
     sig_export    = pyqtSignal()
     sig_print     = pyqtSignal()
     sig_find      = pyqtSignal()
+    sig_toggle_ai = pyqtSignal()
 
     def __init__(self, editor: QTextEdit, parent=None):
         super().__init__(parent)
@@ -546,7 +547,33 @@ class EditorToolbar(QWidget):
         self._btn_save_main.clicked.connect(self.sig_save.emit)
         self._wc_lbl = QLabel("0 words")
         self._wc_lbl.setStyleSheet("color:#3A3A4A; font-size:11px; margin:0 8px;")
-        for w in (self._btn_find, self._btn_export, self._btn_save_main, self._wc_lbl):
+        # ── SAGE AI toggle button
+        self._btn_sage = QPushButton("✦ SAGE")
+        self._btn_sage.setCheckable(True)
+        self._btn_sage.setToolTip("Toggle AI Sidebar (Ctrl+Shift+A)")
+        self._btn_sage.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(201,168,76,.12);
+                color: {ACCENT};
+                border: 1px solid rgba(201,168,76,.25);
+                border-radius: 5px;
+                font-family: {FONT_UI};
+                font-size: 11px;
+                font-weight: bold;
+                padding: 4px 12px;
+                margin: 3px 6px 3px 4px;
+            }}
+            QPushButton:hover {{
+                background: rgba(201,168,76,.22);
+            }}
+            QPushButton:checked {{
+                background: rgba(201,168,76,.28);
+                border-color: rgba(201,168,76,.7);
+            }}
+        """)
+        self._btn_sage.clicked.connect(self.sig_toggle_ai.emit)
+        for w in (self._btn_find, self._btn_export, self._btn_save_main,
+                  self._wc_lbl, self._btn_sage):
             h2.addWidget(w)
 
         main.addWidget(row2)
@@ -831,8 +858,995 @@ class FindReplaceDialog(QDialog):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# AI WORKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _ArtemisAIWorker(QThread):
+    """
+    Thin QThread wrapper around sage.py's groq_stream_chat / groq_chat.
+    Standalone-safe: if sage.py is unavailable it emits an error signal
+    instead of crashing.  When running inside Great Sage it picks up the
+    API key from Matrix settings automatically (same pattern as SageWorker).
+    """
+    chunk_ready = pyqtSignal(str)
+    finished    = pyqtSignal()
+    error       = pyqtSignal(str)
+
+    def __init__(self, prompt: str, system: str = "", history: list = None,
+                 parent=None):
+        super().__init__(parent)
+        self.prompt  = prompt
+        self.system  = system
+        self.history = history or []
+        self._stop   = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        # ── resolve sage module ────────────────────────────────────────────
+        mod = None
+        try:
+            import importlib.util as _ilu, os as _os
+            _script_dir = Path(__file__).parent
+            _path = _script_dir / "sage.py"
+            if _path.exists():
+                spec = _ilu.spec_from_file_location("sage", str(_path))
+                mod  = _ilu.module_from_spec(spec)
+                orig = _os.getcwd()
+                _os.chdir(str(_script_dir))
+                try:
+                    spec.loader.exec_module(mod)
+                finally:
+                    _os.chdir(orig)
+        except Exception as e:
+            self.error.emit(f"Could not load sage.py: {e}")
+            return
+
+        if mod is None or not (hasattr(mod, "groq_stream_chat") or
+                                hasattr(mod, "groq_chat")):
+            self.error.emit(
+                "sage.py not found or missing groq_chat.\n"
+                "Make sure sage.py is in the same directory as artemis.py."
+            )
+            return
+
+        # ── apply API key / model overrides from Matrix settings ──────────
+        try:
+            from great_sage_core import get_matrix_data
+            _s = get_matrix_data().get("settings", {})
+            if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
+                mod.GROQ_API_KEY = _s["groq_api_key"]
+            if _s.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
+                mod.GROQ_MODEL = _s["groq_model"]
+        except Exception:
+            pass  # Running standalone — use whatever key is hardcoded in sage.py
+
+        # ── stream ────────────────────────────────────────────────────────
+        try:
+            if hasattr(mod, "groq_stream_chat"):
+                history_arg = self.history if self.history else None
+                for chunk, err in mod.groq_stream_chat(
+                        self.prompt,
+                        system=self.system or None,
+                        history=history_arg):
+                    if self._stop:
+                        return
+                    if err:
+                        self.error.emit(err)
+                        return
+                    if chunk:
+                        self.chunk_ready.emit(chunk)
+            else:
+                resp, err = mod.groq_chat(self.prompt, system=self.system or None)
+                if err:
+                    self.error.emit(err)
+                    return
+                if resp:
+                    self.chunk_ready.emit(resp)
+        except Exception as e:
+            self.error.emit(str(e))
+            return
+
+        self.finished.emit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AISidebar(QWidget):
+    """
+    Right-hand AI panel for Artemis.
+
+    Four tabs
+    ─────────
+    CHAT     — free chat with full document context.
+    CONTINUE — generate a continuation; preview → accept/discard.
+    REWRITE  — rewrite selected text; side-by-side diff → accept/discard.
+    PROOF    — proofread the document; clickable issue cards with AI Fix.
+
+    Signals
+    ───────
+    insert_text(str)        — insert accepted continuation at cursor
+    replace_selection(str)  — replace current selection with accepted rewrite
+    request_doc_text()      — emitted when sidebar needs the canvas plain text
+    request_selection()     — emitted when sidebar needs the current selection
+    jump_to_phrase(str)     — emitted when user clicks a proof issue card
+    apply_fix(str, str)     — (original_phrase, fixed_text) for AI Fix button
+    """
+
+    insert_text       = pyqtSignal(str)
+    replace_selection = pyqtSignal(str)
+    request_doc_text  = pyqtSignal()
+    request_selection = pyqtSignal()
+    jump_to_phrase    = pyqtSignal(str)
+    apply_fix         = pyqtSignal(str, str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(310)
+        self._doc_text        = ""
+        self._selection       = ""
+        self._worker: _ArtemisAIWorker | None = None
+        self._chat_history: list = []
+        self._continue_buf    = ""
+        self._rewrite_buf     = ""
+        self._proof_raw       = ""
+        self._proof_fix_phrase = ""
+        self._proof_fix_buf   = ""
+        self._build()
+
+    # ── public API ────────────────────────────────────────────────────────────
+
+    def set_doc_text(self, text: str):
+        """Called by EditorPage to push current document content."""
+        self._doc_text = text
+
+    def set_selection(self, text: str):
+        """Called by EditorPage to push current selection."""
+        self._selection = text
+        self._update_selection_indicator()
+
+    # ── construction ──────────────────────────────────────────────────────────
+
+    def _build(self):
+        self.setStyleSheet("background:#0E0E14; border-left:1px solid #1A1A24;")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── header ────────────────────────────────────────────────────────
+        header = QWidget()
+        header.setFixedHeight(52)
+        header.setStyleSheet(
+            "background:#0E0E14; border-bottom:1px solid #1A1A24;")
+        hh = QHBoxLayout(header)
+        hh.setContentsMargins(14, 0, 10, 0)
+        hh.setSpacing(8)
+
+        icon_lbl = QLabel("✦")
+        icon_lbl.setStyleSheet(
+            f"color:{ACCENT}; font-size:15px; background:transparent;")
+        title_lbl = QLabel("SAGE")
+        title_lbl.setStyleSheet(
+            f"color:{TEXT}; font-size:12px; font-weight:bold; "
+            f"letter-spacing:2px; background:transparent;")
+
+        hh.addWidget(icon_lbl)
+        hh.addWidget(title_lbl)
+        hh.addStretch()
+        root.addWidget(header)
+
+        # ── tab bar ───────────────────────────────────────────────────────
+        tab_bar = QWidget()
+        tab_bar.setFixedHeight(36)
+        tab_bar.setStyleSheet(
+            "background:#0E0E14; border-bottom:1px solid #1A1A24;")
+        th = QHBoxLayout(tab_bar)
+        th.setContentsMargins(0, 0, 0, 0)
+        th.setSpacing(0)
+
+        self._tab_btns: list[QPushButton] = []
+        self._stack = QStackedWidget()
+
+        for label in ("CHAT", "CONTINUE", "REWRITE", "PROOF"):
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    border-bottom: 2px solid transparent;
+                    color: {MUTED};
+                    font-family: {FONT_UI};
+                    font-size: 9px;
+                    letter-spacing: 1.5px;
+                    padding: 0 4px;
+                }}
+                QPushButton:hover {{ color: {TEXT2}; }}
+                QPushButton:checked {{
+                    color: {ACCENT};
+                    border-bottom: 2px solid {ACCENT};
+                }}
+            """)
+            b.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            b.clicked.connect(lambda _, lb=label: self._switch_tab(lb))
+            th.addWidget(b)
+            self._tab_btns.append(b)
+
+        root.addWidget(tab_bar)
+
+        # ── panels ────────────────────────────────────────────────────────
+        self._panel_chat     = self._build_chat_panel()
+        self._panel_continue = self._build_continue_panel()
+        self._panel_rewrite  = self._build_rewrite_panel()
+        self._panel_proof    = self._build_proof_panel()
+
+        for panel in (self._panel_chat, self._panel_continue,
+                      self._panel_rewrite, self._panel_proof):
+            self._stack.addWidget(panel)
+
+        root.addWidget(self._stack, 1)
+
+        # Activate CHAT tab by default
+        self._switch_tab("CHAT")
+
+    # ── tab switching ─────────────────────────────────────────────────────────
+
+    def _switch_tab(self, label: str):
+        idx_map = {"CHAT": 0, "CONTINUE": 1, "REWRITE": 2, "PROOF": 3}
+        idx = idx_map.get(label, 0)
+        self._stack.setCurrentIndex(idx)
+        for i, b in enumerate(self._tab_btns):
+            b.setChecked(i == idx)
+        if label == "REWRITE":
+            self.request_selection.emit()
+
+    # ── CHAT panel ────────────────────────────────────────────────────────────
+
+    def _build_chat_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+
+        # Message scroll area
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{background:transparent;width:4px;border:none;margin:8px 0;}"
+            "QScrollBar::handle:vertical{background:#2A2A36;border-radius:2px;min-height:20px;}"
+            "QScrollBar::handle:vertical:hover{background:#C9A84C;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        )
+        self._chat_content = QWidget()
+        self._chat_content.setStyleSheet("background:transparent;")
+        self._chat_layout = QVBoxLayout(self._chat_content)
+        self._chat_layout.setContentsMargins(10, 10, 10, 10)
+        self._chat_layout.setSpacing(10)
+        self._chat_layout.addStretch()
+        self._chat_scroll.setWidget(self._chat_content)
+        v.addWidget(self._chat_scroll, 1)
+
+        self._add_chat_message("SAGE",
+            "Document loaded. Ask me anything — themes, characters, "
+            "structure, or ideas.", is_ai=True)
+
+        # Input area
+        input_area = QWidget()
+        input_area.setStyleSheet(
+            "background:#0E0E14; border-top:1px solid #1A1A24;")
+        iv = QVBoxLayout(input_area)
+        iv.setContentsMargins(10, 8, 10, 10)
+        iv.setSpacing(6)
+
+        self._chat_input = QTextEdit()
+        self._chat_input.setFixedHeight(62)
+        self._chat_input.setPlaceholderText("Ask about the document…")
+        self._chat_input.setStyleSheet(f"""
+            QTextEdit {{
+                background:#13131A; border:1px solid {BORDER};
+                border-radius:5px; color:{TEXT};
+                font-family:{FONT_UI}; font-size:12px; padding:6px 8px;
+            }}
+            QTextEdit:focus {{ border-color:rgba(201,168,76,.4); }}
+        """)
+
+        self._chat_send_btn = QPushButton("Send")
+        self._chat_send_btn.setFixedHeight(30)
+        self._chat_send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background:{ACCENT}; color:#0A0A0D; border:none;
+                border-radius:5px; font-weight:bold;
+                font-family:{FONT_UI}; font-size:11px;
+            }}
+            QPushButton:hover {{ background:#D4B460; }}
+            QPushButton:disabled {{ background:#3A3028; color:{MUTED}; }}
+        """)
+        self._chat_send_btn.clicked.connect(self._send_chat)
+
+        send_sc = QShortcut(QKeySequence("Ctrl+Return"), self._chat_input)
+        send_sc.activated.connect(self._send_chat)
+
+        iv.addWidget(self._chat_input)
+        iv.addWidget(self._chat_send_btn)
+        v.addWidget(input_area)
+        return panel
+
+    def _add_chat_message(self, role: str, text: str,
+                          is_ai: bool = False) -> QLabel:
+        """Append a message bubble to the chat layout. Returns the bubble label."""
+        msg_w = QWidget()
+        msg_w.setStyleSheet("background:transparent;")
+        mv = QVBoxLayout(msg_w)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(3)
+
+        role_lbl = QLabel(role)
+        role_lbl.setStyleSheet(
+            f"color:{'#C9A84C' if is_ai else MUTED}; "
+            f"font-size:9px; letter-spacing:1.5px; background:transparent;")
+
+        bubble = QLabel(text)
+        bubble.setWordWrap(True)
+        bubble.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        bubble.setStyleSheet(f"""
+            QLabel {{
+                background:{'#0F0F18' if is_ai else '#13131A'};
+                border:1px solid {'#252535' if is_ai else BORDER};
+                border-radius:5px; color:{TEXT2};
+                font-family:{FONT_UI}; font-size:12px;
+                padding:7px 9px; line-height:1.6;
+            }}
+        """)
+        bubble._stream_buf = ""
+
+        mv.addWidget(role_lbl)
+        mv.addWidget(bubble)
+
+        count = self._chat_layout.count()
+        self._chat_layout.insertWidget(count - 1, msg_w)
+
+        QTimer.singleShot(50, lambda: self._chat_scroll.verticalScrollBar().setValue(
+            self._chat_scroll.verticalScrollBar().maximum()))
+
+        return bubble
+
+    def _send_chat(self):
+        text = self._chat_input.toPlainText().strip()
+        if not text:
+            return
+        self._chat_input.clear()
+        self._chat_send_btn.setEnabled(False)
+        self._add_chat_message("YOU", text, is_ai=False)
+
+        doc_ctx = self._doc_text[:8000] if self._doc_text else ""
+        if doc_ctx:
+            system = (
+                "You are Sage, an AI writing assistant embedded in the Artemis "
+                "editor. You have the user's current document below. "
+                "Be concise, insightful, and focused on the writing. "
+                "Answer questions about the text, offer literary analysis, "
+                "help with structure, characters, themes, or anything "
+                "writing-related.\n\n"
+                f"CURRENT DOCUMENT:\n{doc_ctx}"
+            )
+        else:
+            system = (
+                "You are Sage, an AI writing assistant. "
+                "Help the user with their writing."
+            )
+
+        self._chat_history.append({"role": "user", "content": text})
+        ai_bubble = self._add_chat_message("SAGE", "", is_ai=True)
+        ai_bubble.setText("▌")
+
+        self._stop_worker()
+        self._worker = _ArtemisAIWorker(
+            prompt=text, system=system,
+            history=self._chat_history[:-1])
+        self._worker.chunk_ready.connect(
+            lambda c, b=ai_bubble: self._stream_into_label(b, c))
+        self._worker.finished.connect(
+            lambda b=ai_bubble: self._on_chat_finished(b))
+        self._worker.error.connect(
+            lambda e, b=ai_bubble: self._on_chat_error(b, e))
+        self._worker.start()
+
+    def _on_chat_finished(self, bubble: QLabel):
+        full_text = getattr(bubble, "_stream_buf", "")
+        if full_text:
+            bubble.setText(full_text)
+            self._chat_history.append(
+                {"role": "assistant", "content": full_text})
+        self._chat_send_btn.setEnabled(True)
+
+    def _on_chat_error(self, bubble: QLabel, err: str):
+        bubble.setText(f"Error: {err}")
+        self._chat_send_btn.setEnabled(True)
+
+    # ── CONTINUE panel ────────────────────────────────────────────────────────
+
+    def _build_continue_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(10)
+
+        hint = QLabel(
+            "Sage reads the last ~500 words and continues "
+            "from where you stopped.\nReview the preview before accepting.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; "
+            f"font-family:{FONT_UI}; background:transparent;")
+        v.addWidget(hint)
+
+        self._continue_btn = QPushButton("▶  Generate continuation")
+        self._continue_btn.setStyleSheet(self._action_btn_style())
+        self._continue_btn.clicked.connect(self._run_continue)
+        v.addWidget(self._continue_btn)
+
+        self._continue_preview = QWidget()
+        self._continue_preview.setVisible(False)
+        pv = QVBoxLayout(self._continue_preview)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(6)
+
+        plbl = QLabel("PREVIEW")
+        plbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; "
+            f"letter-spacing:1.5px; background:transparent;")
+
+        self._continue_text = QLabel("")
+        self._continue_text.setWordWrap(True)
+        self._continue_text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._continue_text.setStyleSheet(f"""
+            QLabel {{
+                background:#0A0A0D; border:1px solid {BORDER2};
+                border-radius:5px; color:{TEXT2};
+                font-family:'Palatino Linotype', Georgia, serif;
+                font-size:13px; padding:9px 10px; line-height:1.6;
+                min-height:60px;
+            }}
+        """)
+
+        accept_row = QHBoxLayout()
+        accept_row.setSpacing(6)
+        acc_btn = QPushButton("✓  Accept")
+        acc_btn.setStyleSheet(self._accept_btn_style())
+        acc_btn.clicked.connect(self._accept_continue)
+        dis_btn = QPushButton("✕  Discard")
+        dis_btn.setStyleSheet(self._discard_btn_style())
+        dis_btn.clicked.connect(
+            lambda: self._continue_preview.setVisible(False))
+        accept_row.addWidget(acc_btn)
+        accept_row.addWidget(dis_btn)
+
+        pv.addWidget(plbl)
+        pv.addWidget(self._continue_text)
+        pv.addLayout(accept_row)
+        v.addWidget(self._continue_preview)
+        v.addStretch()
+        return panel
+
+    def _run_continue(self):
+        self.request_doc_text.emit()
+        QTimer.singleShot(60, self._do_run_continue)
+
+    def _do_run_continue(self):
+        tail = self._doc_text[-2500:] if self._doc_text else ""
+        if not tail.strip():
+            self._continue_text.setText("The document appears to be empty.")
+            self._continue_preview.setVisible(True)
+            return
+
+        self._continue_buf = ""
+        self._continue_btn.setEnabled(False)
+        self._continue_text.setText("▌")
+        self._continue_preview.setVisible(True)
+
+        system = (
+            "You are a skilled fiction and non-fiction writing assistant. "
+            "Continue the provided text naturally, matching the author's "
+            "voice, style, tone, and pacing exactly. "
+            "Write one to three paragraphs. "
+            "Output ONLY the continuation — no titles, commentary, or "
+            "explanations."
+        )
+        prompt = f"Continue this text naturally from where it ends:\n\n{tail}"
+
+        self._stop_worker()
+        self._worker = _ArtemisAIWorker(prompt=prompt, system=system)
+        self._worker.chunk_ready.connect(self._on_continue_chunk)
+        self._worker.finished.connect(self._on_continue_done)
+        self._worker.error.connect(self._on_continue_error)
+        self._worker.start()
+
+    def _on_continue_chunk(self, chunk: str):
+        self._continue_buf += chunk
+        self._continue_text.setText(self._continue_buf + " ▌")
+
+    def _on_continue_done(self):
+        self._continue_text.setText(self._continue_buf)
+        self._continue_btn.setEnabled(True)
+
+    def _on_continue_error(self, err: str):
+        self._continue_text.setText(f"Error: {err}")
+        self._continue_btn.setEnabled(True)
+
+    def _accept_continue(self):
+        if self._continue_buf:
+            self.insert_text.emit("\n\n" + self._continue_buf)
+        self._continue_preview.setVisible(False)
+        self._continue_buf = ""
+
+    # ── REWRITE panel ─────────────────────────────────────────────────────────
+
+    def _build_rewrite_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(10)
+
+        hint = QLabel(
+            "Select text in the canvas, then rewrite it.\n"
+            "Original and rewrite shown side by side — accept to replace.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; "
+            f"font-family:{FONT_UI}; background:transparent;")
+        v.addWidget(hint)
+
+        self._sel_indicator = QLabel("No text selected.")
+        self._sel_indicator.setWordWrap(True)
+        self._sel_indicator.setStyleSheet(f"""
+            QLabel {{
+                color:{MUTED}; font-size:10px; font-family:{FONT_UI};
+                background:transparent; border:1px solid {BORDER};
+                border-radius:4px; padding:6px 8px;
+            }}
+        """)
+        v.addWidget(self._sel_indicator)
+
+        self._rewrite_btn = QPushButton("▶  Rewrite selection")
+        self._rewrite_btn.setStyleSheet(self._action_btn_style())
+        self._rewrite_btn.clicked.connect(self._run_rewrite)
+        v.addWidget(self._rewrite_btn)
+
+        self._rewrite_preview = QWidget()
+        self._rewrite_preview.setVisible(False)
+        pv = QVBoxLayout(self._rewrite_preview)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(6)
+
+        orig_lbl = QLabel("ORIGINAL")
+        orig_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; "
+            f"letter-spacing:1.5px; background:transparent;")
+        self._rewrite_original = QLabel("")
+        self._rewrite_original.setWordWrap(True)
+        self._rewrite_original.setStyleSheet(f"""
+            QLabel {{
+                background:#0A0A0D; border:1px solid {BORDER};
+                border-radius:5px; color:{MUTED};
+                font-family:'Palatino Linotype', Georgia, serif;
+                font-size:12px; padding:8px 9px; line-height:1.6;
+            }}
+        """)
+
+        new_lbl = QLabel("REWRITE")
+        new_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; "
+            f"letter-spacing:1.5px; background:transparent;")
+        self._rewrite_text = QLabel("")
+        self._rewrite_text.setWordWrap(True)
+        self._rewrite_text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._rewrite_text.setStyleSheet(f"""
+            QLabel {{
+                background:#0A0A0D;
+                border:1px solid rgba(201,164,76,.3);
+                border-radius:5px; color:{TEXT2};
+                font-family:'Palatino Linotype', Georgia, serif;
+                font-size:12px; padding:8px 9px; line-height:1.6;
+                min-height:40px;
+            }}
+        """)
+
+        accept_row = QHBoxLayout()
+        accept_row.setSpacing(6)
+        acc_btn = QPushButton("✓  Accept")
+        acc_btn.setStyleSheet(self._accept_btn_style())
+        acc_btn.clicked.connect(self._accept_rewrite)
+        dis_btn = QPushButton("✕  Discard")
+        dis_btn.setStyleSheet(self._discard_btn_style())
+        dis_btn.clicked.connect(
+            lambda: self._rewrite_preview.setVisible(False))
+        accept_row.addWidget(acc_btn)
+        accept_row.addWidget(dis_btn)
+
+        pv.addWidget(orig_lbl)
+        pv.addWidget(self._rewrite_original)
+        pv.addWidget(new_lbl)
+        pv.addWidget(self._rewrite_text)
+        pv.addLayout(accept_row)
+        v.addWidget(self._rewrite_preview)
+        v.addStretch()
+        return panel
+
+    def _update_selection_indicator(self):
+        if self._selection.strip():
+            preview = self._selection[:120]
+            if len(self._selection) > 120:
+                preview += "…"
+            self._sel_indicator.setText(f'"{preview}"')
+            self._sel_indicator.setStyleSheet(f"""
+                QLabel {{
+                    color:{ACCENT}; font-size:10px; font-family:{FONT_UI};
+                    background:rgba(201,168,76,.06);
+                    border:1px solid rgba(201,168,76,.2);
+                    border-radius:4px; padding:6px 8px;
+                }}
+            """)
+        else:
+            self._sel_indicator.setText("No text selected.")
+            self._sel_indicator.setStyleSheet(f"""
+                QLabel {{
+                    color:{MUTED}; font-size:10px; font-family:{FONT_UI};
+                    background:transparent; border:1px solid {BORDER};
+                    border-radius:4px; padding:6px 8px;
+                }}
+            """)
+
+    def _run_rewrite(self):
+        self.request_selection.emit()
+        QTimer.singleShot(60, self._do_run_rewrite)
+
+    def _do_run_rewrite(self):
+        sel = self._selection.strip()
+        if not sel:
+            self._sel_indicator.setText(
+                "Select some text in the canvas first.")
+            return
+
+        self._rewrite_buf = ""
+        self._rewrite_btn.setEnabled(False)
+        self._rewrite_original.setText(sel)
+        self._rewrite_text.setText("▌")
+        self._rewrite_preview.setVisible(True)
+
+        system = (
+            "You are a skilled editor and writing assistant. "
+            "Rewrite the provided passage — improve clarity, rhythm, and "
+            "style while preserving the author's voice and intent. "
+            "Output ONLY the rewritten text, nothing else. "
+            "No commentary, no quotes, no explanation."
+        )
+        prompt = f"Rewrite this passage:\n\n{sel}"
+
+        self._stop_worker()
+        self._worker = _ArtemisAIWorker(prompt=prompt, system=system)
+        self._worker.chunk_ready.connect(self._on_rewrite_chunk)
+        self._worker.finished.connect(self._on_rewrite_done)
+        self._worker.error.connect(self._on_rewrite_error)
+        self._worker.start()
+
+    def _on_rewrite_chunk(self, chunk: str):
+        self._rewrite_buf += chunk
+        self._rewrite_text.setText(self._rewrite_buf + " ▌")
+
+    def _on_rewrite_done(self):
+        self._rewrite_text.setText(self._rewrite_buf)
+        self._rewrite_btn.setEnabled(True)
+
+    def _on_rewrite_error(self, err: str):
+        self._rewrite_text.setText(f"Error: {err}")
+        self._rewrite_btn.setEnabled(True)
+
+    def _accept_rewrite(self):
+        if self._rewrite_buf:
+            self.replace_selection.emit(self._rewrite_buf)
+        self._rewrite_preview.setVisible(False)
+        self._rewrite_buf = ""
+
+    # ── PROOF panel ───────────────────────────────────────────────────────────
+
+    def _build_proof_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(10)
+
+        hint = QLabel(
+            "Sage scans the full document and lists issues.\n"
+            "Click an issue card to jump to it in the canvas.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; "
+            f"font-family:{FONT_UI}; background:transparent;")
+        v.addWidget(hint)
+
+        self._proof_btn = QPushButton("▶  Proofread document")
+        self._proof_btn.setStyleSheet(self._action_btn_style())
+        self._proof_btn.clicked.connect(self._run_proof)
+        v.addWidget(self._proof_btn)
+
+        self._proof_scroll = QScrollArea()
+        self._proof_scroll.setWidgetResizable(True)
+        self._proof_scroll.setVisible(False)
+        self._proof_scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{background:transparent;width:4px;border:none;}"
+            "QScrollBar::handle:vertical{background:#2A2A36;border-radius:2px;min-height:20px;}"
+            "QScrollBar::handle:vertical:hover{background:#C9A84C;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+        )
+        self._proof_list_widget = QWidget()
+        self._proof_list_widget.setStyleSheet("background:transparent;")
+        self._proof_list_layout = QVBoxLayout(self._proof_list_widget)
+        self._proof_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._proof_list_layout.setSpacing(7)
+        self._proof_list_layout.addStretch()
+        self._proof_scroll.setWidget(self._proof_list_widget)
+        v.addWidget(self._proof_scroll, 1)
+
+        self._proof_status = QLabel("")
+        self._proof_status.setWordWrap(True)
+        self._proof_status.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; "
+            f"font-family:{FONT_UI}; background:transparent;")
+        v.addWidget(self._proof_status)
+
+        return panel
+
+    def _run_proof(self):
+        self.request_doc_text.emit()
+        QTimer.singleShot(60, self._do_run_proof)
+
+    def _do_run_proof(self):
+        doc = self._doc_text.strip()
+        if not doc:
+            self._proof_status.setText("The document is empty.")
+            return
+
+        # Clear previous results
+        while self._proof_list_layout.count() > 1:
+            item = self._proof_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self._proof_btn.setEnabled(False)
+        self._proof_status.setText("Scanning…")
+        self._proof_scroll.setVisible(True)
+        self._proof_raw = ""
+
+        system = (
+            "You are a precise copy-editor. Analyse the provided text for:\n"
+            "- Grammar and punctuation errors\n"
+            "- Awkward or unclear phrasing\n"
+            "- Repetitive words or sentence structures\n"
+            "- Structural issues (abrupt transitions, isolated sentences)\n\n"
+            "Return ONLY a numbered list. Each item must follow this exact format:\n"
+            "N. PHRASE: \"exact problematic phrase from the text\" | "
+            "SUGGESTION: your suggestion\n\n"
+            "Maximum 10 issues. Be specific and actionable. "
+            "No commentary outside the list."
+        )
+        prompt = f"Proofread this document:\n\n{doc[:12000]}"
+
+        self._stop_worker()
+        self._worker = _ArtemisAIWorker(prompt=prompt, system=system)
+        self._worker.chunk_ready.connect(
+            lambda c: setattr(self, "_proof_raw", self._proof_raw + c))
+        self._worker.finished.connect(self._on_proof_done)
+        self._worker.error.connect(self._on_proof_error)
+        self._worker.start()
+
+    def _on_proof_done(self):
+        self._proof_btn.setEnabled(True)
+        self._proof_status.setText("")
+        self._parse_and_render_proof(self._proof_raw)
+
+    def _on_proof_error(self, err: str):
+        self._proof_btn.setEnabled(True)
+        self._proof_status.setText(f"Error: {err}")
+
+    def _parse_and_render_proof(self, raw: str):
+        import re as _re
+        issues = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = _re.match(
+                r'\d+\.\s*PHRASE:\s*"(.+?)"\s*\|\s*SUGGESTION:\s*(.+)',
+                line, _re.IGNORECASE)
+            if m:
+                issues.append((m.group(1).strip(), m.group(2).strip()))
+
+        if not issues:
+            lbl = QLabel("No significant issues found.")
+            lbl.setStyleSheet(
+                f"color:{ACCENT2}; font-size:11px; "
+                f"font-family:{FONT_UI}; background:transparent;")
+            self._proof_list_layout.insertWidget(
+                self._proof_list_layout.count() - 1, lbl)
+            return
+
+        for phrase, suggestion in issues:
+            card = self._make_issue_card(phrase, suggestion)
+            self._proof_list_layout.insertWidget(
+                self._proof_list_layout.count() - 1, card)
+
+        self._proof_status.setText(
+            f"{len(issues)} issue{'s' if len(issues) != 1 else ''} found.")
+
+    def _make_issue_card(self, phrase: str, suggestion: str) -> QWidget:
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background:#0A0A0D; border:1px solid {BORDER};
+                border-radius:5px;
+            }}
+            QFrame:hover {{ border-color:rgba(201,168,76,.35); }}
+        """)
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(9, 8, 9, 8)
+        cv.setSpacing(4)
+
+        phrase_lbl = QLabel(f'"{phrase}"')
+        phrase_lbl.setWordWrap(True)
+        phrase_lbl.setStyleSheet(
+            f"color:{RED}; font-size:11px; "
+            f"font-family:'Palatino Linotype',Georgia,serif; "
+            f"background:transparent;")
+
+        sug_lbl = QLabel(suggestion)
+        sug_lbl.setWordWrap(True)
+        sug_lbl.setStyleSheet(
+            f"color:{TEXT2}; font-size:11px; font-family:{FONT_UI}; "
+            f"background:transparent; line-height:1.5;")
+
+        fix_btn = QPushButton("AI Fix")
+        fix_btn.setFixedHeight(24)
+        fix_btn.setStyleSheet(f"""
+            QPushButton {{
+                background:transparent; border:1px solid {BORDER2};
+                border-radius:4px; color:{ACCENT};
+                font-size:10px; font-family:{FONT_UI}; padding:0 8px;
+            }}
+            QPushButton:hover {{ background:rgba(201,168,76,.1); }}
+        """)
+        fix_btn.clicked.connect(
+            lambda _, p=phrase, s=suggestion: self._run_ai_fix(p, s))
+
+        cv.addWidget(phrase_lbl)
+        cv.addWidget(sug_lbl)
+        cv.addWidget(fix_btn)
+
+        card.mousePressEvent = lambda e, p=phrase: self.jump_to_phrase.emit(p)
+        return card
+
+    def _run_ai_fix(self, phrase: str, suggestion: str):
+        system = (
+            "You are a copy-editor. Given a problematic phrase and a "
+            "suggestion, return ONLY the corrected replacement text — "
+            "nothing else, no quotes, no commentary."
+        )
+        prompt = (
+            f'Problematic phrase: "{phrase}"\n'
+            f"Suggestion: {suggestion}\n\n"
+            f"Provide the corrected replacement:"
+        )
+        self._proof_fix_phrase = phrase
+        self._proof_fix_buf    = ""
+        self._proof_status.setText("Generating fix…")
+
+        self._stop_worker()
+        self._worker = _ArtemisAIWorker(prompt=prompt, system=system)
+        self._worker.chunk_ready.connect(
+            lambda c: setattr(self, "_proof_fix_buf",
+                               self._proof_fix_buf + c))
+        self._worker.finished.connect(self._on_fix_done)
+        self._worker.error.connect(
+            lambda e: self._proof_status.setText(f"Fix error: {e}"))
+        self._worker.start()
+
+    def _on_fix_done(self):
+        fixed = self._proof_fix_buf.strip().strip('"\'')
+        if fixed:
+            self.apply_fix.emit(self._proof_fix_phrase, fixed)
+        self._proof_status.setText(
+            "Fix applied." if fixed else "No fix generated.")
+
+    # ── shared helpers ────────────────────────────────────────────────────────
+
+    def _stop_worker(self):
+        if self._worker and self._worker.isRunning():
+            self._worker.stop()
+            self._worker.wait(800)
+
+    @staticmethod
+    def _stream_into_label(label: QLabel, chunk: str):
+        buf = getattr(label, "_stream_buf", "")
+        buf += chunk
+        label._stream_buf = buf
+        label.setText(buf + " ▌")
+
+    @staticmethod
+    def _action_btn_style() -> str:
+        return (
+            f"QPushButton{{background:transparent;border:1px solid {BORDER};"
+            f"border-radius:5px;color:{TEXT2};font-size:11px;"
+            f"font-family:{FONT_UI};padding:8px 12px;text-align:left;}}"
+            f"QPushButton:hover{{border-color:rgba(201,168,76,.4);"
+            f"color:{ACCENT};}}"
+            f"QPushButton:disabled{{color:{MUTED};border-color:{BORDER};}}"
+        )
+
+    @staticmethod
+    def _accept_btn_style() -> str:
+        return (
+            f"QPushButton{{background:{ACCENT2};color:#0A0A0D;border:none;"
+            f"border-radius:5px;font-weight:bold;font-family:{FONT_UI};"
+            f"font-size:11px;padding:6px;}}"
+            f"QPushButton:hover{{background:#5ED4B0;}}"
+        )
+
+    @staticmethod
+    def _discard_btn_style() -> str:
+        return (
+            f"QPushButton{{background:#1A1A24;color:{MUTED};"
+            f"border:1px solid {BORDER};border-radius:5px;"
+            f"font-family:{FONT_UI};font-size:11px;padding:6px;}}"
+            f"QPushButton:hover{{color:{TEXT2};}}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN EDITOR CANVAS
 # ══════════════════════════════════════════════════════════════════════════════
+
+class _TouchScrollFilter(QObject):
+    """Intercepts touch events on QTextEdit and converts them to smooth scroll,
+    preventing raw touch input from crashing Qt on touchpad/touchscreen devices."""
+    def __init__(self, scroll_widget, parent=None):
+        super().__init__(parent)
+        self._widget  = scroll_widget
+        self._start_y = None
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        t = event.type()
+        if t == QEvent.Type.TouchBegin:
+            pts = event.points()
+            if pts:
+                self._start_y = pts[0].position().y()
+            return True
+        elif t == QEvent.Type.TouchUpdate:
+            pts = event.points()
+            if pts and self._start_y is not None:
+                dy = self._start_y - pts[0].position().y()
+                self._widget.verticalScrollBar().setValue(
+                    self._widget.verticalScrollBar().value() + int(dy))
+                self._start_y = pts[0].position().y()
+            return True
+        elif t == QEvent.Type.TouchEnd:
+            self._start_y = None
+            return True
+        return False
+
 
 class WriterCanvas(QTextEdit):
     """
@@ -843,9 +1857,7 @@ class WriterCanvas(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptRichText(True)
-        self.setWordWrapMode(
-            __import__("PyQt6.QtGui", fromlist=["QTextOption"]).QTextOption.WrapMode.WordWrap
-        )
+        self.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         self.setStyleSheet("""
             QTextEdit {
                 background: #13131A;
@@ -885,6 +1897,11 @@ class WriterCanvas(QTextEdit):
         char_fmt.setFontPointSize(18)
         char_fmt.setForeground(QColor(TEXT))
         self.mergeCurrentCharFormat(char_fmt)
+
+        # Touch filter — prevents crash from raw touchpad/touchscreen events
+        self.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
+        self._touch_filter = _TouchScrollFilter(self, self)
+        self.installEventFilter(self._touch_filter)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -933,24 +1950,24 @@ class EditorPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Sidebar
+        # ── Document sidebar (left)
         self._sidebar = DocumentSidebar()
         self._sidebar.new_doc.connect(self.new_document)
         self._sidebar.open_file.connect(self._load_file)
         root.addWidget(self._sidebar)
 
-        # ── Right: dark workspace
+        # ── Centre: dark workspace
         right = QWidget()
         right.setStyleSheet("background: #0C0C10;")
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
 
-        # Canvas created first so toolbar can ref it
+        # Canvas created first so toolbar can reference it
         self._canvas = WriterCanvas()
         self._canvas.textChanged.connect(self._on_text_changed)
 
-        # Toolbar (thin, at top)
+        # Toolbar
         self._toolbar = EditorToolbar(self._canvas)
         self._toolbar.sig_new.connect(self.new_document)
         self._toolbar.sig_open.connect(self.open_document)
@@ -959,9 +1976,10 @@ class EditorPage(QWidget):
         self._toolbar.sig_export.connect(self.export_txt)
         self._toolbar.sig_print.connect(self.print_document)
         self._toolbar.sig_find.connect(self.show_find)
+        self._toolbar.sig_toggle_ai.connect(self._toggle_ai_sidebar)
         rv.addWidget(self._toolbar)
 
-        # Canvas centred with breathing room
+        # Canvas with breathing room
         page_area = QWidget()
         page_area.setStyleSheet("background: #0C0C10;")
         pa = QHBoxLayout(page_area)
@@ -974,6 +1992,22 @@ class EditorPage(QWidget):
         rv.addWidget(self._build_status())
 
         root.addWidget(right, 1)
+
+        # ── AI Sidebar (right) — hidden by default
+        self._ai_sidebar = AISidebar()
+        self._ai_sidebar.setVisible(False)
+
+        # Signals: sidebar → canvas
+        self._ai_sidebar.insert_text.connect(self._ai_insert_text)
+        self._ai_sidebar.replace_selection.connect(self._ai_replace_selection)
+        self._ai_sidebar.jump_to_phrase.connect(self._ai_jump_to_phrase)
+        self._ai_sidebar.apply_fix.connect(self._ai_apply_fix)
+
+        # Signals: sidebar requesting data from canvas
+        self._ai_sidebar.request_doc_text.connect(self._push_doc_text)
+        self._ai_sidebar.request_selection.connect(self._push_selection)
+
+        root.addWidget(self._ai_sidebar)
 
     def _margin_widget(self):
         """Decorative side margin with a faint rule."""
@@ -1016,6 +2050,73 @@ class EditorPage(QWidget):
         sc("Ctrl+Shift+S", self.save_as_document)
         sc("Ctrl+F",       self.show_find)
         sc("Ctrl+P",       self.print_document)
+        sc("Ctrl+Shift+A", self._toggle_ai_sidebar)
+
+    # ── AI sidebar ────────────────────────────────────────────────────────────
+
+    def _toggle_ai_sidebar(self):
+        """Show/hide the AI sidebar and collapse/restore the doc sidebar."""
+        visible = not self._ai_sidebar.isVisible()
+        self._ai_sidebar.setVisible(visible)
+        # Sync the toolbar toggle button state
+        self._toolbar._btn_sage.setChecked(visible)
+        # Collapse doc sidebar when AI is open to give maximum space
+        self._sidebar.setVisible(not visible)
+        if visible:
+            # Push current doc text so sidebar is ready immediately
+            self._push_doc_text()
+
+    def _push_doc_text(self):
+        """Send current plain-text document content to the AI sidebar."""
+        self._ai_sidebar.set_doc_text(self._canvas.toPlainText())
+
+    def _push_selection(self):
+        """Send current canvas selection to the AI sidebar."""
+        cursor = self._canvas.textCursor()
+        self._ai_sidebar.set_selection(cursor.selectedText())
+
+    def _ai_insert_text(self, text: str):
+        """Insert AI continuation text at the current cursor position."""
+        cursor = self._canvas.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._canvas.setTextCursor(cursor)
+        self._canvas.insertPlainText(text)
+        self._canvas.setFocus()
+
+    def _ai_replace_selection(self, text: str):
+        """Replace the current selection with the AI rewrite."""
+        cursor = self._canvas.textCursor()
+        if cursor.hasSelection():
+            cursor.insertText(text)
+        else:
+            # Fallback: insert at cursor if selection was lost
+            cursor.insertText(text)
+        self._canvas.setTextCursor(cursor)
+        self._canvas.setFocus()
+
+    def _ai_jump_to_phrase(self, phrase: str):
+        """Find phrase in canvas and select it so user can see it."""
+        # Reset to top then search
+        cursor = self._canvas.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self._canvas.setTextCursor(cursor)
+        found = self._canvas.find(phrase)
+        if not found:
+            # Phrase not found verbatim — try first 40 chars
+            self._canvas.find(phrase[:40])
+        self._canvas.setFocus()
+
+    def _ai_apply_fix(self, original_phrase: str, fixed_text: str):
+        """Find original_phrase in canvas and replace it with fixed_text."""
+        import re as _re
+        doc   = self._canvas.document()
+        cursor = QTextCursor(doc)
+        cursor.beginEditBlock()
+        found_cursor = doc.find(original_phrase, cursor)
+        if not found_cursor.isNull():
+            found_cursor.insertText(fixed_text)
+        cursor.endEditBlock()
+        self._canvas.setFocus()
 
     # ── Document operations ───────────────────────────────────────────────────
 
