@@ -163,18 +163,28 @@ def _patch_card(card, key, preset, preset_name, opacity):
 
 def _get_dashboard(w):
     """Walk up the widget tree looking for _page_objs, then return the dashboard page.
-    Logs a reason rather than silently returning None."""
+    Falls back to scanning all top-level windows so QStackedWidget's hidden intermediate
+    layers can't push MainWindow out of reach."""
     root = w
-    for _ in range(30):
-        if w is None:
+    # Fast path: parent-chain walk (limit raised — QStackedWidget adds hidden layers)
+    cur = w
+    for _ in range(50):
+        if cur is None:
             break
-        if hasattr(w, "_page_objs"):
-            dash = w._page_objs.get("dashboard")
+        if hasattr(cur, "_page_objs"):
+            dash = cur._page_objs.get("dashboard")
             if dash is None:
                 import sys
                 print("[CardStyler] _page_objs found but no 'dashboard' key", file=sys.stderr)
             return dash
-        w = w.parent()
+        cur = cur.parent()
+    # Fallback: scan every top-level window — handles detached/not-yet-shown widgets
+    from PyQt6.QtWidgets import QApplication
+    for win in QApplication.topLevelWidgets():
+        if hasattr(win, "_page_objs"):
+            dash = win._page_objs.get("dashboard")
+            if dash is not None:
+                return dash
     import sys
     print(f"[CardStyler] _get_dashboard: could not find _page_objs from {root}", file=sys.stderr)
     return None
@@ -185,7 +195,8 @@ def build_page(parent, api):
     saved_custom  = api.load_plugin_data("custom")  or {}
     saved_opacity = api.load_plugin_data("opacity") or 100
     if saved_preset not in PRESETS: saved_preset = "Default"
-    if saved_custom: PRESETS["Custom"].update(saved_custom)
+    # Non-destructive merge — avoids stale state if module is reloaded
+    if saved_custom: PRESETS["Custom"] = {**PRESETS["Custom"], **saved_custom}
     state = {"preset": saved_preset, "opacity": int(saved_opacity)}
 
     BG     = "#0C0C0E"
@@ -419,7 +430,7 @@ def build_page(parent, api):
                                          for k in ("bg","border","radius")
                                          if k in PRESETS["Custom"]})
 
-    QTimer.singleShot(100, lambda: _apply_with_retry())
+    QTimer.singleShot(300, lambda: _apply_with_retry())
     return page
 
 

@@ -136,7 +136,7 @@ class DashboardPage(QWidget):
         self._card_legion  = self._make_card("◎", "LEGION ○ READING",  "legion")
         self._card_matrix  = self._make_card("▣", "MATRIX ○ WATCHING", "matrix")
         self._card_sage    = self._make_card("✦", "SAGE ○ AI",          "sage")
-        self._card_editor  = self._make_card("✎", "EDITOR ○ WRITE",     "editor")
+        self._card_editor  = self._make_card("✎", "ARTEMIS ○ WRITE",    "editor")
         self._card_plugins = self._make_card("⬡", "PLUGINS",            "plugins")
         
         self._card_widgets = {
