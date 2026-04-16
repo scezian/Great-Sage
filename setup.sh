@@ -20,7 +20,7 @@ echo "✓ next_episode.lua stays in the app folder (great_sage_gui.py loads it d
 
 # Install Python dependencies
 echo "Installing dependencies..."
-pip install PyQt6 flask requests beautifulsoup4 rich yt-dlp groq --quiet
+pip install PyQt6 PyQt6-WebEngine flask requests beautifulsoup4 rich yt-dlp groq cloudscraper python-dotenv sounddevice numpy --quiet
 echo "✓ Dependencies installed"
 
 # Create the alias
