@@ -18,7 +18,7 @@ class NovelBinPlugin(SourcePlugin):
     supports_search = True
     supports_cloudflare = True
 
-    MIRRORS = ["novelbin.com", "novelbin.me", "novelfull.com", "novelfull.me", "novelfull.net"]
+    MIRRORS = ["novelbin.com"]
 
     WATERMARK_PATTERNS = [
         r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
@@ -52,20 +52,33 @@ class NovelBinPlugin(SourcePlugin):
         return urls
 
     def _get_with_retry(self, url: str, session, scraper=None):
+        import time
+        try:
+            import cloudscraper as _cloudscraper
+        except ImportError:
+            _cloudscraper = None
+
         urls = self._build_mirror_urls(url)
         last_error = "Unknown error"
         for attempt_url in urls:
-            try:
-                # Use scraper if provided, else session
-                resp = (scraper or session).get(attempt_url, timeout=15)
-                if resp.status_code == 403:
-                    last_error = f"403 Forbidden — Cloudflare protected"
+            # Up to 3 attempts per URL with progressive delays on 403
+            for attempt in range(3):
+                try:
+                    resp = (scraper or session).get(attempt_url, timeout=15)
+                    if resp.status_code == 403:
+                        last_error = "403 Forbidden — Cloudflare protected"
+                        if _cloudscraper:
+                            time.sleep(2 * (attempt + 1))
+                            scraper = _cloudscraper.create_scraper()
+                            continue
+                        else:
+                            break
+                    resp.raise_for_status()
+                    return resp, attempt_url
+                except Exception as e:
+                    last_error = str(e)
+                    time.sleep(1 * (attempt + 1))
                     continue
-                resp.raise_for_status()
-                return resp, attempt_url
-            except Exception as e:
-                last_error = str(e)
-                continue
         raise Exception(f"All mirrors failed: {last_error}")
 
     def fetch_chapter(self, url: str, session, scraper=None) -> ChapterResult:

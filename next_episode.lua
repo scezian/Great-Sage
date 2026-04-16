@@ -17,7 +17,6 @@ end)
 
 -- ── Ctrl+Right: play next immediately ────────────────────────────────────────
 local function play_next()
-    if opts.has_next ~= "yes" then return end
     mp.set_property("user-data/gs-next", "yes")
 end
 

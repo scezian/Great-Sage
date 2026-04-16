@@ -11,15 +11,19 @@ import json
 import os
 import re
 import subprocess
+import signal
 import sys
 import threading
 import time
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 # Per-path locks — prevents concurrent track_event threads racing on the same .tmp file
 _save_locks: dict = {}
 _save_locks_lock = threading.Lock()
+
+_event_executor = None
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 try:
@@ -73,6 +77,8 @@ def sage_mod():    return _load("sage",     "sage.py")
 def reload_module(modname: str):
     """Force reload a cached module."""
     _modules.pop(modname, None)
+    if modname in sys.modules:
+        del sys.modules[modname]
 
 # ── Catalogue loader ───────────────────────────────────────────────────────────
 def _catalogue_panel_class():
@@ -276,7 +282,11 @@ def track_event(event_type: str, data=None):
             save_json(BEHAVIOUR_LOG, behaviour_data)
         except Exception as e:
             log.warning("track_event write failed", event=event_type, error=str(e))
-    threading.Thread(target=_write, daemon=True).start()
+    
+    global _event_executor
+    if _event_executor is None:
+        _event_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="track_event")
+    _event_executor.submit(_write)
 
 def behaviour_summary() -> str:
     behaviour_data = get_behaviour_data()
@@ -435,8 +445,12 @@ def _grep_book_for_term(book_name: str, term: str, up_to_chapter: int,
     if not path:
         return ""
     try:
+        content = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+            for line in f:
+                content.append(line)
+                if len(content) > 50000: break
+        content = "".join(content)
     except Exception as e:
         log.warning("_grep_book_for_term file read failed", path=path, error=str(e))
         return ""
@@ -482,7 +496,12 @@ class FetchChapterWorker(QThread):
             self.error.emit(f"Cannot load legion.py: {err}")
             return
         try:
-            title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
+            signal.signal(signal.SIGALRM, lambda s, f: exec('raise TimeoutError("Fetch timed out after 30s")'))
+            signal.alarm(30)
+            try:
+                title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
+            finally:
+                signal.alarm(0)
             if error:
                 log.legion.warning("Chapter fetch returned error", url=self.url, error=error)
                 self.error.emit(error)
@@ -597,18 +616,16 @@ class SageWorker(QThread):
             if self.mode == "chapter_summary":
                 book_name    = self.extra
                 legion_data  = get_legion_data()
-                cur_ch       = legion_data.get("books", {}).get(book_name, {}).get("current_chapter", 0)
+                cur_ch       = (legion_data.get("books", {}).get(book_name, {}).get("current_chapter") or 0)
                 chapter_text = None
-                if hasattr(mod, "read_chapters_around") and cur_ch:
-                    try:
-                        chapter_text = mod.read_chapters_around(book_name, cur_ch, n=5)
-                    except Exception:
-                        pass
-                if not chapter_text and hasattr(mod, "read_last_n_chapters"):
-                    try:
-                        chapter_text = mod.read_last_n_chapters(book_name, n=5)
-                    except Exception:
-                        pass
+                try:
+                    from legion import read_chapters_around, read_last_n_chapters
+                    if cur_ch:
+                        chapter_text = read_chapters_around(book_name, cur_ch, n=5)
+                    if not chapter_text:
+                        chapter_text = read_last_n_chapters(book_name, n=5)
+                except Exception:
+                    pass
                 if chapter_text:
                     user_msg = (
                         f"The user is reading '{book_name}' and is currently on chapter {cur_ch}. "
@@ -706,7 +723,7 @@ class MetadataWorker(QThread):
                 log.matrix.exc("MetadataFetcher failed, falling back to TMDB", e, title=self.clean)
         try:
             r   = _req.get("https://api.themoviedb.org/3/search/multi",
-                params={"api_key": "a58e553cfec69c54b7fd360041870216", "query": self.clean}, timeout=10)
+                params={"api_key": "a58e553cfec69c54b7fd360041870216", "query": self.clean}, timeout=60)
             res = r.json().get("results", [])
             if res:
                 x  = res[0]

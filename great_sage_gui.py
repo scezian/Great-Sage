@@ -34,7 +34,12 @@ from gs_widgets import (
 from gs_legion_ui import LegionPage, HighlightsDialog, CalendarDialog, WrappedDialog
 from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
-from artemis      import EditorPage
+try:
+    from artemis import EditorPage
+except ImportError:
+    from PyQt6.QtWidgets import QWidget as EditorPage
+    import warnings
+    warnings.warn("artemis module not found, using placeholder")
 
 # ── Core ─────────────────────────────────────────────────────────────────────
 from great_sage_core import (
@@ -95,6 +100,9 @@ class DashboardPage(QWidget):
     def __init__(self):
         super().__init__()
         self._build()
+        self._last_refresh_time = 0
+        self._cached_legion_data = None
+        self._cached_matrix_data = None
 
     def _build(self):
         from plugin_manager import SlotHost
@@ -284,9 +292,15 @@ class DashboardPage(QWidget):
         menu.exec()
 
     def refresh(self):
+        current_time = time.time()
+        if current_time - self._last_refresh_time < 5:
+            return
         try:
-            legion_data = get_legion_data()
-            matrix_data = get_matrix_data()
+            self._cached_legion_data = get_legion_data()
+            self._cached_matrix_data = get_matrix_data()
+            legion_data = self._cached_legion_data
+            matrix_data = self._cached_matrix_data
+            self._last_refresh_time = current_time
             books       = legion_data.get("books", {})
             watching    = matrix_data.get("watching", {})
             watchlist   = matrix_data.get("watchlist", {})
@@ -301,9 +315,9 @@ class DashboardPage(QWidget):
                 n_enabled = 0
 
             reading = [
-                (name, book.get("current_chapter", 0))
+                (name, book.get("current_chapter") or 0)
                 for name, book in books.items()
-                if book.get("chapters_read", 0) > 0 or book.get("current_chapter", 0) > 0
+                if (book.get("chapters_read") or 0) > 0 or (book.get("current_chapter") or 0) > 0
             ]
             if reading:
                 name, ch = reading[-1]
@@ -317,7 +331,7 @@ class DashboardPage(QWidget):
                 last_key = list(watching.keys())[-1]
                 info     = watching[last_key]
                 title    = info.get("title", last_key) if isinstance(info, dict) else last_key
-                episode  = info.get("current_episode", 0) if isinstance(info, dict) else 0
+                episode  = (info.get("current_episode") or 0) if isinstance(info, dict) else 0
                 self._card_matrix._val_lbl.setText(title[:30] + ("…" if len(title) > 30 else ""))
                 self._card_matrix._sub_lbl.setText(f"Ep.{episode}" if episode else "")
             else:
@@ -371,8 +385,24 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(4000, self._run_auto_sync)
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(self._run_auto_sync)
-        self._sync_timer.start(6 * 60 * 60 * 1000)
+        sync_hours = 6
+        try:
+            settings = get_matrix_data().get("settings", {})
+            sync_hours = settings.get("sync_interval_hours", 6)
+        except:
+            pass
+        self._sync_timer.start(sync_hours * 60 * 60 * 1000)
         QTimer.singleShot(800, self._activate_plugins)
+
+    def closeEvent(self, event):
+        if hasattr(self, '_watchface') and self._watchface:
+            self._watchface.close()
+        if hasattr(self, '_memory_palace') and self._memory_palace:
+            self._memory_palace.close()
+        if hasattr(self, '_auto_sync_worker') and self._auto_sync_worker:
+            self._auto_sync_worker.quit()
+            self._auto_sync_worker.wait(1000)
+        event.accept()
 
     def _build(self):
         central = QWidget()
@@ -396,6 +426,18 @@ class MainWindow(QMainWindow):
         self._topbar = topbar
         topbar.setFixedHeight(0)
         topbar.setVisible(False)
+        def paint_topbar(self, event):
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            gradient = QLinearGradient(0, 0, self.width(), 0)
+            gradient.setColorAt(0.0, QColor(BG))
+            gradient.setColorAt(0.5, QColor(BG2))
+            gradient.setColorAt(1.0, QColor(BG))
+            painter.fillRect(self.rect(), gradient)
+            pen = QPen(QColor(BORDER))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawLine(0, self.height()-1, self.width(), self.height()-1)
         topbar.paintEvent = _types.MethodType(paint_topbar, topbar)
         tv = QHBoxLayout(topbar)
         tv.setContentsMargins(20, 0, 16, 0)
@@ -417,7 +459,7 @@ class MainWindow(QMainWindow):
         rv.addWidget(topbar)
 
         self._pages     = QStackedWidget()
-        self._page_objs: dict = {}
+        self._page_objs: dict[str, QWidget] = {}
 
         pages = [
             ("dashboard", DashboardPage()),
@@ -488,14 +530,24 @@ class MainWindow(QMainWindow):
             dash._open_menu()
 
     def _open_watchface(self):
-        if self._watchface and self._watchface.isVisible():
-            self._watchface.close(); self._watchface = None; return
+        if hasattr(self, '_watchface') and self._watchface and self._watchface.isVisible():
+            self._watchface.close()
+            self._watchface.deleteLater()
+            self._watchface = None
+            return
+        if hasattr(self, '_watchface') and self._watchface:
+            self._watchface.deleteLater()
         self._watchface = WatchfaceWindow()
         self._watchface.showFullScreen()
 
     def _open_memory_palace(self):
-        if self._memory_palace and self._memory_palace.isVisible():
-            self._memory_palace.close(); self._memory_palace = None; return
+        if hasattr(self, '_memory_palace') and self._memory_palace and self._memory_palace.isVisible():
+            self._memory_palace.close()
+            self._memory_palace.deleteLater()
+            self._memory_palace = None
+            return
+        if hasattr(self, '_memory_palace') and self._memory_palace:
+            self._memory_palace.deleteLater()
         self._memory_palace = MemoryPalaceWindow()
         self._memory_palace.show()
 
@@ -508,6 +560,7 @@ class MainWindow(QMainWindow):
             if engine is None:
                 return
             for rec in engine.enabled_plugins():
+                page = None
                 try:
                     if rec.filename not in plugins_page._plugin_page_indices:
                         api  = plugins_page._api(rec)
@@ -520,6 +573,10 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     log.warning("Plugin auto-activation failed",
                                 plugin=rec.name, error=str(e))
+                finally:
+                    if page is None:
+                        log.error("Plugin activation failed completely", plugin=rec.name)
+                        continue
         except Exception as e:
             log.warning("_activate_plugins failed", error=str(e))
         QTimer.singleShot(200, self._post_activate_refresh)
@@ -548,7 +605,7 @@ class MainWindow(QMainWindow):
             save_json(LEGION_PROGRESS, legion_data)
 
     def _run_auto_sync(self):
-        if self._auto_sync_worker and self._auto_sync_worker.isRunning():
+        if hasattr(self, '_auto_sync_worker') and self._auto_sync_worker and self._auto_sync_worker.isRunning():
             return
         self._auto_sync_worker = AutoSyncWorker()
         self._auto_sync_worker.status_update.connect(lambda msg: None)

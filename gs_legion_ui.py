@@ -940,7 +940,18 @@ class LegionPage(QWidget):
                 self._disc_src_combo.setItemText(i, f"✓ {name}")
         self._disc_src_combo.blockSignals(False)
 
+    def _disc_cancel_worker(self):
+        """Disconnect and abandon any running discovery/browse worker so its result is ignored."""
+        if self._disc_worker is not None:
+            try:
+                self._disc_worker.done.disconnect()
+                self._disc_worker.error.disconnect()
+            except Exception:
+                pass
+            self._disc_worker = None
+
     def _disc_browse(self):
+        self._disc_cancel_worker()
         src_id = self._disc_active_src_id
         if src_id == "groq":
             self._disc_status_lbl.setText("Groq AI — type a description and press Search")
@@ -964,6 +975,7 @@ class LegionPage(QWidget):
         self._disc_worker.start()
 
     def _disc_search(self):
+        self._disc_cancel_worker()
         query  = self._disc_input.text().strip()
         src_id = self._disc_active_src_id
         genre  = self._disc_genre_combo.currentText()
@@ -987,6 +999,13 @@ class LegionPage(QWidget):
             self._disc_worker = _DiscoveryWorker(query)
         else:
             name = next((n for n, s in self._disc_sources if s == src_id), src_id)
+            # novelfire and lightnovelpub use AJAX rendering — search returns empty shell
+            AJAX_ONLY_SOURCES = {"novelfire", "lightnovelpub", "wuxiaworld"}
+            if query and src_id in AJAX_ONLY_SOURCES:
+                self._disc_search_btn.setEnabled(True)
+                self._disc_spin.setVisible(False)
+                self._disc_status_lbl.setText(f"⚠ {name} does not support search — browse only")
+                return
             self._disc_status_lbl.setText(
                 f"Searching {name}…" if query else f"Loading {name}…")
             self._disc_worker = _BrowseWorker(src_id, query, genre, status, page=1)
@@ -1026,7 +1045,9 @@ class LegionPage(QWidget):
         self._disc_append_grid(fresh)
 
         # Auto-prefetch until 80 items are loaded with a polite delay; then show Next button
-        if total < 80 and not self._disc_exhausted and self._disc_active_src_id != "groq":
+        # Skip auto-prefetch when user is doing a search — only prefetch during browse (no query)
+        active_query = self._disc_input.text().strip()
+        if total < 80 and not self._disc_exhausted and self._disc_active_src_id != "groq" and not active_query:
             QTimer.singleShot(1500, self._disc_load_next_page)  # 1.5s delay — avoids 429/403
         else:
             self._disc_next_btn.setVisible(True)
@@ -1047,6 +1068,7 @@ class LegionPage(QWidget):
             self._disc_load_next_page()
 
     def _disc_load_next_page(self, manual=False):
+        self._disc_cancel_worker()
         if self._disc_loading_more:
             return
         if self._disc_exhausted and not manual:
@@ -1142,6 +1164,21 @@ class LegionPage(QWidget):
     def _disc_book_clicked(self, item):
         r = item.data(Qt.ItemDataRole.UserRole)
         if not r: return
+        # Fetch metadata from the book page before opening the dialog
+        url = r.get("url", "")
+        if url and not r.get("desc"):
+            mod, _ = _get_legion_mod()
+            if mod and hasattr(mod, "fetch_book_metadata"):
+                try:
+                    meta = mod.fetch_book_metadata(url) or {}
+                    if meta.get("synopsis"):
+                        r["desc"] = meta["synopsis"]
+                    if meta.get("author") and not r.get("author"):
+                        r["author"] = meta["author"]
+                    if meta.get("genres") and not r.get("genres"):
+                        r["genres"] = meta["genres"]
+                except Exception:
+                    pass
         dlg = DiscoverDetailDialog(r, self)
         dlg.book_chosen.connect(self._on_disc_book_chosen)
         dlg.exec()
@@ -3434,7 +3471,7 @@ class _BrowseWorker(QThread):
         "lightnovelpub": {"base": "https://lightnovelpub.me",    "browse": "https://lightnovelpub.me/list/most-popular-novels/?page={page}",  "search": "https://lightnovelpub.me/search/?keyword={q}&page={page}",        "genre": "https://lightnovelpub.me/genres/{genre}/?page={page}"},
         "royalroad":     {"base": "https://www.royalroad.com",   "browse": "https://www.royalroad.com/fictions/best-rated?page={page}",                                                                                      "search": "https://www.royalroad.com/fictions/search?title={q}&page={page}"},
         "scribblehub":   {"base": "https://www.scribblehub.com", "browse": "https://www.scribblehub.com/series-finder/?sf=1&sort=ratings&order=desc&pg={page}",                                                             "search": "https://www.scribblehub.com/?s={q}&post_type=fictionposts&pg={page}"},
-        "wuxiaworld":    {"base": "https://www.wuxiaworld.com",  "browse": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular",                                                                  "search": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular&title={q}"},
+        "wuxiaworld":    {"base": "https://www.wuxiaworld.com",  "browse": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular",                                                                  "search": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Relevance&title={q}"},
     }
 
     GENRE_MAP = {
@@ -3593,6 +3630,9 @@ class _BrowseWorker(QThread):
 
     def _parse_novelfire(self, soup, base):
         """_parse_novelfire: select ".list-novel li,.novel-item", fallback scan a[href*='/novel/']"""
+        # novelfire search page is AJAX-rendered — requests gets an empty shell.
+        # If we got no novel containers at all, return empty so UI shows "No results".
+
         import re as _re
 
         results = []
@@ -3640,7 +3680,7 @@ class _BrowseWorker(QThread):
     def _parse_lightnovelpub(self, soup, base):
         """_parse_lightnovelpub: select ".list-novel li,.novel-list li", fallback scan a[href*='/novel/'] on lightnovelpub.me"""
         results = []
-        for item in soup.select(".list-novel li, .novel-list li"):
+        for item in soup.select(".list-novel li, .novel-list li, ul.ul-list1 li, .ul-list1 li"):
             a   = item.select_one("h3 a, h4 a, .novel-title a")
             img = item.select_one("img")
             if not a: continue

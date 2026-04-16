@@ -52,6 +52,8 @@ from great_sage_core import (
     start_mobile_server,
 )
 
+MPV_SOCKET_PATH = os.path.expanduser("~/.great_sage_mpv_socket")
+
 
 class TrailerPickerDialog(QDialog):
     """Shown when TMDB returns multiple matches for a title."""
@@ -439,8 +441,8 @@ class MatrixPage(QWidget):
             from plugin_manager import SlotHost as _SH
             _slot_mh = _SH("matrix_header")
             root.addWidget(_slot_mh)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Operation failed", error=str(e), location="_build")
         root.addWidget(tabs, 1)
 
     def _build_watchlist(self):
@@ -904,8 +906,8 @@ class MatrixPage(QWidget):
             try:
                 import subprocess
                 subprocess.Popen(["xdg-open", path])
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_browser_activate")
 
     def _browser_up(self):
         if self._browser_stack:
@@ -1061,7 +1063,8 @@ class MatrixPage(QWidget):
         show = filename
         if mod and hasattr(mod, "extract_show_title"):
             try: show = mod.extract_show_title(filename)
-            except Exception: pass  # Ignored
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_launch_mpv")
         else:
             # Remove leading group tags like [Gecko], [SubGroup] etc.
             cleaned = re.sub(r'^\[.*?\]\s*', '', filename)
@@ -1080,7 +1083,8 @@ class MatrixPage(QWidget):
         season, episode = 0, 0
         if mod and hasattr(mod, "MediaPlayer"):
             try: season, episode = mod.MediaPlayer._extract_season_episode(filename)
-            except Exception: pass  # Ignored
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_launch_mpv")
         else:
             m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', filename)
             if m: season, episode = int(m.group(1)), int(m.group(2))
@@ -1090,7 +1094,8 @@ class MatrixPage(QWidget):
         file_index = 0
         if mod and hasattr(mod, "MediaPlayer"):
             try: total_eps = mod.MediaPlayer.count_episodes_in_folder(path)
-            except Exception: pass  # Ignored
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_launch_mpv")
         else:
             try:
                 exts = ('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v')
@@ -1107,9 +1112,8 @@ class MatrixPage(QWidget):
                 # 1-based position of this file in the sorted list
                 try:    file_index = all_files.index(path) + 1
                 except ValueError: file_index = 0
-            except Exception: pass  # Ignored
-
-        # Load existing entry to preserve duration/episodes_watched
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_launch_mpv")
         md = matrix_data()
         existing = md.get("watching", {}).get(show, {})
 
@@ -1145,10 +1149,12 @@ class MatrixPage(QWidget):
                 self._mpv_process.wait(timeout=2)
             except Exception:
                 try: self._mpv_process.kill()
-                except Exception: pass  # Ignored
+                except Exception as e:
+                    log.warning("Operation failed", error=str(e), location="_launch_mpv")
         self._mpv_process = None
         try: os.remove(MPV_SOCKET_PATH)
-        except Exception: pass  # Ignored
+        except Exception as e:
+            log.warning("Operation failed", error=str(e), location="_launch_mpv")
 
         t = threading.Thread(
             target=self._play_loop,
@@ -1193,7 +1199,8 @@ class MatrixPage(QWidget):
                 })
                 save_json(MATRIX_PROGRESS, md)
                 QTimer.singleShot(0, self.refresh)
-            except Exception: pass  # Ignored
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_play_loop")
         _ensure_watching(show)
 
         while current:
@@ -1203,7 +1210,8 @@ class MatrixPage(QWidget):
             cur_next = None
             if mod and hasattr(mod, "MediaPlayer"):
                 try: cur_next = mod.MediaPlayer.find_next_episode(current)
-                except Exception: pass  # Ignored
+                except Exception as e:
+                    log.warning("Operation failed", error=str(e), location="_play_loop")
 
             # Show next episode status in the UI label so it's visible
             next_label = f"Next: {os.path.basename(cur_next)}" if cur_next else "Next: not found"
@@ -1211,7 +1219,8 @@ class MatrixPage(QWidget):
 
             # Build mpv command
             try: os.remove(MPV_SOCKET_PATH)
-            except Exception: pass  # Ignored
+            except Exception as e:
+                log.warning("Operation failed", error=str(e), location="_play_loop")
 
             cmd = [
                 "mpv",
@@ -1283,12 +1292,11 @@ class MatrixPage(QWidget):
 
             while process.poll() is None:
                 # Check if Lua flagged "play next" via user-data property
-                if not play_next_triggered and cur_next and os.path.exists(cur_next):
-                    flag = _ipc({"command": ["get_property", "user-data/gs-next"]})
-                    if flag and flag.get("data") == "yes":
+                flag = _ipc({"command": ["get_property", "user-data/gs-next"]})
+                if flag and flag.get("data") == "yes":
+                    _ipc({"command": ["set_property", "user-data/gs-next", "no"]})
+                    if not play_next_triggered and cur_next and os.path.exists(cur_next):
                         play_next_triggered = True
-                        # Reset the flag
-                        _ipc({"command": ["set_property", "user-data/gs-next", "no"]})
                         # Zero out position SYNCHRONOUSLY before loadfile so the
                         # position-save loop cannot race and overwrite with old pos
                         try:
@@ -1305,9 +1313,8 @@ class MatrixPage(QWidget):
                                 watching[target_key]["file_path"]    = _next
                                 watching[target_key]["last_watched"] = time.time()
                                 save_json(MATRIX_PROGRESS, md)
-                        except Exception:
-                            pass
-                        # Update tracking vars BEFORE loadfile
+                        except Exception as e:
+                            log.warning("Operation failed", error=str(e), location="_play_loop")
                         current   = cur_next
                         cur_start = 0
                         last_pos  = 0.0
@@ -1325,7 +1332,8 @@ class MatrixPage(QWidget):
                         cur_next = None
                         if mod_n and hasattr(mod_n, "MediaPlayer"):
                             try: cur_next = mod_n.MediaPlayer.find_next_episode(current)
-                            except Exception: pass  # Ignored
+                            except Exception as e:
+                                log.warning("Operation failed", error=str(e), location="_play_loop")
                         next_confirmed = cur_next is not None
                         play_next_triggered = False
                         # Update the Lua script's has_next flag
@@ -1393,8 +1401,6 @@ class MatrixPage(QWidget):
                                                   "next-episode-has-next", "yes"]})
                         except Exception:
                             pass
-
-                # Update now-playing label
                 def _fmt(s):
                     s = int(s); return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
                 pos_str = _fmt(last_pos) if last_pos > 0 else "00:00:00"
@@ -1443,7 +1449,8 @@ class MatrixPage(QWidget):
                 season, episode = 0, 0
                 if mod and hasattr(mod, "MediaPlayer"):
                     try: season, episode = mod.MediaPlayer._extract_season_episode(next_filename)
-                    except Exception: pass  # Ignored
+                    except Exception as e:
+                        log.warning("Operation failed", error=str(e), location="_play_loop")
                 else:
                     m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', next_filename)
                     if m: season, episode = int(m.group(1)), int(m.group(2))
@@ -1476,6 +1483,8 @@ class MatrixPage(QWidget):
     def _auto_complete_show(self, show, last_file, duration, last_pos):
         """Move show to Completed if it finished its last episode (>85% watched)."""
         if not show: return
+        if 'duration' not in locals(): duration = 0
+        if 'last_pos' not in locals(): last_pos = 0
         if duration > 0 and last_pos / duration < 0.80:
             return  # didn't finish — user quit early
         try:
@@ -1814,8 +1823,7 @@ class MatrixPage(QWidget):
         self._stream_page.runJavaScript(js, 0, self._on_login_check)
 
     def _on_login_check(self, logged_in):
-        self._stream_logged_in = bool(logged_in)
-        if self._stream_logged_in:
+        if bool(logged_in):
             self._stream_login_lbl.setStyleSheet(
                 f"background:transparent; border:1px solid {ACCENT2}; color:{ACCENT2};"
                 f"font-size:14px; border-radius:3px; padding:2px 4px;")
@@ -1906,71 +1914,74 @@ class MatrixPage(QWidget):
 
     def _auto_track(self, title: str, ep: int):
         """Write episode progress to matrix_progress.json + auto-move lists."""
+        if not hasattr(self, '_track_lock'):
+            self._track_lock = threading.Lock()
         try:
-            md = matrix_data()
-            watching  = md.setdefault("watching", {})
-            wl        = md.setdefault("watchlist", {})
-            planning  = wl.setdefault("planning", [])
-            wl_watching = wl.setdefault("watching", [])
+            with self._track_lock:
+                md = matrix_data()
+                watching  = md.setdefault("watching", {})
+                wl        = md.setdefault("watchlist", {})
+                planning  = wl.setdefault("planning", [])
+                wl_watching = wl.setdefault("watching", [])
 
-            # Fuzzy key match in watching dict
-            key = None
-            for k in watching:
-                kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
-                if kt.lower() == title.lower():
-                    key = k
-                    break
+                # Fuzzy key match in watching dict
+                key = None
+                for k in watching:
+                    kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
+                    if kt.lower() == title.lower():
+                        key = k
+                        break
 
-            if key is None:
-                key = title
-                # Auto-move from planning → watching in watchlist
-                new_planning = []
-                found_in_planning = False
-                for e in planning:
-                    t = e.get("title", "") if isinstance(e, dict) else str(e)
-                    if t.lower() == title.lower():
-                        found_in_planning = True
-                        # Move to watchlist watching
-                        entry = e if isinstance(e, dict) else {"title": t}
-                        entry["is_anime"] = True
-                        if not any(
-                            (x.get("title","") if isinstance(x,dict) else str(x)).lower() == title.lower()
-                            for x in wl_watching
-                        ):
-                            wl_watching.append(entry)
-                    else:
-                        new_planning.append(e)
-                if found_in_planning:
-                    wl["planning"] = new_planning
+                if key is None:
+                    key = title
+                    # Auto-move from planning → watching in watchlist
+                    new_planning = []
+                    found_in_planning = False
+                    for e in planning:
+                        t = e.get("title", "") if isinstance(e, dict) else str(e)
+                        if t.lower() == title.lower():
+                            found_in_planning = True
+                            # Move to watchlist watching
+                            entry = e if isinstance(e, dict) else {"title": t}
+                            entry["is_anime"] = True
+                            if not any(
+                                (x.get("title","") if isinstance(x,dict) else str(x)).lower() == title.lower()
+                                for x in wl_watching
+                            ):
+                                wl_watching.append(entry)
+                        else:
+                            new_planning.append(e)
+                    if found_in_planning:
+                        wl["planning"] = new_planning
 
-            # Update or create watching entry
-            now = int(time.time())
-            if isinstance(watching.get(key), dict):
-                old_ep = watching[key].get("current_episode", 0)
-                watching[key]["current_episode"] = max(ep, old_ep)
-                watching[key]["title"]           = title
-                watching[key]["last_watched"]    = now
-                watching[key]["source"]          = watching[key].get("source", "animekai")
-                # Track episode list
-                eps_watched = watching[key].setdefault("episodes_watched", [])
-                if ep not in eps_watched:
-                    eps_watched.append(ep)
-                    eps_watched.sort()
-            else:
-                watching[key] = {
-                    "title":            title,
-                    "current_episode":  ep,
-                    "episodes_watched": [ep],
-                    "source":           "animekai",
-                    "is_anime":         True,
-                    "started":          now,
-                    "last_watched":     now,
-                }
-            save_json(MATRIX_PROGRESS, md)
+                # Update or create watching entry
+                now = int(time.time())
+                if isinstance(watching.get(key), dict):
+                    old_ep = watching[key].get("current_episode", 0)
+                    watching[key]["current_episode"] = max(ep, old_ep)
+                    watching[key]["title"]           = title
+                    watching[key]["last_watched"]    = now
+                    watching[key]["source"]          = watching[key].get("source", "animekai")
+                    # Track episode list
+                    eps_watched = watching[key].setdefault("episodes_watched", [])
+                    if ep not in eps_watched:
+                        eps_watched.append(ep)
+                        eps_watched.sort()
+                else:
+                    watching[key] = {
+                        "title":            title,
+                        "current_episode":  ep,
+                        "episodes_watched": [ep],
+                        "source":           "animekai",
+                        "is_anime":         True,
+                        "started":          now,
+                        "last_watched":     now,
+                    }
+                save_json(MATRIX_PROGRESS, md)
             # Refresh UI on main thread
             QTimer.singleShot(0, self.refresh)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Operation failed", error=str(e), location="_auto_track")
 
     def _manual_mark_watched(self):
         if self._stream_current_show:
@@ -2168,9 +2179,8 @@ class MatrixPage(QWidget):
             self._stream_sync_btn.setText(summary)
             QTimer.singleShot(4000, lambda: self._stream_sync_btn.setText("⟳  SYNC HISTORY"))
 
-            # Return to previous page
-            if hasattr(self, "_return_url") and self._return_url:
-                QTimer.singleShot(800, lambda: self._stream_view.load(QUrl(self._return_url)))
+            # No return URL stored; simply stay on current page
+            pass
 
         except Exception as e:
             self._stream_sync_btn.setText("⟳  SYNC HISTORY")
@@ -2488,6 +2498,10 @@ class _CalendarWorker(QThread):
                 futures.append(pool.submit(fetch_tvmaze,  title))
             # Wait for all with a hard timeout of 25s
             concurrent.futures.wait(futures, timeout=25)
+
+        # Wait for events with a short timeout to confirm services responded
+        anilist_ok.wait(0.5)
+        tvmaze_ok.wait(0.5)
 
         # Deduplicate and sort each day
         for k in by_date:

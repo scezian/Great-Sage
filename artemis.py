@@ -579,34 +579,67 @@ class EditorToolbar(QWidget):
         main.addWidget(row2)
 
     def _connect_editor(self):
+        try:
+            self._editor.currentCharFormatChanged.disconnect(self._sync_format)
+        except Exception:
+            pass
+        try:
+            self._editor.cursorPositionChanged.disconnect(self._sync_alignment)
+        except Exception:
+            pass
+        try:
+            self._editor.textChanged.disconnect(self._update_wc)
+        except Exception:
+            pass
         self._editor.currentCharFormatChanged.connect(self._sync_format)
         self._editor.cursorPositionChanged.connect(self._sync_alignment)
         self._editor.textChanged.connect(self._update_wc)
         self._signals_connected = True
 
     def _sync_format(self, fmt: QTextCharFormat):
-        self._btn_bold.setChecked(fmt.fontWeight() >= QFont.Weight.Bold)
-        self._btn_italic.setChecked(fmt.fontItalic())
-        self._btn_under.setChecked(fmt.fontUnderline())
-        self._btn_strike.setChecked(fmt.fontStrikeOut())
-        vt = fmt.verticalAlignment()
-        self._btn_sub.setChecked(vt == QTextCharFormat.VerticalAlignment.AlignSubScript)
-        self._btn_sup.setChecked(vt == QTextCharFormat.VerticalAlignment.AlignSuperScript)
-        # Update color underline indicator
-        col = fmt.foreground().color()
-        if col.isValid():
-            # Single-rule only — multi-rule QPushButton stylesheets crash Qt on Mesa
+        # Do NOT call any Qt widget methods here. This slot is called from
+        # inside Qt's C++ edit pipeline (e.g. deletePreviousChar) and any
+        # re-entry into Qt widgets causes a segfault on free-threaded Python 3.14.
+        # Instead, copy raw data out and defer all widget updates via singleShot(0).
+        try:
+            self._pending_fmt = {
+                "bold":       fmt.fontWeight() >= QFont.Weight.Bold,
+                "italic":     fmt.fontItalic(),
+                "under":      fmt.fontUnderline(),
+                "strike":     fmt.fontStrikeOut(),
+                "vert":       fmt.verticalAlignment(),
+                "color":      fmt.foreground().color().name()
+                              if fmt.foreground().color().isValid() else None,
+                "family":     fmt.fontFamily(),
+                "size":       fmt.fontPointSize(),
+            }
+        except Exception:
+            return
+        QTimer.singleShot(0, self._apply_pending_fmt)
+
+    def _apply_pending_fmt(self):
+        d = getattr(self, "_pending_fmt", None)
+        if not d:
+            return
+        self._btn_bold.setChecked(d["bold"])
+        self._btn_italic.setChecked(d["italic"])
+        self._btn_under.setChecked(d["under"])
+        self._btn_strike.setChecked(d["strike"])
+        vt = d["vert"]
+        self._btn_sub.setChecked(
+            vt == QTextCharFormat.VerticalAlignment.AlignSubScript)
+        self._btn_sup.setChecked(
+            vt == QTextCharFormat.VerticalAlignment.AlignSuperScript)
+        if d["color"]:
             self._btn_color.setStyleSheet(
-                f"border-bottom: 2px solid {col.name()};"
-            )
-        # Sync font combo and size
+                f"border-bottom: 2px solid {d['color']};")
         self._font_combo.blockSignals(True)
-        if fmt.fontFamily():
-            self._font_combo.setCurrentFont(QFont(fmt.fontFamily()))
+        if d["family"]:
+            self._font_combo.setCurrentFont(QFont(d["family"]))
         self._font_combo.blockSignals(False)
         self._size_spin.blockSignals(True)
-        if fmt.fontPointSize() > 0:
-            self._size_spin.setValue(int(fmt.fontPointSize()))
+        if d["size"] and d["size"] > 0:
+            self._size_spin.setValue(int(d["size"]))
         self._size_spin.blockSignals(False)
 
     def _sync_alignment(self):
@@ -842,17 +875,17 @@ class FindReplaceDialog(QDialog):
         repl = self._repl_edit.text()
         if not term:
             return
-        doc   = self._editor.document()
-        text  = doc.toPlainText()
-        count = text.count(term)
-        # Use document's find/replace
+        doc = self._editor.document()
         cursor = QTextCursor(doc)
         cursor.beginEditBlock()
+        count = 0
         while True:
-            cursor = doc.find(term, cursor)
-            if cursor.isNull():
+            found = doc.find(term, cursor)
+            if found.isNull():
                 break
-            cursor.insertText(repl)
+            found.insertText(repl)
+            cursor = found
+            count += 1
         cursor.endEditBlock()
         self._status.setText(f"Replaced {count} occurrence{'s' if count != 1 else ''}.")
 
@@ -887,18 +920,16 @@ class _ArtemisAIWorker(QThread):
         # ── resolve sage module ────────────────────────────────────────────
         mod = None
         try:
-            import importlib.util as _ilu, os as _os
+            import importlib.util as _ilu
             _script_dir = Path(__file__).parent
             _path = _script_dir / "sage.py"
             if _path.exists():
-                spec = _ilu.spec_from_file_location("sage", str(_path))
-                mod  = _ilu.module_from_spec(spec)
-                orig = _os.getcwd()
-                _os.chdir(str(_script_dir))
-                try:
-                    spec.loader.exec_module(mod)
-                finally:
-                    _os.chdir(orig)
+                spec = _ilu.spec_from_file_location(
+                    "sage", str(_path),
+                    submodule_search_locations=[str(_script_dir)]
+                )
+                mod = _ilu.module_from_spec(spec)
+                spec.loader.exec_module(mod)
         except Exception as e:
             self.error.emit(f"Could not load sage.py: {e}")
             return
@@ -1775,7 +1806,20 @@ class AISidebar(QWidget):
     def _stop_worker(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._worker.wait(800)
+            try:
+                self._worker.chunk_ready.disconnect()
+            except Exception:
+                pass
+            try:
+                self._worker.finished.disconnect()
+            except Exception:
+                pass
+            try:
+                self._worker.error.disconnect()
+            except Exception:
+                pass
+            self._worker.wait(2000)
+        self._worker = None
 
     @staticmethod
     def _stream_into_label(label: QLabel, chunk: str):
@@ -1941,6 +1985,9 @@ class EditorPage(QWidget):
         self._auto_save_timer = QTimer(self)
         self._auto_save_timer.timeout.connect(self._auto_save)
         self._auto_save_timer.start(30_000)  # auto-save every 30 s
+        self._text_change_timer = QTimer(self)
+        self._text_change_timer.setSingleShot(True)
+        self._text_change_timer.timeout.connect(self._on_text_changed_debounced)
         QTimer.singleShot(100, self._restore_last_open)
 
     # ── Construction ──────────────────────────────────────────────────────────
@@ -2157,6 +2204,7 @@ class EditorPage(QWidget):
             self._load_file(path)
 
     def _load_file(self, path: str):
+        self._auto_save_timer.stop()
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -2174,6 +2222,7 @@ class EditorPage(QWidget):
             else:
                 self._canvas.setPlainText(content)
             # Reconnect after load is complete
+            self._toolbar._signals_connected = False
             self._toolbar._connect_editor()
             self._current_path = path
             self._modified = False
@@ -2182,6 +2231,8 @@ class EditorPage(QWidget):
             self._save_recent(path)
         except Exception as e:
             QMessageBox.warning(self, "Open Failed", f"Could not open file:\n{e}")
+        finally:
+            self._auto_save_timer.start(30_000)
 
     def save_document(self):
         if self._current_path is None:
@@ -2249,9 +2300,12 @@ class EditorPage(QWidget):
 
     def _on_text_changed(self):
         self._modified = True
+        self._status_modified.setText("● unsaved")
+        self._text_change_timer.start(300)
+
+    def _on_text_changed_debounced(self):
         text = self._canvas.toPlainText()
         self._status_chars.setText(f"{len(text):,} chars")
-        self._status_modified.setText("● unsaved")
 
     def _update_status(self):
         name = Path(self._current_path).stem if self._current_path else "Untitled"

@@ -781,14 +781,9 @@ def show_bookmarks_menu(progress: dict):
 
 
 def _generic_build_mirror_urls(url: str) -> list:
-    mirrors = ["novelbin.com", "novelbin.me", "novelfull.com"]
-    parsed = urlparse(url)
-    original_host = parsed.netloc
-    urls = [url]
-    for mirror in mirrors:
-        if mirror != original_host:
-            urls.append(url.replace(original_host, mirror, 1))
-    return urls
+    # novelbin.me and novelfull.com use different URL path structures (/novel-book/ vs /b/)
+    # so mirroring by host substitution causes 404s — only try the original URL
+    return [url]
 
 
 def _warm_session(base_url: str):
@@ -834,7 +829,7 @@ def _generic_get_with_retry(url: str):
 
 def _fetch_chapter_generic(url: str):
     # Hardcoded mirrors for the generic fallback (original NovelBin mirrors)
-    GENERIC_MIRRORS = ["novelbin.com", "novelbin.me", "novelfull.com"]
+    GENERIC_MIRRORS = ["novelbin.com"]
     GENERIC_WATERMARKS = [
         r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
         r"(?i)read\s+(at|on)\s+\S+\s+for.*",
@@ -994,8 +989,7 @@ def download_book(book_name: str, start_url: str, incremental: bool = False):
         print("No chapters downloaded.")
         return
 
-    filename = re.sub(r'[^\w\-_\. ]', '_', book_name) + ".txt"
-    save_path = os.path.join(os.getcwd(), filename)
+    save_path = get_book_path(book_name)
 
     if incremental and os.path.exists(save_path):
         existing_chapters = 0
@@ -1496,11 +1490,18 @@ def get_download_status_text(book):
 def get_book_filename(book_name):
     return re.sub(r'[^\w\-_\. ]', '_', book_name) + ".txt"
 
+LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
+
+def get_book_path(book_name):
+    """Return the full path to a book's .txt file under library/{name}/{name}.txt"""
+    safe = re.sub(r'[^\w\-_\. ]', '_', book_name)
+    book_dir = os.path.join(LIBRARY_DIR, safe)
+    os.makedirs(book_dir, exist_ok=True)
+    return os.path.join(book_dir, safe + ".txt")
+
 
 def append_chapter_to_file(book_name, chapter_num, title, paragraphs):
-    filename = get_book_filename(book_name)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    save_path = os.path.join(script_dir, filename)
+    save_path = get_book_path(book_name)
     real_num = chapter_num
     m = re.search(r'chapter[\s\-_]*(\d+)', title, re.IGNORECASE)
     if m:
@@ -1523,9 +1524,7 @@ def get_chapter_from_file(book_name: str, chapter_num: int):
     Returns (title, paragraphs) or (None, None) if not found.
     """
     try:
-        filename  = get_book_filename(book_name)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        save_path  = os.path.join(script_dir, filename)
+        save_path = get_book_path(book_name)
 
         if not os.path.exists(save_path):
             return None, None
@@ -1558,9 +1557,7 @@ def read_chapters_around(book_name: str, chapter_num: int, n: int = 5) -> str:
     Returns concatenated text of those chapters, or empty string if not found.
     """
     try:
-        filename   = get_book_filename(book_name)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        save_path  = os.path.join(script_dir, filename)
+        save_path  = get_book_path(book_name)
         if not os.path.exists(save_path):
             return ""
         with open(save_path, 'r', encoding='utf-8') as f:
@@ -1576,9 +1573,8 @@ def read_chapters_around(book_name: str, chapter_num: int, n: int = 5) -> str:
         if not chapters:
             return ""
         # Find chapters around chapter_num
-        half = n // 2
-        start = max(0, chapter_num - half - 1)
-        end   = chapter_num + half
+        start = max(0, chapter_num - n)
+        end   = chapter_num
         result = []
         for ch_num, title, body in chapters:
             if start <= ch_num <= end:
@@ -1595,9 +1591,7 @@ def read_last_n_chapters(book_name: str, n: int = 5) -> str:
     Returns concatenated text, or empty string if not found.
     """
     try:
-        filename   = get_book_filename(book_name)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        save_path  = os.path.join(script_dir, filename)
+        save_path  = get_book_path(book_name)
         if not os.path.exists(save_path):
             return ""
         with open(save_path, 'r', encoding='utf-8') as f:
@@ -1768,8 +1762,7 @@ class DownloadManager:
                 save_progress(progress)
                 break
         try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            dl_path = os.path.join(script_dir, get_book_filename(book_name))
+            dl_path = get_book_path(book_name)
             book['download_state']['download_path'] = dl_path
         except Exception:
             pass
@@ -2652,9 +2645,7 @@ def _get_chapter_list_from_file(book_name: str) -> list:
     Used for the chapter list picker.
     """
     try:
-        filename   = get_book_filename(book_name)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        save_path  = os.path.join(script_dir, filename)
+        save_path  = get_book_path(book_name)
         if not os.path.exists(save_path):
             return []
         with open(save_path, 'r', encoding='utf-8') as f:
