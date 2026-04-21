@@ -12,7 +12,7 @@ PLUGIN_VERSION     = "1.0"
 PLUGIN_AUTHOR      = "Great Sage"
 PLUGIN_COLOR       = "#8B6FD4"
 
-import subprocess, threading, shutil, os, json, re, urllib.request, urllib.parse
+import subprocess, threading, shutil, os, json, re, urllib.request, urllib.parse, time
 from PyQt6.QtCore    import Qt, QTimer, QObject, pyqtSignal, QRectF
 from PyQt6.QtGui     import (QColor, QPainter, QLinearGradient, QBrush,
                               QPen, QFont, QFontMetrics)
@@ -99,17 +99,29 @@ def _get_track(last_player=""):
             except Exception:
                 pass
             pos    = 0.0
+            pos_broken = False
             try:
                 pv2 = subprocess.run([b, "-p", p, "position"],
                                      capture_output=True, text=True,
                                      timeout=2).stdout.strip()
                 if pv2 and pv2 != "0":
-                    pos = float(pv2)
+                    raw_pos = float(pv2)
+                    raw_len_val = float(raw_len) if raw_len and raw_len != "0" else 0
+                    if raw_len_val > 0 and _is_broken_position(raw_pos, raw_len_val):
+                        pos_broken = True
+                        pos = 0.0
+                    elif dur > 0 and raw_pos > dur * 100:
+                        pos = raw_pos / 1000.0
+                    else:
+                        pos = raw_pos
+                    if not pos_broken and dur > 0:
+                        pos = min(pos, dur)
             except Exception:
                 pass
             if title:
                 return {"title": title, "artist": artist,
-                        "pos": pos, "dur": dur, "status": status, "player": p}
+                        "pos": pos, "dur": dur, "status": status,
+                        "player": p, "pos_broken": pos_broken}
         except Exception:
             continue
     return None
@@ -118,6 +130,39 @@ def _get_track(last_player=""):
 # ── lrclib.net fetcher ────────────────────────────────────────────────────────
 
 _lyrics_cache: dict = {}   # key: "artist|||title" → parsed lines list or None
+
+# ── Wall-clock position tracker (Firefox/YouTube MPRIS position is broken) ────
+_wc_track_key:    str   = ""
+_wc_start_time:   float = 0.0
+_wc_paused_at:    float = 0.0
+_wc_paused_accum: float = 0.0
+
+def _is_broken_position(raw_pos: float, raw_len: float) -> bool:
+    """True when Firefox reports position ≈ length (frozen garbage value)."""
+    if raw_len <= 0:
+        return False
+    expected = raw_len / 1000.0
+    return abs(raw_pos - expected) < expected * 0.001
+
+def _wc_get_pos(track_key: str, status: str) -> float:
+    """Synthesize playback position in seconds using wall clock."""
+    global _wc_track_key, _wc_start_time, _wc_paused_at, _wc_paused_accum
+    now = time.time()
+    if track_key != _wc_track_key:
+        _wc_track_key    = track_key
+        _wc_start_time   = now
+        _wc_paused_at    = 0.0
+        _wc_paused_accum = 0.0
+        return 0.0
+    if status == "Paused":
+        if _wc_paused_at == 0.0:
+            _wc_paused_at = now
+        return (_wc_paused_at - _wc_start_time) - _wc_paused_accum
+    else:
+        if _wc_paused_at > 0.0:
+            _wc_paused_accum += now - _wc_paused_at
+            _wc_paused_at = 0.0
+        return (now - _wc_start_time) - _wc_paused_accum
 
 def _clean_title(title, artist):
     """
@@ -398,14 +443,19 @@ class LyricsWidget(QWidget):
 
         def _fetch():
             track = _get_track(last_player=last_player)
-            if not track:
-                bridge.update_ready.emit(None, None, 0.0, "")
-                return
-            key = f"{track['artist']}|||{track['title']}"
-            cl_artist, cl_title = _clean_title(track["title"], track["artist"])
-            track["clean_title"] = cl_title
-            lines = _fetch_lyrics(cl_artist, cl_title)
-            bridge.update_ready.emit(track, lines, track["pos"], track["status"])
+            try:
+                if not track:
+                    bridge.update_ready.emit(None, None, 0.0, "")
+                    return
+                key = f"{track['artist']}|||{track['title']}"
+                cl_artist, cl_title = _clean_title(track["title"], track["artist"])
+                track["clean_title"] = cl_title
+                lines = _fetch_lyrics(cl_artist, cl_title)
+                pos = (_wc_get_pos(key, track["status"])
+                       if track.get("pos_broken") else track["pos"])
+                bridge.update_ready.emit(track, lines, pos, track["status"])
+            except RuntimeError:
+                pass  # bridge C++ object deleted — widget was destroyed, ignore
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _apply(self, track, lines, pos: float, status: str):
@@ -415,6 +465,10 @@ class LyricsWidget(QWidget):
         # lines=None means re-use existing lines (called from delayed highlight)
         if lines is None:
             lines = self._lines if self._lines else []
+            # Re-evaluate _is_synced from restored lines so highlighting fires
+            # on the delayed second fetch (key hasn't changed so the new-track
+            # branch won't run, meaning _is_synced would stay False otherwise)
+            self._is_synced = bool(lines and any(ts is not None for ts, _ in lines))
 
         key = f"{track['artist']}|||{track['title']}"
 
@@ -422,11 +476,6 @@ class LyricsWidget(QWidget):
         if track.get("player"):
             self._last_player = track["player"]
         self._last_status = status
-
-        # Firefox stale position fix: if pos > 95% of dur, treat as 0
-        dur = track.get("dur", 0)
-        if dur > 0 and pos > dur * 0.95:
-            pos = 0.0
 
         # New track — rebuild line widgets
         if key != self._cur_key:
@@ -457,15 +506,17 @@ class LyricsWidget(QWidget):
             def _delayed_highlight():
                 import threading
                 def _fetch():
-                    fresh = _get_track(last_player=last_p)
-                    if not fresh:
-                        return
-                    fp  = fresh.get("pos", 0)
-                    fd  = fresh.get("dur", 0)
-                    fst = fresh.get("status", "")
-                    if fd > 0 and fp > fd * 0.95:
-                        fp = 0.0
-                    bridge.update_ready.emit(fresh, None, fp, fst)
+                    try:
+                        fresh = _get_track(last_player=last_p)
+                        if not fresh:
+                            return
+                        fkey = f"{fresh['artist']}|||{fresh['title']}"
+                        fst  = fresh.get("status", "")
+                        fp   = (_wc_get_pos(fkey, fst)
+                                if fresh.get("pos_broken") else fresh.get("pos", 0))
+                        bridge.update_ready.emit(fresh, None, fp, fst)
+                    except RuntimeError:
+                        pass  # bridge deleted
                 threading.Thread(target=_fetch, daemon=True).start()
             QTimer.singleShot(1000, _delayed_highlight)
             return

@@ -26,3 +26,4 @@ mp.register_script_message("next-episode-has-next", function(val)
 end)
 
 mp.add_key_binding("Ctrl+RIGHT", "gs-next-play", play_next, {repeatable=false})
+mp.add_key_binding("s", "gs-skip-chapter", function() mp.command("add chapter 1") end)

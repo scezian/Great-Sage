@@ -153,10 +153,21 @@ def save_seen_recs(seen: list):
 
 def add_seen_recs(titles: list):
     seen = load_seen_recs()
+    seen_lower = [s.lower() for s in seen]
     for t in titles:
         t = t.strip()
-        if t and t not in seen:
+        if not t:
+            continue
+        t_lower = t.lower()
+        # Skip if exact match or if this title is a substring of (or contains) an existing entry
+        # This catches "Demon Slayer" vs "Demon Slayer: Kimetsu no Yaiba" mismatches
+        already = any(
+            t_lower == s or t_lower in s or s in t_lower
+            for s in seen_lower
+        )
+        if not already:
             seen.append(t)
+            seen_lower.append(t_lower)
     save_seen_recs(seen)
 
 def get_legion_data() -> dict:
@@ -830,59 +841,63 @@ def get_recommendations(profile_text: str, mode: str) -> tuple:
     listed = all_listed_titles()
     combined_seen = list(set(seen) | {t.title() for t in listed})
 
-    seen_note = ""
+    # Build exclusion block for the SYSTEM prompt (not user turn — LLMs ignore trailing constraints)
+    seen_system_block = ""
     if combined_seen:
-        seen_list = ", ".join(combined_seen[-50:])
-        seen_note = (
-            f"\n\nIMPORTANT: Do NOT recommend any of these titles — I am already tracking "
-            f"them or have seen them recommended before:\n{seen_list}\n"
+        seen_list = "\n".join(f"- {t}" for t in sorted(combined_seen)[-60:])
+        seen_system_block = (
+            "\n\n[HARD EXCLUSION LIST — NEVER recommend any of these titles under any circumstances. "
+            "Even if they seem like a perfect fit, skip them and suggest something else:]\n"
+            + seen_list
         )
 
     prompts = {
         "novels": (
             "Based on my reading history below, recommend 5 web novels or light novels I would love. "
             "Number each one. For each: title, genre, one sentence description, one sentence on why it fits my taste. "
-            "Prioritise ongoing series with many chapters since I clearly enjoy long reads.{seen}\n\n{profile}"
+            "Prioritise ongoing series with many chapters since I clearly enjoy long reads.\n\n{profile}"
         ),
         "shows": (
             "Based on my watching history below, recommend 5 shows or anime I would enjoy. "
             "Number each one. Mix anime and live-action. For each: title, one sentence description, one sentence on why it fits my taste. "
-            "Note if something is anime.{seen}\n\n{profile}"
+            "Note if something is anime.\n\n{profile}"
         ),
         "mood_light": (
             "I want something light, fun, and easy to get into right now. "
             "Based on my profile, recommend 2 novels and 2 shows that are entertaining without being heavy. "
-            "Number each one. Something I can enjoy without too much investment.{seen}\n\n{profile}"
+            "Number each one. Something I can enjoy without too much investment.\n\n{profile}"
         ),
         "mood_heavy": (
             "I'm in the mood for something intense, complex, and deeply engaging. "
             "Based on my profile, recommend 2 novels and 2 shows that are ambitious and rewarding. "
-            "Number each one. Something that will really pull me in.{seen}\n\n{profile}"
+            "Number each one. Something that will really pull me in.\n\n{profile}"
         ),
         "similar": (
             "Look at what I've spent the most time on in my profile. "
             "Find the 2-3 things I clearly love most, name them, explain what they have in common, "
             "then recommend 4 things (mix of novels and shows) that are most similar to those. "
-            "Number each recommendation and be very specific about why each matches.{seen}\n\n{profile}"
+            "Number each recommendation and be very specific about why each matches.\n\n{profile}"
         ),
         "whats_next": (
             "Look at what I'm currently watching and reading. "
             "For each thing I'm in the middle of, tell me: should I finish it, and what should I start next when I do? "
-            "Number your suggestions. Keep it brief and practical.{seen}\n\n{profile}"
+            "Number your suggestions. Keep it brief and practical.\n\n{profile}"
         ),
     }
     template = prompts.get(mode, prompts["shows"])
-    prompt = template.format(seen=seen_note, profile=profile_text)
-    response, error = groq_chat(prompt, system=SYSTEM_PROMPT)
+    prompt = template.format(profile=profile_text)
+    system = SYSTEM_PROMPT + seen_system_block
+    response, error = groq_chat(prompt, system=system)
 
-    # Parse recommended titles from response and save them so they won't repeat
+    # Parse recommended titles from response — stop at " - " or " — " not at ":"
+    # so "Title: Subtitle — description" captures the full title
     if response and not error:
         import re as _re
-        raw_titles = []
-        for line in response.splitlines():
-            m = _re.match(r"^\s*\d+[.)\]]\s+\*{0,2}([^*:\n]{3,60}?)\*{0,2}\s*$", line)
-            if m:
-                raw_titles.append(m.group(1).strip())
+        raw_titles = _re.findall(
+            r'^\s*\d+[.)]\s+\*{0,2}([^*\n]{3,80}?)\*{0,2}\s*(?:\s[-\u2014]\s|$)',
+            response, _re.MULTILINE
+        )
+        raw_titles = [t.strip().strip('*').strip() for t in raw_titles if t.strip()]
         if raw_titles:
             add_seen_recs(raw_titles)
 
@@ -891,16 +906,19 @@ def get_recommendations(profile_text: str, mode: str) -> tuple:
 
 def get_quick_pick(profile_text: str) -> tuple:
     seen = load_seen_recs()
-    seen_note = ""
+    seen_system_block = ""
     if seen:
-        seen_list = ", ".join(seen[-20:])
-        seen_note = f"\n\nDo NOT suggest any of these, I've already seen them recommended: {seen_list}"
+        seen_list = "\n".join(f"- {t}" for t in seen[-30:])
+        seen_system_block = (
+            "\n\n[HARD EXCLUSION LIST — do NOT suggest any of these under any circumstances:]\n"
+            + seen_list
+        )
     prompt = (
         "Based on my profile, give me ONE thing to start right now — either a novel or a show. "
         "The single best fit for my taste. Just the title, what it is in one sentence, "
-        f"and why it's perfect for me in one sentence. No lists.{seen_note}\n\n" + profile_text
+        "and why it's perfect for me in one sentence. No lists.\n\n" + profile_text
     )
-    response, error = groq_chat(prompt, system=SYSTEM_PROMPT)
+    response, error = groq_chat(prompt, system=SYSTEM_PROMPT + seen_system_block)
     if response and not error:
         # Try to extract the title from first line
         first_line = response.strip().splitlines()[0] if response.strip() else ""

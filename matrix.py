@@ -8,6 +8,8 @@ import os
 import sys
 import re
 import json
+from great_sage_core import sage_mod, matrix_data, save_json
+from typing import Optional
 import time
 import glob
 import subprocess
@@ -139,7 +141,7 @@ VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
 JIKAN_API = "https://api.jikan.moe/v4"
 TVMAZE_API = "https://api.tvmaze.com"
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
-TMDB_API_KEY = "a58e553cfec69c54b7fd360041870216"
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")  # Set via Settings > TMDB API Key
 TMDB_API = "https://api.themoviedb.org/3"
 
 # Title corrections (common misspellings/abbreviations)
@@ -346,23 +348,122 @@ class WatchlistItem:
         item.notes = data.get('notes', '')
         return item
 
+def _is_anime_with_cache(title: str, file_path: str) -> bool:
+    """
+    Checks if a given title/file_path corresponds to an anime using a cache
+    and Sage AI as a fallback.
+    """
+    md = matrix_data()
+    cache = md.get("anime_cache", {})
+    title_lower = title.lower()
+    
+    # If cached and less than 30 days old, return cached value
+    if title_lower in cache:
+        entry = cache[title_lower]
+        if time.time() - entry.get("timestamp", 0) < 30 * 86400: # 30 days in seconds
+            log.info(f"Using cached anime classification for '{title}'")
+            return entry.get("is_anime", False)
+    
+    # Try filename pattern first (fast path)
+    if re.search(r'\[(SubsPlease|Erai-raws|Anime|HorribleSubs|ASW|Judas|EMBER|Ohys-Raws|DB|Coalgirls|FFF|DameDesuYo|Leopard-Raws)\]', os.path.basename(file_path), re.IGNORECASE):
+        result = True
+        log.info(f"Classified '{title}' as anime via filename pattern.")
+    else:
+        # Ask Sage AI
+        log.info(f"Asking Sage AI to classify '{title}' as anime or live-action.")
+        try:
+            mod, err = sage_mod()
+            if mod and hasattr(mod, "groq_chat"):
+                prompt = f"Is '{title}' an anime (Japanese animated series) or a live-action show/movie? Reply with ONLY 'anime' or 'live-action'."
+                response, error = mod.groq_chat(prompt)
+                if response:
+                    result = response.strip().lower() == 'anime'
+                    log.info(f"Sage AI classified '{title}' as {'anime' if result else 'live-action'}.")
+                else:
+                    result = False
+                    log.warning(f"Sage AI could not classify '{title}': {error}")
+            else:
+                result = False
+                log.warning("Sage AI (groq_chat) not available for anime classification.")
+        except Exception as e:
+            result = False
+            log.error(f"Error calling Sage AI for anime classification of '{title}': {str(e)}")
+    
+    # Cache the result — re-read fresh to avoid overwriting concurrent saves
+    cache[title_lower] = {"is_anime": result, "timestamp": time.time()}
+    fresh_md = matrix_data()
+    existing_cache = fresh_md.get("anime_cache", {})
+    existing_cache.update(cache)
+    fresh_md["anime_cache"] = existing_cache
+    save_json(MATRIX_PROGRESS, fresh_md)
+    
+    return result
+
 class MediaPlayer:
     """Handles media playback with mpv"""
     
     @staticmethod
-    def _mpv_command(sock_path: str, *args) -> Optional[dict]:
-        """Send a command to a running mpv via IPC socket. Returns response or None."""
+    def _socket_is_ready(sock_path: str, timeout_sec: float = 3.0) -> bool:
+        """
+        Checks if the MPV IPC socket exists and is connectable.
+        Returns True if connection is successful, False otherwise.
+        """
+        if not os.path.exists(sock_path):
+            log.debug(f"MPV socket file not found at {sock_path}")
+            return False
+        
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(1.0)
+            sock.settimeout(timeout_sec)
             sock.connect(sock_path)
-            cmd = json.dumps({"command": list(args)}) + "\n"
-            sock.send(cmd.encode())
-            resp = sock.recv(4096).decode()
             sock.close()
-            return json.loads(resp.split("\n")[0])
-        except Exception:
-            return None
+            log.debug(f"MPV socket is ready at {sock_path}")
+            return True
+        except (ConnectionRefusedError, socket.timeout, FileNotFoundError) as e:
+            log.debug(f"MPV socket check failed for {sock_path}: {type(e).__name__} - {str(e)}")
+            return False
+        except Exception as e:
+            log.warning(f"Unexpected error during MPV socket check for {sock_path}: {type(e).__name__} - {str(e)}")
+            return False
+
+    @staticmethod
+    def _mpv_command(sock_path: str, *args) -> Optional[dict]:
+        """
+        Send a command to a running mpv via IPC socket with retries and increased timeout.
+        Returns response or None.
+        """
+        last_error_message = "MPV command failed: Unknown error."
+        for attempt in range(3): # Maximum 3 retries (0, 1, 2)
+            try:
+                # 3. Check socket exists before attempting connection
+                if not os.path.exists(sock_path):
+                    log.debug(f"MPV command attempt {attempt + 1}/3: Socket file not found at {sock_path}. Waiting...")
+                    time.sleep(0.3)
+                    last_error_message = "MPV command failed: Socket file not found."
+                    continue # Try again
+
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(3.0)  # Increased timeout to 3.0 seconds
+                sock.connect(sock_path)
+
+                cmd = json.dumps({"command": list(args)}) + "\n"
+                sock.send(cmd.encode())
+                resp = sock.recv(4096).decode()
+                sock.close()
+                return json.loads(resp.split("\n")[0])
+            except (ConnectionRefusedError, socket.timeout, FileNotFoundError) as e:
+                # FileNotFoundError here catches if os.path.exists returns True, but file vanishes
+                # before socket.connect, or if socket.connect itself raises it for some reason.
+                last_error_message = f"MPV command failed: {type(e).__name__} - {str(e)}"
+                log.debug(f"MPV command attempt {attempt + 1}/3 failed for {sock_path}: {last_error_message}")
+                time.sleep(0.5 * (attempt + 1))  # Increasing delay
+            except Exception as e:
+                last_error_message = f"MPV command failed: Unexpected error - {type(e).__name__} - {str(e)}"
+                log.warning(f"MPV command attempt {attempt + 1}/3 failed unexpectedly for {sock_path}: {last_error_message}")
+                time.sleep(0.5 * (attempt + 1)) # Still retry
+        
+        log.error(f"MPV command failed permanently for {sock_path} after 3 attempts. Last error: {last_error_message}")
+        return None
 
     @staticmethod
     def play(file_path: str, start_time: float = 0) -> Tuple[bool, float, float]:
@@ -404,6 +505,14 @@ class MediaPlayer:
             last_position = start_time
             last_save_time = 0.0
 
+            # --- Anime OP/ED auto-skip state (must be outside the loop) ---
+            show_title = os.path.basename(os.path.dirname(file_path)) or os.path.basename(file_path)
+            is_anime = _is_anime_with_cache(show_title, file_path)
+            _last_chapter_idx_mpv = -1
+            _ed_countdown_active  = False
+            _ed_countdown_start   = 0.0
+            # --- End state init ---
+
             while process.poll() is None:
                 resp = MediaPlayer._mpv_command(socket_path, "get_property", "time-pos")
                 if resp and resp.get("error") == "success" and resp.get("data") is not None:
@@ -416,6 +525,39 @@ class MediaPlayer:
                 if duration > 0 and last_position >= duration * 0.9:
                     process.wait(timeout=3)
                     return True, last_position, duration
+
+                # --- Anime OP/ED auto-skip ---
+                if is_anime:
+                    chapter_resp = MediaPlayer._mpv_command(socket_path, "get_property", "chapter")
+                    if chapter_resp and chapter_resp.get("error") == "success":
+                        current_chapter = chapter_resp.get("data", -1)
+
+                        if current_chapter is not None and current_chapter != _last_chapter_idx_mpv and current_chapter >= 0:
+                            _last_chapter_idx_mpv = current_chapter
+                            _ed_countdown_active  = False  # reset on any chapter change
+                            list_resp = MediaPlayer._mpv_command(socket_path, "get_property", "chapter-list")
+                            if list_resp and list_resp.get("error") == "success":
+                                chapters = list_resp.get("data", [])
+                                if current_chapter < len(chapters):
+                                    chap_title = chapters[current_chapter].get("title", "").lower()
+
+                                    if re.search(r'\b(op|opening|intro)\b', chap_title):
+                                        next_ch = current_chapter + 1
+                                        if next_ch < len(chapters):
+                                            skip_to = chapters[next_ch].get("time", None)
+                                            if skip_to is not None:
+                                                MediaPlayer._mpv_command(socket_path, "set_property", "time-pos", skip_to)
+                                        MediaPlayer._mpv_command(socket_path, "show-text", "Skipped intro", 2000)
+
+                                    elif re.search(r'\b(ed|ending|credits|outro)\b', chap_title):
+                                        _ed_countdown_active = True
+                                        _ed_countdown_start  = time.time()
+                                        MediaPlayer._mpv_command(socket_path, "show-text", "Next episode in 3s...", 3000)
+
+                        if _ed_countdown_active and (time.time() - _ed_countdown_start) >= 3:
+                            _ed_countdown_active = False
+                            MediaPlayer._mpv_command(socket_path, "set_property", "user-data/gs-next", "yes")
+                # --- End of anime OP/ED auto-skip ---
 
                 time.sleep(1)
 
@@ -1462,7 +1604,8 @@ def extract_show_title(filename: str) -> str:
 
     # Clean separators and whitespace
     name = re.sub(r'[._]+', ' ', name)
-    name = re.sub(r'[-–]+$', '', name)        # trailing dashes
+    name = re.sub(r'^[-\u2013\s]+', '', name)      # strip leading dashes/spaces
+    name = re.sub(r'[-–]+$', '', name)        # strip trailing dashes
     name = re.sub(r'\s+', ' ', name).strip()
 
     return name if name else os.path.splitext(filename)[0]
@@ -1544,6 +1687,19 @@ class MetadataFetcher:
         Try Jikan → TMDB → TVMaze in order.
         Always tries all three regardless of is_anime flag so nothing slips through.
         """
+        # Refresh TMDB key from settings at call-time (user may have set it since startup)
+        global TMDB_API_KEY
+        try:
+            import json as _j, os as _os
+            _cfg = _os.path.expanduser("~/.config/matrix/progress.json")
+            if _os.path.exists(_cfg):
+                with open(_cfg) as _f:
+                    _k = _j.load(_f).get("settings", {}).get("tmdb_api_key", "")
+                if _k:
+                    TMDB_API_KEY = _k
+        except Exception:
+            pass
+
         t = correct_title(title)
 
         # 1. Jikan — only for anime, skipped for movies/live-action
