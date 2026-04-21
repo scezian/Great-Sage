@@ -23,6 +23,23 @@ from concurrent.futures import ThreadPoolExecutor
 _save_locks: dict = {}
 _save_locks_lock = threading.Lock()
 
+# ── Session model override ─────────────────────────────────────────────────────
+# Set by the UI model switcher chips; overrides the saved settings model for
+# the lifetime of this session only. None means "use whatever is in settings".
+_session_groq_model: str | None = None
+
+GROQ_MODEL_VERSATILE = "llama-3.3-70b-versatile"
+GROQ_MODEL_INSTANT   = "llama-3.1-8b-instant"
+
+def set_session_groq_model(model: str | None):
+    """Override the active Groq model for this session only."""
+    global _session_groq_model
+    _session_groq_model = model
+
+def get_session_groq_model() -> str | None:
+    """Return the session model override, or None if not set."""
+    return _session_groq_model
+
 _event_executor = None
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -44,6 +61,9 @@ MATRIX_PROGRESS  = os.path.expanduser("~/.config/matrix/progress.json")
 LEGION_BOOKMARKS = os.path.expanduser("~/.great_sage_bookmarks.json")
 SAGE_MEMORY_PATH = os.path.expanduser("~/.great_sage_memory.txt")
 BEHAVIOUR_LOG    = os.path.expanduser("~/.great_sage_behaviour.json")
+
+# --- Data Versioning ---
+MATRIX_DATA_VERSION = 2
 
 # ── Module loader ──────────────────────────────────────────────────────────────
 _modules: dict = {}
@@ -136,35 +156,135 @@ def load_json_cached(path: str, default=None) -> dict:
     except Exception:
         return load_json(p_str, default if default is not None else {})
 
-def save_json(path: str, data: dict):
+def save_json(path: str, data: dict) -> bool:
     """Atomically write data to path as JSON. Thread-safe per path. Invalidates cache."""
+    # Normalise fully (expand ~ AND resolve to real path) so all callers share one lock
+    # regardless of whether they pass "~/.great_sage_legion.json" or the expanded form.
+    abs_path = os.path.realpath(os.path.expanduser(path))
     with _save_locks_lock:
-        lock = _save_locks.setdefault(path, threading.Lock())
+        lock = _save_locks.setdefault(abs_path, threading.Lock())
     with lock:
+        tmp = abs_path + ".tmp"
+        bak = abs_path + ".bak"
+        original_file_exists_at_start = os.path.exists(abs_path)
+        backup_created = False
+
         try:
-            dir_ = os.path.dirname(path) or "."
+            log.info(f"Attempting to save JSON to {abs_path}")
+
+            dir_ = os.path.dirname(abs_path)
             os.makedirs(dir_, exist_ok=True)
-            tmp = path + ".tmp"
+
+            # Write to .tmp file
+            log.debug(f"Writing data to temporary file: {tmp}")
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=2)
+                # 3. Use fsync
+                f.flush()
+                os.fsync(f.fileno())
+            log.debug(f"Finished writing to temporary file: {tmp}")
+
+            # 1. Validate JSON before replace
+            log.debug(f"Validating JSON in temporary file: {tmp}")
+            with open(tmp, "r") as f:
+                json.load(f)  # This will raise JSONDecodeError if invalid
+            log.info(f"JSON in {tmp} is valid.")
+
+            # 2. Create backup
+            if original_file_exists_at_start:
+                try:
+                    # Check if the existing file is valid JSON before backing up
+                    with open(path, "r") as f_orig:
+                        json.load(f_orig)  # Check if original is valid JSON
+                    log.debug(f"Creating backup of {path} to {bak}")
+                    os.replace(path, bak)  # Atomically replace original with backup
+                    backup_created = True
+                    log.info(f"Backup created: {bak}")
+                except json.JSONDecodeError:
+                    log.warning(f"Original file {path} is corrupt or not valid JSON; not creating backup.")
+                except Exception as e:
+                    log.exc(f"Failed to create backup for {path}", e, path=path, bak=bak)
+            else:
+                log.debug(f"No existing file at {path} to backup.")
+
+            # Replace original with new temp file
+            log.info(f"Replacing {path} with content from {tmp}")
             os.replace(tmp, path)
+            log.info(f"Replace successful for {path}")
+
             _json_cache.pop(str(path), None)
+            return True  # 6. Return boolean
+
+        except json.JSONDecodeError as e:
+            log.exc(f"Failed to save JSON: Invalid JSON detected during validation or original file was corrupt", e, path=path, tmp=tmp)
+            # 4. Recovery from backup (only if backup was successfully created)
+            if original_file_exists_at_start and backup_created:
+                try:
+                    log.warning(f"Attempting to restore {path} from backup {bak}")
+                    os.replace(bak, path)  # Restore from backup
+                    log.info(f"Successfully restored {path} from backup {bak}")
+                    _json_cache.pop(str(path), None)  # Invalidate cache for restored file
+                except Exception as e_restore:
+                    log.exc(f"Failed to restore {path} from backup {bak}", e_restore, path=path, bak=bak)
+            return False  # 6. Return boolean
         except Exception as e:
-            log.exc("Failed to save JSON", e, path=path)
+            log.exc(f"Failed to save JSON to {path} due to an unexpected error", e, path=path, tmp=tmp)
+            # 4. Recovery from backup (only if backup was successfully created)
+            if original_file_exists_at_start and backup_created:
+                try:
+                    log.warning(f"Attempting to restore {path} from backup {bak}")
+                    os.replace(bak, path)  # Restore from backup
+                    log.info(f"Successfully restored {path} from backup {bak}")
+                    _json_cache.pop(str(path), None)  # Invalidate cache for restored file
+                except Exception as e_restore:
+                    log.exc(f"Failed to restore {path} from backup {bak}", e_restore, path=path, bak=bak)
+            return False  # 6. Return boolean
 
 # ── Data accessors ─────────────────────────────────────────────────────────────
 def get_legion_data() -> dict:
     return load_json_cached(LEGION_PROGRESS, {"books": {}})
 
+def _migrate_matrix_data(data: dict, from_version: int) -> dict:
+    """Migrates matrix data from an older version to the current version."""
+    if from_version < 2:
+        log.info("Migrating matrix data", from_version=from_version, to_version=MATRIX_DATA_VERSION)
+        # Migration from list to dict for watchlist
+        watchlist = data.get("watchlist", [])
+        if isinstance(watchlist, list):
+            data["watchlist"] = {
+                "planning": watchlist,
+                "watching": [],
+                "dropped": [],
+                "completed": []
+            }
+        # Ensure all sub-lists exist for new data or after migration
+        for k in ("planning", "watching", "dropped", "completed"):
+            data["watchlist"].setdefault(k, [])
+        log.info("Migration complete", fields_added=["watchlist.planning", "_version"])
+    return data
+
+
 def get_matrix_data() -> dict:
     data = load_json_cached(MATRIX_PROGRESS, {
         "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
-        "watching": {}, "completed": {}})
-    watchlist = data.get("watchlist", {})
-    if isinstance(watchlist, list):
-        data["watchlist"] = {"planning": watchlist, "watching": [], "dropped": [], "completed": []}
+        "watching": {}, "completed": {}}) # Initial default for new files
+
+    current_version = data.get("_version", 1) # Default to 1 for data without version field
+
+    if current_version < MATRIX_DATA_VERSION:
+        log.info("Migrating matrix data", from_version=current_version, to_version=MATRIX_DATA_VERSION)
+        data = _migrate_matrix_data(data, current_version)
+        data["_version"] = MATRIX_DATA_VERSION
+        # Save immediately to disk so migration persists
+        save_json(MATRIX_PROGRESS, data)
+        # Also update the cache
+        _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+        log.info("Matrix data migration complete", new_version=MATRIX_DATA_VERSION)
+    
+    # Ensure all sub-lists exist for new data or after migration, even if no migration happened
     for k in ("planning", "watching", "dropped", "completed"):
         data["watchlist"].setdefault(k, [])
+    
     return data
 
 def get_bookmarks_data() -> dict:
@@ -437,20 +557,23 @@ def _detect_show_genre(title: str, is_anime: bool = False) -> str:
 # ── Book file search ───────────────────────────────────────────────────────────
 def _grep_book_for_term(book_name: str, term: str, up_to_chapter: int,
                          max_excerpts: int = 60) -> str:
+    # Match get_book_path() in legion.py: library/{safe_name}/{safe_name}.txt
+    import re as _re
+    safe = _re.sub(r'[^\w\-_\. ]', '_', book_name)
+    library_path = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
+    # Legacy fallback candidates for any files stored under old layout
     candidates = [
+        library_path,
         str(SCRIPT_DIR / f"{book_name}.txt"),
-        str(SCRIPT_DIR / f"{book_name.replace(' ', '_')}.txt"),
+        str(SCRIPT_DIR / f"{safe}.txt"),
     ]
     path = next((p for p in candidates if os.path.exists(p)), None)
     if not path:
+        log.warning("_grep_book_for_term: no book file found", book=book_name, tried=candidates)
         return ""
     try:
-        content = []
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                content.append(line)
-                if len(content) > 50000: break
-        content = "".join(content)
+            content = f.read()
     except Exception as e:
         log.warning("_grep_book_for_term file read failed", path=path, error=str(e))
         return ""
@@ -573,15 +696,22 @@ class SageWorker(QThread):
             if bsummary:
                 mem_ctx = (mem_ctx + "\n\nLearned behaviour signals: " + bsummary).strip()
             seen   = mod.load_seen_recs() if hasattr(mod, "load_seen_recs") else []
-            seen_s = ("Avoid recommending these (already seen): " +
-                      ", ".join(seen[-30:])) if seen else ""
+            # Build a hard exclusion block — goes into the system prompt, not user turn
+            seen_block = ""
+            if seen:
+                seen_list = "\n".join(f"- {t}" for t in seen[-50:])
+                seen_block = (
+                    "\n\n[HARD EXCLUSION LIST — NEVER recommend any of these titles under any circumstances. "
+                    "Even if they seem like a perfect fit, skip them entirely and suggest something else:]\n"
+                    + seen_list
+                )
 
             prompts = {
-                "novels":     f"Recommend 6 web novels or light novels I haven't read yet. {seen_s}",
-                "shows":      f"Recommend 6 TV shows or anime I haven't watched. {seen_s}",
-                "similar":    f"Find the title I'm most invested in and suggest 5 very similar ones. {seen_s}",
-                "mood_light": f"Suggest 5 light, fun, easy-going picks (any medium). {seen_s}",
-                "mood_heavy": f"Suggest 5 intense, gripping, deep picks (any medium). {seen_s}",
+                "novels":     "Recommend 6 web novels or light novels I haven't read yet.",
+                "shows":      "Recommend 6 TV shows or anime I haven't watched.",
+                "similar":    "Find the title I'm most invested in and suggest 5 very similar ones.",
+                "mood_light": "Suggest 5 light, fun, easy-going picks (any medium).",
+                "mood_heavy": "Suggest 5 intense, gripping, deep picks (any medium).",
                 "whats_next": "What single thing should I watch or read right now? Short reason.",
                 "quick":      "Give me exactly ONE recommendation with a two-sentence pitch.",
                 "explain":    f"Would I enjoy '{self.extra}'? Be honest and specific. Under 250 words.",
@@ -646,11 +776,16 @@ class SageWorker(QThread):
             if stream_ctx:
                 enriched = f"{profile_text}\n\n[Live streaming history]\n{stream_ctx}"
             full_prompt = f"{enriched}\n\nUser request: {user_msg}"
+
+            # Append the hard exclusion list to the system prompt (mem_ctx), not the user turn
+            system_msg = mem_ctx if mem_ctx else ""
+            if seen_block:
+                system_msg = (system_msg + seen_block).strip()
             
             # Streaming implementation
             full_resp = ""
             if hasattr(mod, "groq_stream_chat"):
-                for chunk, error in mod.groq_stream_chat(full_prompt, system=mem_ctx if mem_ctx else None):
+                for chunk, error in mod.groq_stream_chat(full_prompt, system=system_msg if system_msg else None):
                     if self._stop:
                         return
                     if error:
@@ -661,7 +796,7 @@ class SageWorker(QThread):
                         self.chunk_ready.emit(chunk)
             else:
                 # Fallback to non-streaming if mod doesn't have groq_stream_chat
-                full_resp, error = mod.groq_chat(full_prompt, system=mem_ctx if mem_ctx else None)
+                full_resp, error = mod.groq_chat(full_prompt, system=system_msg if system_msg else None)
                 if error:
                     self.error.emit(error)
                     return
@@ -669,9 +804,11 @@ class SageWorker(QThread):
 
             if self.mode in ("novels", "shows", "similar", "mood_light", "mood_heavy", "quick", "whats_next"):
                 try:
+                    # Match full titles including colons (e.g. "Title: Subtitle")
+                    # Stops at " - " or " — " separator before description
                     titles = re.findall(
-                        r'\d+[.)]\s+\*{0,2}([^*\n(]{3,60}?)\*{0,2}\s*(?:[-\u2014:(]|$)',
-                        full_resp
+                        r'^\s*\d+[.)]\s+\*{0,2}([^*\n]{3,80}?)\*{0,2}\s*(?:\s[-\u2014]\s|$)',
+                        full_resp, re.MULTILINE
                     )
                     titles = [t.strip().strip('*').strip() for t in titles if t.strip()]
                     if titles and hasattr(mod, "add_seen_recs"):
@@ -762,8 +899,10 @@ class _SageCompanionWorker(QThread):
         _s = matrix_data().get("settings", {})
         if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
             mod.GROQ_API_KEY = _s["groq_api_key"]
-        if _s.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
-            mod.GROQ_MODEL = _s["groq_model"]
+        # Session override takes priority over saved settings
+        active_model = get_session_groq_model() or _s.get("groq_model")
+        if active_model and hasattr(mod, "GROQ_MODEL"):
+            mod.GROQ_MODEL = active_model
 
         q            = self.question.strip()
         lookup_match = re.match(
@@ -958,10 +1097,44 @@ class AutoSyncWorker(QThread):
         books = legion_data.get("books", {})
         log.sync.info("Auto-sync started", total_books=len(books))
 
+        # ── Fix 1: Disk reconciliation ────────────────────────────────────────
+        # Ground truth is the filesystem. Correct total_chapters_downloaded in
+        # the JSON before any sync decisions are made so stale/corrupt metadata
+        # can't cause books to be skipped or double-downloaded.
+        reconciled = False
+        if hasattr(mod, "_get_chapter_list_from_file"):
+            for name, book in legion_data.get("books", {}).items():
+                dl_state = book.get("download_state", {})
+                json_count = dl_state.get("total_chapters_downloaded", 0)
+                try:
+                    disk_chapters = mod._get_chapter_list_from_file(name)
+                    disk_count = len(disk_chapters)
+                except Exception:
+                    disk_count = json_count  # can't read disk — leave as-is
+                if disk_count != json_count:
+                    log.sync.warning(
+                        "Reconciling chapter count — JSON/disk mismatch",
+                        book=name, json_count=json_count, disk_count=disk_count,
+                    )
+                    legion_data["books"][name]["download_state"]["total_chapters_downloaded"] = disk_count
+                    # If disk has chapters but status is idle/completed with 0 recorded,
+                    # correct the status so the book re-enters the active sync path.
+                    if disk_count > 0 and dl_state.get("status") in ("idle", "completed") and json_count == 0:
+                        legion_data["books"][name]["download_state"]["status"] = "completed"
+                    reconciled = True
+            if reconciled:
+                save_json(LEGION_PROGRESS, legion_data)
+                legion_data = get_legion_data()
+                books = legion_data.get("books", {})
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── Fix 2: Widened fresh filter ───────────────────────────────────────
+        # Previously required status == "idle". Now catches any non-active book
+        # with 0 chapters on disk (including orphaned "completed" state).
         fresh = [
             (name, book) for name, book in books.items()
             if book.get("current_url") and
-               book.get("download_state", {}).get("status") == "idle" and
+               book.get("download_state", {}).get("status") not in ("downloading", "queued") and
                book.get("download_state", {}).get("total_chapters_downloaded", 0) == 0
         ]
         for name, book in fresh:
@@ -995,17 +1168,43 @@ class AutoSyncWorker(QThread):
             if last_dl_url and (last_dl_url.endswith("/null") or last_dl_url.endswith("/undefined")):
                 log.sync.warning("Corrupt last_downloaded_chapter URL discarded", book=name, url=last_dl_url)
                 last_dl_url = None
-            probe_url = last_dl_url or book.get("current_url", "")
+
+            # ── Fix 3: Plugin-first probing with canonical source URL ─────────
+            # Always probe via the plugin using last_dl_url if a plugin owns the
+            # book's canonical source (current_url). This avoids redirect-polluted
+            # URLs (e.g. novelfire → boxnovel) causing _extract_nav to fail on an
+            # unfamiliar site layout. Generic scraping is only used for sources
+            # with no plugin.
+            canonical_url = book.get("current_url", "")
+            probe_url = last_dl_url or canonical_url
             if not probe_url:
+                log.sync.warning("Book has no probe URL — skipping", book=name)
                 continue
 
             self.status_update.emit(f"Checking {name}...")
-            log.sync.debug("Probing for new chapters", book=name, probe_url=probe_url)
+            log.sync.debug("Probing for new chapters", book=name, probe_url=probe_url, canonical=canonical_url)
+
+            next_url = None
             try:
-                next_url = mod.find_next_chapter(probe_url) if hasattr(mod, "find_next_chapter") else None
+                # Check if the canonical source has a plugin
+                plugin = mod.plugin_registry.for_url(canonical_url) if hasattr(mod, "plugin_registry") else None
+                if plugin and last_dl_url:
+                    # Plugin path: structured fetch of the last chapter → read next_url directly
+                    log.sync.debug("Using plugin for probe", book=name, plugin=plugin.id)
+                    scraper = mod.SCRAPER if (hasattr(mod, "SCRAPER") and plugin.supports_cloudflare) else None
+                    try:
+                        result = plugin.fetch_chapter(last_dl_url, mod.SESSION, scraper)
+                        next_url = result.next_url
+                    except Exception as e:
+                        log.sync.warning("Plugin probe failed — falling back to generic", book=name, error=str(e))
+                        next_url = mod.find_next_chapter(probe_url) if hasattr(mod, "find_next_chapter") else None
+                else:
+                    # No plugin for this source — use generic scraper
+                    next_url = mod.find_next_chapter(probe_url) if hasattr(mod, "find_next_chapter") else None
             except Exception as e:
-                log.sync.exc("find_next_chapter failed", e, book=name, probe_url=probe_url)
+                log.sync.exc("Probe failed", e, book=name, probe_url=probe_url)
                 next_url = None
+            # ─────────────────────────────────────────────────────────────────
 
             if not next_url:
                 log.sync.debug("No new chapters found", book=name)

@@ -13,6 +13,76 @@ from pathlib import Path
 os.environ["QT_XCB_GL_INTEGRATION"] = "none"
 os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
+# Qt WebEngine ICU data fix — must be set BEFORE any WebEngine imports
+# Try to find PyQt6 resources in various locations
+def _find_webengine_resources():
+    # First: ALWAYS check user site-packages for PyQt6 (handles split installations)
+    user_site = Path.home() / ".local/lib"
+    for pydir in user_site.glob("python*/site-packages"):
+        for subpath in [pydir / "PyQt6/Qt6", pydir / "PyQt6_WebEngine_Qt6/Qt6"]:
+            if (subpath / "resources/qtwebengine_resources.pak").exists():
+                os.environ["QTWEBENGINE_RESOURCES_PATH"] = str(subpath / "resources")
+                locales_path = subpath / "translations/qtwebengine_locales"
+                if locales_path.exists():
+                    os.environ["QTWEBENGINE_LOCALES_PATH"] = str(locales_path)
+                elif (subpath / "translations").exists():
+                    os.environ["QTWEBENGINE_LOCALES_PATH"] = str(subpath / "translations")
+                return
+    # Second: try PyQt6 package location (system or same-env install)
+    try:
+        import PyQt6
+        qt6_pkg = Path(PyQt6.__file__).parent
+        for sub in ["Qt6/resources", "resources"]:
+            res_path = qt6_pkg / sub
+            if (res_path / "qtwebengine_resources.pak").exists():
+                os.environ["QTWEBENGINE_RESOURCES_PATH"] = str(res_path)
+                if sub == "Qt6/resources":
+                    trans_path = qt6_pkg / "Qt6/translations/qtwebengine_locales"
+                    if not trans_path.exists():
+                        trans_path = qt6_pkg / "Qt6/translations"
+                else:
+                    trans_path = qt6_pkg / "translations/qtwebengine_locales"
+                    if not trans_path.exists():
+                        trans_path = qt6_pkg / "translations"
+                if trans_path.exists():
+                    os.environ["QTWEBENGINE_LOCALES_PATH"] = str(trans_path)
+                return
+    except Exception:
+        pass
+    # Third: try PyQt6-WebEngine-Qt6 package
+    try:
+        import PyQt6_WebEngine_Qt6
+        webeng_path = Path(PyQt6_WebEngine_Qt6.__file__).parent
+        for sub in ["Qt6/resources", "resources"]:
+            res_path = webeng_path / sub
+            if (res_path / "qtwebengine_resources.pak").exists():
+                os.environ["QTWEBENGINE_RESOURCES_PATH"] = str(res_path)
+                if sub == "Qt6/resources":
+                    trans_path = webeng_path / "Qt6/translations/qtwebengine_locales"
+                    if not trans_path.exists():
+                        trans_path = webeng_path / "Qt6/translations"
+                else:
+                    trans_path = webeng_path / "translations/qtwebengine_locales"
+                    if not trans_path.exists():
+                        trans_path = webeng_path / "translations"
+                if trans_path.exists():
+                    os.environ["QTWEBENGINE_LOCALES_PATH"] = str(trans_path)
+                return
+    except Exception:
+        pass
+    # System paths fallback
+    for prefix in ["/usr/share/qt6", "/usr/share/qt", "/usr/lib/qt6", "/usr/lib/qt", "/usr/lib/x86_64-linux-gnu/qt6"]:
+        p = Path(prefix)
+        if (p / "resources" / "qtwebengine_resources.pak").exists():
+            os.environ.setdefault("QTWEBENGINE_RESOURCES_PATH", str(p / "resources"))
+        if (p / "translations" / "qtwebengine_locales").exists():
+            os.environ.setdefault("QTWEBENGINE_LOCALES_PATH", str(p / "translations" / "qtwebengine_locales"))
+        elif (p / "translations").exists():
+            os.environ.setdefault("QTWEBENGINE_LOCALES_PATH", str(p / "translations"))
+_find_webengine_resources()
+# Suppress GPU/blacklist errors
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox --disable-features=IsolateOrigins,site-per-process")
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 try:
     from gs_logger import log
@@ -573,10 +643,9 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     log.warning("Plugin auto-activation failed",
                                 plugin=rec.name, error=str(e))
-                finally:
-                    if page is None:
-                        log.error("Plugin activation failed completely", plugin=rec.name)
-                        continue
+                if page is None:
+                    log.error("Plugin activation failed completely", plugin=rec.name)
+                    continue
         except Exception as e:
             log.warning("_activate_plugins failed", error=str(e))
         QTimer.singleShot(200, self._post_activate_refresh)
@@ -622,6 +691,8 @@ class MainWindow(QMainWindow):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    # WebEngine requires shared OpenGL contexts
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setApplicationName("Great Sage")
     app.setStyleSheet(QSS)

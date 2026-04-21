@@ -49,6 +49,8 @@ from great_sage_core import (
     FetchChapterWorker, SageWorker, MetadataWorker, AutoSyncWorker,
     _SageCompanionWorker, _NewChaptersWorker, _MetaRefreshWorker, _DiscoveryWorker,
     start_mobile_server,
+    set_session_groq_model, get_session_groq_model,
+    GROQ_MODEL_VERSATILE, GROQ_MODEL_INSTANT,
 )
 
 _legion_mod_cache = None
@@ -109,12 +111,61 @@ class LegionPage(QWidget):
         self._tts_paragraphs: list[str] = []   # current chapter split into paragraphs
         self._tts_index    = 0      # which paragraph we're reading
         self._tts_worker   = None   # QThread
+        
+        # Worker cleanup
+        self._meta_workers = [] # Track all background workers for cleanup
+        self._max_stored_workers = 5 # Keep a small pool of recently active workers
+        
         self._build()
         # Eye-break reminder — fires every 15 minutes while reading
         self._eye_toast = EyeBreakToast(self)
         self._eye_timer = QTimer(self)
         self._eye_timer.setInterval(15 * 60 * 1000)   # 15 minutes
         self._eye_timer.timeout.connect(self._eye_toast.show_toast)
+        # Stop all workers cleanly when the application quits
+        app = QApplication.instance()
+        if app:
+            app.aboutToQuit.connect(self.cleanup_all_workers)
+
+    def _cleanup_worker(self, worker):
+        """Remove worker from _meta_workers list after it finishes."""
+        try:
+            if worker in self._meta_workers:
+                self._meta_workers.remove(worker)
+                log.debug("Cleaned up worker", worker=worker)
+        except Exception as e:
+            log.warning("Worker cleanup failed", error=str(e), worker=worker)
+
+    def cleanup_all_workers(self):
+        """Stop all running QThreads. Call this before the widget is destroyed."""
+        # FetchChapterWorker (web scrape)
+        if self._worker and self._worker.isRunning():
+            self._worker.terminate()
+            self._worker.wait(1000)
+            self._worker = None
+        # Sage companion worker
+        if hasattr(self, '_sage_worker') and self._sage_worker and self._sage_worker.isRunning():
+            self._sage_worker.terminate()
+            self._sage_worker.wait(1000)
+            self._sage_worker = None
+        # TTS worker
+        self._stop_tts()
+        # Discovery / meta workers
+        self._disc_cancel_worker()
+        for w in list(self._meta_workers):
+            try:
+                if w.isRunning():
+                    w.terminate()
+                    w.wait(500)
+            except Exception:
+                pass
+        self._meta_workers.clear()
+        log.debug("LegionPage: all workers stopped")
+
+    def hideEvent(self, event):
+        """Stop all running workers when the page is hidden or the app closes."""
+        self.cleanup_all_workers()
+        super().hideEvent(event)
 
     def _make_icon_list(self):
         """Create a standard icon-mode QListWidget matching the Jump In grid style."""
@@ -662,26 +713,42 @@ class LegionPage(QWidget):
         sp.setContentsMargins(10,10,10,10)
         sp.setSpacing(8)
         sp.addWidget(lbl("✦  SAGE", ACCENT, 13, True))
-        sp.addWidget(lbl("Ask about characters, places, or anything", TEXT2, 10))
         sp.addWidget(hline())
 
-        # Quick-ask chips
-        chips_row = QHBoxLayout()
-        chips_row.setSpacing(4)
-        for chip_text, chip_query in [("Who is…", "Who is "), ("What is…", "What is "), ("Ask", "")]:
-            c = QPushButton(chip_text)
-            c.setStyleSheet(
-                f"background:{BG3};border:1px solid {BORDER};color:{TEXT2};"
-                f"font-size:9px;letter-spacing:0.5px;padding:3px 8px;border-radius:10px;")
-            if chip_query:
-                c.clicked.connect(lambda _, q=chip_query: (
-                    self._sage_q.setText(q),
-                    self._sage_q.setFocus(),
-                    self._sage_q.setCursorPosition(len(q))
-                ))
-            chips_row.addWidget(c)
-        chips_row.addStretch()
-        sp.addLayout(chips_row)
+        # Model switcher chips
+        model_row = QHBoxLayout()
+        model_row.setSpacing(4)
+
+        def _model_chip_style(active: bool) -> str:
+            if active:
+                return (f"background:{ACCENT};border:1px solid {ACCENT};color:{BG};"
+                        f"font-size:9px;letter-spacing:0.5px;padding:3px 8px;border-radius:10px;font-weight:bold;")
+            return (f"background:{BG3};border:1px solid {BORDER};color:{TEXT2};"
+                    f"font-size:9px;letter-spacing:0.5px;padding:3px 8px;border-radius:10px;")
+
+        self._sage_model_versatile_btn = QPushButton("Versatile")
+        self._sage_model_instant_btn   = QPushButton("Instant")
+
+        def _set_model(model: str):
+            set_session_groq_model(model)
+            self._sage_model_versatile_btn.setStyleSheet(
+                _model_chip_style(model == GROQ_MODEL_VERSATILE))
+            self._sage_model_instant_btn.setStyleSheet(
+                _model_chip_style(model == GROQ_MODEL_INSTANT))
+
+        self._sage_model_versatile_btn.clicked.connect(lambda: _set_model(GROQ_MODEL_VERSATILE))
+        self._sage_model_instant_btn.clicked.connect(lambda: _set_model(GROQ_MODEL_INSTANT))
+
+        # Default: highlight whichever matches saved settings (or versatile)
+        _saved_model = matrix_data().get("settings", {}).get("groq_model", GROQ_MODEL_VERSATILE)
+        _active_start = GROQ_MODEL_INSTANT if "instant" in _saved_model else GROQ_MODEL_VERSATILE
+        self._sage_model_versatile_btn.setStyleSheet(_model_chip_style(_active_start == GROQ_MODEL_VERSATILE))
+        self._sage_model_instant_btn.setStyleSheet(_model_chip_style(_active_start == GROQ_MODEL_INSTANT))
+
+        model_row.addWidget(self._sage_model_versatile_btn)
+        model_row.addWidget(self._sage_model_instant_btn)
+        model_row.addStretch()
+        sp.addLayout(model_row)
 
         self._sage_q = QLineEdit()
         self._sage_q.setPlaceholderText("Who is Feng Yuan?  /  What is the Spirit Sea?")
@@ -904,10 +971,26 @@ class LegionPage(QWidget):
     def _disc_start_health_check(self):
         """Run health check in background; update combo labels and auto-browse first live source."""
         self._disc_status_lbl.setText("Checking sources…")
-        self._disc_health_worker = _SourceHealthWorker()
-        self._disc_health_worker.first_live.connect(self._disc_on_first_live)
-        self._disc_health_worker.all_statuses.connect(self._disc_on_all_statuses)
-        self._disc_health_worker.start()
+        w = _SourceHealthWorker() # Renamed to 'w'
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        
+        # Connect finished signal to cleanup method
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        
+        w.first_live.connect(self._disc_on_first_live)
+        w.all_statuses.connect(self._disc_on_all_statuses)
+        w.start()
+
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_disc_start_health_check).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_start_health_check).")
 
     def _disc_on_first_live(self, src_id: str):
         """Called as soon as the first working source is found."""
@@ -951,7 +1034,7 @@ class LegionPage(QWidget):
             self._disc_worker = None
 
     def _disc_browse(self):
-        self._disc_cancel_worker()
+        self._disc_cancel_worker() # This sets self._disc_worker = None
         src_id = self._disc_active_src_id
         if src_id == "groq":
             self._disc_status_lbl.setText("Groq AI — type a description and press Search")
@@ -969,13 +1052,27 @@ class LegionPage(QWidget):
         self._disc_exhausted    = False
         self._disc_seen_titles  = set()
         self._disc_results      = []
-        self._disc_worker = _BrowseWorker(src_id, "", genre, status, page=1)
+        w = _BrowseWorker(src_id, "", genre, status, page=1) # Renamed to 'w'
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        self._disc_worker = w # Reassign _disc_worker
         self._disc_worker.done.connect(self._disc_on_results)
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
 
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_disc_browse).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_browse).")
+
     def _disc_search(self):
-        self._disc_cancel_worker()
+        self._disc_cancel_worker() # This sets self._disc_worker = None
         query  = self._disc_input.text().strip()
         src_id = self._disc_active_src_id
         genre  = self._disc_genre_combo.currentText()
@@ -996,7 +1093,10 @@ class LegionPage(QWidget):
                 self._disc_status_lbl.setText("Enter a description and press Search")
                 return
             self._disc_status_lbl.setText("Sage is searching…")
-            self._disc_worker = _DiscoveryWorker(query)
+            w = _DiscoveryWorker(query) # Renamed to 'w'
+            log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+            w.finished.connect(lambda: self._cleanup_worker(w))
+            self._disc_worker = w # Reassign _disc_worker
         else:
             name = next((n for n, s in self._disc_sources if s == src_id), src_id)
             # novelfire and lightnovelpub use AJAX rendering — search returns empty shell
@@ -1008,10 +1108,25 @@ class LegionPage(QWidget):
                 return
             self._disc_status_lbl.setText(
                 f"Searching {name}…" if query else f"Loading {name}…")
-            self._disc_worker = _BrowseWorker(src_id, query, genre, status, page=1)
+            w = _BrowseWorker(src_id, query, genre, status, page=1) # Renamed to 'w'
+            log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+            w.finished.connect(lambda: self._cleanup_worker(w))
+            self._disc_worker = w # Reassign _disc_worker
+
         self._disc_worker.done.connect(self._disc_on_results)
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
+
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_disc_search).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_search).")
 
     def _disc_on_results(self, results: list):
         self._disc_search_btn.setEnabled(True)
@@ -1068,7 +1183,7 @@ class LegionPage(QWidget):
             self._disc_load_next_page()
 
     def _disc_load_next_page(self, manual=False):
-        self._disc_cancel_worker()
+        self._disc_cancel_worker() # This sets self._disc_worker = None
         if self._disc_loading_more:
             return
         if self._disc_exhausted and not manual:
@@ -1081,11 +1196,25 @@ class LegionPage(QWidget):
         query  = self._disc_input.text().strip()
         genre  = self._disc_genre_combo.currentText()
         status = self._disc_status_combo.currentText()
-        self._disc_worker = _BrowseWorker(
+        w = _BrowseWorker( # Renamed to 'w'
             self._disc_active_src_id, query, genre, status, page=self._disc_page)
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        self._disc_worker = w # Reassign _disc_worker
         self._disc_worker.done.connect(self._disc_on_results)
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
+
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_disc_load_next_page).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_load_next_page).")
 
     def _disc_on_error(self, msg: str):
         self._disc_search_btn.setEnabled(True)
@@ -1117,15 +1246,25 @@ class LegionPage(QWidget):
             cover_pairs.append((item, r.get("title", ""), r.get("url", ""), cover_url))
 
         if cover_pairs:
-            worker = _CoverLoaderWorker(cover_pairs)
-            worker.cover_ready.connect(self._disc_on_cover_ready)
-            worker.start()
-            # Keep a reference so it isn't GC'd mid-run
-            if not hasattr(self, "_cover_workers"):
-                self._cover_workers = []
-            self._cover_workers.append(worker)
-            worker.finished.connect(lambda w=worker: self._cover_workers.remove(w)
-                                    if w in self._cover_workers else None)
+            w = _CoverLoaderWorker(cover_pairs) # Renamed to 'w'
+            log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+            w.cover_ready.connect(self._disc_on_cover_ready)
+            
+            # Connect finished signal to cleanup method
+            w.finished.connect(lambda: self._cleanup_worker(w))
+            
+            w.start()
+            
+            # Keep a reference in _meta_workers (replacing _cover_workers logic)
+            self._meta_workers.append(w)
+            # Enforce max size
+            if len(self._meta_workers) > self._max_stored_workers:
+                oldest = self._meta_workers[0]
+                if oldest.isFinished():
+                    self._meta_workers.pop(0)
+                    log.debug("Removed oldest finished worker from _meta_workers (_disc_append_grid).")
+                else:
+                    log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_append_grid).")
 
     def _disc_on_cover_ready(self, item: "QListWidgetItem", px: "QPixmap"):
         from PyQt6.QtGui import QIcon
@@ -1289,6 +1428,7 @@ class LegionPage(QWidget):
                         "pause_requested": False}}
                 save_json(LEGION_PROGRESS, ld)
                 self.refresh()
+                self._show_toast(f"📥 '{title[:30]}' added — downloading chapters…")
                 main_win = self.window()
                 if hasattr(main_win, "_run_auto_sync"):
                     QTimer.singleShot(500, main_win._run_auto_sync)
@@ -1461,18 +1601,17 @@ class LegionPage(QWidget):
 
     def _toggle_sage_panel(self):
         visible = self._sage_panel.isVisible()
+        sizes = self._reader_body.sizes()  # [rs_panel, reader, sage, notes/slot]
         if visible:
-            sizes = self._reader_body.sizes()
             self._sage_panel.setVisible(False)
-            self._reader_body.setSizes([sizes[0] + sizes[1], 0, sizes[2]])
+            # Return sage width to reader; leave rs_panel and notes untouched
+            self._reader_body.setSizes([sizes[0], sizes[1] + sizes[2], 0, sizes[3]])
             self._sage_top_btn.setText("✦ SAGE")
         else:
             self._sage_panel.setVisible(True)
-            total = sum(self._reader_body.sizes())
-            sage_w = 340
-            rest   = max(200, total - sage_w - self._reader_body.sizes()[2])
-            notes_w = self._reader_body.sizes()[2]
-            self._reader_body.setSizes([rest, sage_w, notes_w])
+            sage_w  = 340
+            reader_w = max(200, sizes[1] - sage_w)
+            self._reader_body.setSizes([sizes[0], reader_w, sage_w, sizes[3]])
             self._sage_top_btn.setText("✕ SAGE")
 
     def _toggle_notes_panel(self):
@@ -1481,20 +1620,18 @@ class LegionPage(QWidget):
             self.reader_status.setText("Notes unavailable — catalogue.py missing from app folder.")
             return
         visible = self._catalogue_panel.isVisible()
+        sizes = self._reader_body.sizes()  # [rs_panel, reader, sage, notes/slot]
         if visible:
-            # Collapse notes panel: reclaim its width back to the reader
-            sizes = self._reader_body.sizes()
-            # sizes = [reader, sage, notes]
+            # Collapse notes: return its width to reader
             self._catalogue_panel.setVisible(False)
-            self._reader_body.setSizes([sizes[0] + sizes[2], sizes[1], 0])
+            self._reader_body.setSizes([sizes[0], sizes[1] + sizes[3], sizes[2], 0])
             self._notes_top_btn.setText("✎ NOTES")
         else:
-            # Expand notes panel to 320px, taken from reader (never shrink Sage)
+            # Expand notes to 320px, taken from reader (never shrink Sage)
             self._catalogue_panel.setVisible(True)
-            sizes = self._reader_body.sizes()
-            notes_w = 320
-            reader_w = max(300, sizes[0] - notes_w)
-            self._reader_body.setSizes([reader_w, sizes[1], notes_w])
+            notes_w  = 320
+            reader_w = max(300, sizes[1] - notes_w)
+            self._reader_body.setSizes([sizes[0], reader_w, sizes[2], notes_w])
             self._notes_top_btn.setText("✕ NOTES")
 
     def _sage_ask(self):
@@ -1902,11 +2039,15 @@ class LegionPage(QWidget):
 
     def _refresh_meta_silent(self, name, url):
         """Silently fetch and cache metadata for a book without user interaction."""
-        if not hasattr(self, "_meta_workers"):
-            self._meta_workers = []
+        # self._meta_workers is already initialized in __init__
         w = _MetaRefreshWorker(url)
-        self._meta_workers.append(w)  # keep reference so GC doesn't destroy running thread
-        def _done(meta, err, worker=w):
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        
+        # Connect finished signal to cleanup method
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        
+        # Modify the existing _done handler
+        def _done(meta, err): # Removed worker=w from args since it's now handled by the outer scope lambda
             if not err and meta:
                 ld = legion_data()
                 if name in ld.get("books", {}):
@@ -1917,11 +2058,20 @@ class LegionPage(QWidget):
                         self._book_data[name] = ld["books"][name]
                         self._show_detail(name, ld["books"][name],
                                           from_list=getattr(self, "_detail_from_list", "jumpin"))
-            # Clean up finished worker from list
-            try: self._meta_workers.remove(worker)
-            except ValueError: pass
+            # Original cleanup removed, now handled by w.finished.connect(lambda: self._cleanup_worker(w))
+        
         w.done.connect(_done)
         w.start()
+        
+        self._meta_workers.append(w)  # keep reference so GC doesn't destroy running thread
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (silent meta refresh).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (silent meta refresh).")
 
     def _show_detail(self, name, book, from_list="jumpin"):
         """Populate the detail panel and switch to it."""
@@ -2425,10 +2575,26 @@ class LegionPage(QWidget):
         if not name: return
         self._btn_new_chs.setEnabled(False)
         self._btn_new_chs.setText("⏳ Checking...")
-        self._new_ch_worker = _NewChaptersWorker(book)
-        self._new_ch_worker.done.connect(
+        w = _NewChaptersWorker(book) # Renamed to 'w' for consistency with prompt
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+
+        # Connect finished signal to cleanup method
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        
+        w.done.connect(
             lambda count, err: self._on_new_chapters_checked(name, book, count, err))
-        self._new_ch_worker.start()
+        w.start()
+
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_detail_check_new).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_detail_check_new).")
 
     def _on_new_chapters_checked(self, name, book, count, err):
         self._btn_new_chs.setEnabled(True)
@@ -2485,10 +2651,27 @@ class LegionPage(QWidget):
         if not url:
             self._detail_meta.setText("No URL saved — can't fetch metadata."); return
         self._detail_meta.setText("Fetching metadata...  ⏳")
-        self._meta_worker = _MetaRefreshWorker(url)
-        self._meta_worker.done.connect(
+        w = _MetaRefreshWorker(url) # Renamed to 'w' for consistency with prompt
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        
+        # Connect finished signal to cleanup method
+        w.finished.connect(lambda: self._cleanup_worker(w))
+        
+        # Connect done signal (existing)
+        w.done.connect(
             lambda meta, err: self._on_meta_refreshed(name, meta, err))
-        self._meta_worker.start()
+        w.start()
+
+        # Append to _meta_workers
+        self._meta_workers.append(w)
+        # Enforce max size
+        if len(self._meta_workers) > self._max_stored_workers:
+            oldest = self._meta_workers[0]
+            if oldest.isFinished():
+                self._meta_workers.pop(0)
+                log.debug("Removed oldest finished worker from _meta_workers (_detail_refresh_meta).")
+            else:
+                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_detail_refresh_meta).")
 
     def _on_meta_refreshed(self, name, meta, err):
         if err:

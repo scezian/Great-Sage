@@ -817,6 +817,16 @@ class SettingsPage(QWidget):
         gf.addRow("API Key:", self.key_edit); gf.addRow("Model:", self.model_edit)
         root.addWidget(gg)
 
+        tg = QGroupBox("TMDB API  (used for show/movie metadata)")
+        tf = QFormLayout(tg)
+        self.tmdb_key_edit = QLineEdit(); self.tmdb_key_edit.setPlaceholderText("Get free key at themoviedb.org/settings/api")
+        self.tmdb_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        tf.addRow("API Key:", self.tmdb_key_edit)
+        tmdb_hint = QLabel("Free tier is sufficient. Without a key, metadata fallback is disabled.")
+        tmdb_hint.setStyleSheet(f"color:{MUTED}; font-size:10px;")
+        tf.addRow("", tmdb_hint)
+        root.addWidget(tg)
+
         pg = QGroupBox("Paths")
         pf = QFormLayout(pg)
         self.dl_edit = QLineEdit(os.path.expanduser("~/Videos"))
@@ -890,6 +900,7 @@ class SettingsPage(QWidget):
         if saved_key:   self.key_edit.setText(saved_key)
         if saved_model: self.model_edit.setText(saved_model)
         else:           self.model_edit.setText("llama-3.3-70b-versatile")
+        self.tmdb_key_edit.setText(settings.get("tmdb_api_key", ""))
         self.dl_edit.setText(settings.get("download_dir", os.path.expanduser("~/Videos")))
         self.voice_chk.setChecked(settings.get("sage_voice", False))
         self.piper_edit.setText(settings.get("piper_binary", ""))
@@ -903,6 +914,9 @@ class SettingsPage(QWidget):
         md.setdefault("settings", {})
         if new_key:   md["settings"]["groq_api_key"] = new_key
         if new_model: md["settings"]["groq_model"]   = new_model
+        new_tmdb_key = self.tmdb_key_edit.text().strip()
+        if new_tmdb_key:
+            md["settings"]["tmdb_api_key"] = new_tmdb_key
         md["settings"]["download_dir"]  = self.dl_edit.text()
         md["settings"]["sage_voice"]    = self.voice_chk.isChecked()
         md["settings"]["piper_binary"]  = self.piper_edit.text().strip()

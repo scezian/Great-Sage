@@ -1058,26 +1058,9 @@ class MatrixPage(QWidget):
 
         filename = os.path.basename(path)
 
-        # Extract show title
         mod, _ = matrix_mod()
-        show = filename
-        if mod and hasattr(mod, "extract_show_title"):
-            try: show = mod.extract_show_title(filename)
-            except Exception as e:
-                log.warning("Operation failed", error=str(e), location="_launch_mpv")
-        else:
-            # Remove leading group tags like [Gecko], [SubGroup] etc.
-            cleaned = re.sub(r'^\[.*?\]\s*', '', filename)
-            # Remove extension
-            cleaned = re.sub(r'\.\w+$', '', cleaned)
-            # Cut off at SxxExx
-            cleaned = re.sub(r'[Ss]\d{1,2}[Ee]\d{1,4}.*', '', cleaned)
-            # Replace dots with spaces, strip trailing dashes/spaces/dots
-            cleaned = cleaned.replace('.', ' ')
-            cleaned = re.sub(r'[\s\-\.]+$', '', cleaned).strip()
-            show = cleaned or filename
-        # Always clean up trailing junk regardless of extraction source
-        show = re.sub(r'[\s\-\.]+$', '', show).strip()
+        # Use the immediate parent folder name as the show title
+        show = os.path.basename(os.path.dirname(path)) or filename
 
         # Extract season/episode from filename
         season, episode = 0, 0
@@ -1290,6 +1273,11 @@ class MatrixPage(QWidget):
             _file_switching = False  # True while waiting for mpv to confirm new file loaded
             _expected_file  = os.path.basename(current)
 
+            # ── OP/ED chapter auto-skip state ────────────────────────────────
+            _last_chapter_idx   = -1   # last chapter index seen; -1 = not yet read
+            _ed_skip_armed      = False
+            _ed_skip_at         = 0.0  # wall-clock time to fire next-episode
+
             while process.poll() is None:
                 # Check if Lua flagged "play next" via user-data property
                 flag = _ipc({"command": ["get_property", "user-data/gs-next"]})
@@ -1401,6 +1389,48 @@ class MatrixPage(QWidget):
                                                   "next-episode-has-next", "yes"]})
                         except Exception:
                             pass
+
+                # ── OP/ED chapter auto-skip ───────────────────────────────────
+                # Only run when not switching files (stale data during transitions)
+                if not _file_switching:
+                    ch_resp = _ipc({"command": ["get_property", "chapter"]})
+                    if ch_resp and ch_resp.get("error") == "success":
+                        ch_idx = ch_resp.get("data", -1)
+                        if ch_idx is not None and ch_idx != _last_chapter_idx and ch_idx >= 0:
+                            _last_chapter_idx = ch_idx
+                            # Reset ED arm when chapter changes (new episode or chapter skip)
+                            _ed_skip_armed = False
+                            cl_resp = _ipc({"command": ["get_property", "chapter-list"]})
+                            if cl_resp and cl_resp.get("error") == "success":
+                                chapters = cl_resp.get("data", [])
+                                if ch_idx < len(chapters):
+                                    ch_title = chapters[ch_idx].get("title", "").lower()
+                                    # OP / Intro → skip to next chapter immediately
+                                    if re.search(r'\b(op|opening|intro)\b', ch_title):
+                                        next_ch = ch_idx + 1
+                                        if next_ch < len(chapters):
+                                            skip_to = chapters[next_ch].get("time", None)
+                                            if skip_to is not None:
+                                                _ipc({"command": ["set_property", "time-pos", skip_to]})
+                                                _ipc({"command": ["show-text", "⏭ Skipped intro", 2000]})
+                                                log.debug("Auto-skipped OP chapter", chapter=ch_title)
+                                        else:
+                                            # OP is last chapter — skip to end
+                                            _ipc({"command": ["add", "chapter", 1]})
+                                    # ED / Ending / Credits → arm next-episode after 3s
+                                    elif re.search(r'\b(ed|ending|credits|outro)\b', ch_title):
+                                        if not _ed_skip_armed:
+                                            _ed_skip_armed = True
+                                            _ed_skip_at    = time.time() + 3.0
+                                            _ipc({"command": ["show-text", "▶ Next episode in 3s…", 3000]})
+                                            log.debug("ED chapter armed", chapter=ch_title)
+
+                    # Fire the ED skip if the countdown expired
+                    if _ed_skip_armed and time.time() >= _ed_skip_at:
+                        _ed_skip_armed = False
+                        _ipc({"command": ["set_property", "user-data/gs-next", "yes"]})
+                # ── End OP/ED auto-skip ───────────────────────────────────────
+
                 def _fmt(s):
                     s = int(s); return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
                 pos_str = _fmt(last_pos) if last_pos > 0 else "00:00:00"
@@ -2257,9 +2287,7 @@ class MatrixPage(QWidget):
 
             entries.append((ts, label, info, 52 if time_line else 36))
 
-        # 2) AnimeKai stream entries
-        for key, info in md.get("watching", {}).items():
-            pass  # already handled above — stream entries live in a separate dict
+        # 2) AnimeKai stream entries (handled via stream_watching key below)
 
         stream_watching = md.get("stream_watching", {})
         for title, info in stream_watching.items():

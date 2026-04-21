@@ -780,10 +780,82 @@ def show_bookmarks_menu(progress: dict):
                     return result[1], result[2]  # title, url
 
 
-def _generic_build_mirror_urls(url: str) -> list:
-    # novelbin.me and novelfull.com use different URL path structures (/novel-book/ vs /b/)
-    # so mirroring by host substitution causes 404s — only try the original URL
-    return [url]
+import random
+import time
+import requests
+from urllib.parse import urlparse, urlunparse
+
+# --- User-Agent Rotation ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+]
+
+# --- Mirror Rotation ---
+# Default mirror domains for generic scraping. These might be dynamically updated later by plugins.
+_DEFAULT_MIRROR_DOMAINS = ["novelbin.net", "novelfull.com", "novelhall.com", "boxnovel.com"]
+_MIRROR_FAILURES = {} # {domain: last_failed_timestamp} for tracking recently failed mirrors
+_MIRROR_FAIL_DURATION = 300 # 5 minutes
+
+def _generic_build_mirror_urls(url: str) -> list[str]:
+    """
+    Generates a list of potential mirror URLs for the given URL based on known domains.
+    Prioritizes the original URL, then tries known mirror domains.
+    Filters out recently failed mirrors.
+    """
+    parsed_url = urlparse(url)
+    original_domain = parsed_url.netloc
+    
+    # Start with the original URL
+    mirror_urls = [url]
+    
+    # Only add mirrors whose domain is related to the original.
+    # Matching on a shared keyword (e.g. "novelbin") prevents unrelated sites
+    # (novelfull, novelhall) being tried for sources like novelfire or boxnovel.
+    def _domains_related(orig, candidate):
+        keywords = ["novelbin", "novelfull", "novelhall", "boxnovel", "novelfire",
+                    "royalroad", "wuxia", "lightnovel"]
+        for kw in keywords:
+            if kw in orig and kw in candidate:
+                return True
+        return False
+
+    for domain in _DEFAULT_MIRROR_DOMAINS:
+        if domain != original_domain and _domains_related(original_domain, domain):
+            mirror_url = urlunparse(parsed_url._replace(netloc=domain))
+            if mirror_url not in mirror_urls:
+                mirror_urls.append(mirror_url)
+                
+    # Filter out recently failed mirrors and prepare for randomized selection
+    now = time.time()
+    available_mirrors = []
+    
+    # Add original URL if not marked as failed
+    if original_domain not in _MIRROR_FAILURES or (now - _MIRROR_FAILURES[original_domain] > _MIRROR_FAIL_DURATION):
+        available_mirrors.append(url)
+    else:
+        log.debug(f"Skipping original domain {original_domain} due to recent failure.")
+
+    # Add other mirror URLs if not marked as failed
+    for m_url in mirror_urls:
+        if m_url == url: continue # Already handled original URL
+        m_domain = urlparse(m_url).netloc
+        if m_domain not in _MIRROR_FAILURES or (now - _MIRROR_FAILURES[m_domain] > _MIRROR_FAIL_DURATION):
+            if m_url not in available_mirrors: # Avoid duplicates
+                available_mirrors.append(m_url)
+        else:
+            log.debug(f"Skipping recently failed mirror: {m_domain} for {url}")
+
+    if not available_mirrors: # If all mirrors are down or filtered, try original anyway as a last resort
+        log.warning(f"All preferred and mirror URLs for {url} are currently marked as failed or unavailable. Re-attempting original URL.")
+        available_mirrors.append(url)
+    
+    random.shuffle(available_mirrors) # Shuffle to distribute load and vary retry order
+    
+    return available_mirrors
 
 
 def _warm_session(base_url: str):
@@ -794,37 +866,148 @@ def _warm_session(base_url: str):
         pass
 
 
-def _generic_get_with_retry(url: str):
-    urls = _generic_build_mirror_urls(url)
-    last_error = "Unknown error"
-    for attempt_url in urls:
-        parsed = urlparse(attempt_url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        _warm_session(base)
-        time.sleep(0.8)
+def _generic_get_with_retry(url: str) -> tuple[requests.Response | None, str]:
+    """
+    Attempts to fetch a URL with retries, exponential backoff, jitter,
+    User-Agent rotation, and mirror rotation.
+    Returns (response, actual_url) on success, or (None, original_url) on final failure.
+    """
+    last_error_message = "Unknown error"
+    retries = 0
+    max_retries = 4 # Total 4 attempts (0, 1, 2, 3)
+    original_url = url # Store original URL for final failure return
+
+    while retries < max_retries:
+        current_attempt_urls = _generic_build_mirror_urls(original_url)
+        current_attempt_url = current_attempt_urls[0] # Take the first available after shuffling and filtering
+
+        # 3. User-Agent Rotation
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept-Language": random.choice(["en-US,en;q=0.9", "es-ES,es;q=0.8", "fr-FR,fr;q=0.7", "en;q=0.9"]), # Rotate occasionally
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        }
+
+        log.debug(f"Attempt {retries + 1}/{max_retries} for URL: {current_attempt_url} (original: {original_url})")
+        log.debug(f"  Using User-Agent: {headers['User-Agent']}")
+
         try:
-            resp = (SCRAPER or SESSION).get(attempt_url, timeout=15)
+            # Existing _warm_session logic
+            parsed = urlparse(current_attempt_url)
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            _warm_session(base)
+            time.sleep(0.8) # Initial small delay before request
+
+            resp = (SCRAPER or SESSION).get(current_attempt_url, timeout=15, headers=headers)
+            
+            # 1. Retry logic - Specific Status codes
+            retry_status_codes = [429, 502, 503, 504, 408]
+            if resp.status_code in retry_status_codes:
+                last_error_message = f"HTTP {resp.status_code} - Server/Rate Limit Error"
+                log.warning(f"{last_error_message} for {current_attempt_url}. Retrying...")
+                _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark current mirror as failed
+                
+                retries += 1
+                if retries >= max_retries: break # Exit if max retries reached
+
+                # 2. Exponential backoff with jitter
+                base_wait = 2 ** retries
+                jitter = random.uniform(0, base_wait * 0.3)
+                actual_wait = base_wait + jitter
+                log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
+                time.sleep(actual_wait)
+                continue # Go to next retry attempt
+            
+            # Keep existing cloudscraper fallback for 403
             if resp.status_code == 403:
+                log.warning(f"403 Forbidden for {current_attempt_url}. Attempting Cloudflare bypass.")
+                _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark domain as potentially problematic
+                cloudscraper_success = False
                 if CLOUDSCRAPER and not SCRAPER:
                     try:
                         cs = cloudscraper.create_scraper()
-                        resp2 = cs.get(attempt_url, timeout=20)
-                        if resp2.status_code == 200: return resp2, attempt_url
-                    except Exception: pass
+                        resp2 = cs.get(current_attempt_url, timeout=20, headers=headers)
+                        if resp2.status_code == 200:
+                            log.debug(f"Cloudflare bypass successful for {current_attempt_url}.")
+                            return resp2, current_attempt_url
+                        last_error_message = f"403 Forbidden - Cloudflare bypass failed (status: {resp2.status_code})"
+                    except Exception as cs_e:
+                        last_error_message = f"403 Forbidden - Cloudflare bypass failed ({type(cs_e).__name__}: {str(cs_e)})"
                 elif SCRAPER:
                     try:
-                        time.sleep(2)
-                        resp2 = SCRAPER.get(attempt_url, timeout=30)
-                        if resp2.status_code == 200: return resp2, attempt_url
-                    except Exception: pass
-                last_error = f"403 Forbidden — Cloudflare protected"
-                continue
-            resp.raise_for_status()
-            return resp, attempt_url
-        except Exception as e:
-            last_error = str(e)
-            continue
-    raise Exception(f"{last_error} — All mirrors failed.")
+                        time.sleep(2) # Give Cloudscraper time if it's already active
+                        resp2 = SCRAPER.get(current_attempt_url, timeout=30, headers=headers)
+                        if resp2.status_code == 200:
+                            log.debug(f"Cloudscraper re-attempt successful for {current_attempt_url}.")
+                            return resp2, current_attempt_url
+                        last_error_message = f"403 Forbidden - SCRAPER re-attempt failed (status: {resp2.status_code})"
+                    except Exception as scr_e:
+                        last_error_message = f"403 Forbidden - SCRAPER re-attempt failed ({type(scr_e).__name__}: {str(scr_e)})"
+                
+                # If Cloudflare bypass/re-attempt failed, treat as retryable error
+                log.warning(f"{last_error_message}. Retrying...")
+                
+                retries += 1
+                if retries >= max_retries: break # Exit if max retries reached
+
+                base_wait = 2 ** retries
+                jitter = random.uniform(0, base_wait * 0.3)
+                actual_wait = base_wait + jitter
+                log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
+                time.sleep(actual_wait)
+                continue # Go to next retry attempt
+            
+            resp.raise_for_status() # Raises HTTPError for other bad responses (4xx or 5xx)
+            log.info(f"Successfully fetched {current_attempt_url}")
+            return resp, current_attempt_url
+
+        # 1. Retry logic - Requests exceptions
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_error_message = f"Network error ({type(e).__name__}): {str(e)}"
+            log.warning(f"{last_error_message} for {current_attempt_url}. Retrying...")
+            _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark domain as failed
+            
+            retries += 1
+            if retries >= max_retries: break # Exit if max retries reached
+
+            # 2. Exponential backoff with jitter
+            base_wait = 2 ** retries
+            jitter = random.uniform(0, base_wait * 0.3)
+            actual_wait = base_wait + jitter
+            log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
+            time.sleep(actual_wait)
+            continue # Go to next retry attempt
+        except requests.exceptions.RequestException as e: # Catch other request-related errors (e.g., HTTPError from raise_for_status for non-retryable codes)
+            last_error_message = f"Request failed ({type(e).__name__}): {str(e)}"
+            log.warning(f"{last_error_message} for {current_attempt_url}. Retrying...")
+            _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark domain as failed
+            
+            retries += 1
+            if retries >= max_retries: break # Exit if max retries reached
+
+            base_wait = 2 ** retries
+            jitter = random.uniform(0, base_wait * 0.3)
+            actual_wait = base_wait + jitter
+            log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
+            time.sleep(actual_wait)
+            continue # Go to next retry attempt
+        except Exception as e: # Catch any other unexpected errors
+            last_error_message = f"Unexpected error ({type(e).__name__}): {str(e)}"
+            log.error(f"{last_error_message} for {current_attempt_url}. Retrying...")
+            _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark domain as failed
+            
+            retries += 1
+            if retries >= max_retries: break # Exit if max retries reached
+
+            base_wait = 2 ** retries
+            jitter = random.uniform(0, base_wait * 0.3)
+            actual_wait = base_wait + jitter
+            log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
+            time.sleep(actual_wait)
+            continue # Go to next retry attempt
+    
+    log.error(f"Final failure for {original_url} after {retries} retries. Last error: {last_error_message}")
+    return None, original_url # Return None and original URL on final failure
 
 
 def _fetch_chapter_generic(url: str):
@@ -1629,6 +1812,11 @@ def find_next_chapter(url: str):
 
     try:
         resp, actual_url = _generic_get_with_retry(url)
+        if actual_url != url:
+            log.warning(
+                "find_next_chapter: URL redirected — nav scraping may fail on unfamiliar layout",
+                original=url, redirected_to=actual_url,
+            )
         soup = BeautifulSoup(resp.text, "html.parser")
         parsed = urlparse(actual_url)
         base = f"{parsed.scheme}://{parsed.netloc}"
@@ -1648,25 +1836,56 @@ class DownloadManager:
         self.worker_thread = threading.Thread(target=self._worker)
         self.worker_thread.daemon = True
         self.worker_thread.start()
+        # 1. Add locks
+        self._book_locks = {}
+        self._book_locks_lock = threading.Lock()
+        self._active_lock = threading.Lock()
+        log.debug("DownloadManager: Initialized with locks")
+
+    # 2. Add helper method
+    def _get_book_lock(self, book_name):
+        log.debug(f"DownloadManager: _get_book_lock called for {book_name}")
+        with self._book_locks_lock:
+            if book_name not in self._book_locks:
+                self._book_locks[book_name] = threading.Lock()
+            return self._book_locks[book_name]
 
     def cancel_book(self, book_name):
         """Permanently cancel all activity for a book. Called when user deletes it."""
-        self.cancelled_books.add(book_name)
-        self.active_downloads.pop(book_name, None)
-        if book_name in self._queue_order:
-            self._queue_order.remove(book_name)
-        log.legion.debug("DownloadManager.cancel_book", book=book_name, cancelled_books=list(self.cancelled_books))
-        log.debug("cancel_book called", book=book_name)
+        log.debug(f"DownloadManager: Attempting to cancel book {book_name}")
+        # 7. Acquire book lock AND active_lock
+        book_lock = self._get_book_lock(book_name)
+        with book_lock:
+            log.debug(f"DownloadManager: Acquired book lock for {book_name} in cancel_book")
+            with self._active_lock:
+                log.debug(f"DownloadManager: Acquired active_lock for {book_name} in cancel_book")
+                self.cancelled_books.add(book_name)
+                # It's important to remove from active_downloads ONLY if it was there to begin with
+                # to avoid potential issues if it's not present. pop(key, None) handles this.
+                self.active_downloads.pop(book_name, None)
+                if book_name in self._queue_order:
+                    self._queue_order.remove(book_name)
+                log.legion.debug("DownloadManager.cancel_book", book=book_name, cancelled_books=list(self.cancelled_books))
+                log.debug(f"DownloadManager: Book {book_name} cancelled. Released active_lock and book lock.")
 
     def get_queue_snapshot(self) -> list[str]:
         """Return current queue order (copy)."""
-        return list(self._queue_order)
+        with self._active_lock:
+            log.debug("DownloadManager: Acquired active_lock in get_queue_snapshot")
+            snapshot = list(self._queue_order)
+            log.debug("DownloadManager: Released active_lock in get_queue_snapshot")
+            return snapshot
 
     def get_chapter_rate(self, book_name: str) -> float:
         """Return average chapters/minute for active download, or 0."""
-        book = self.active_downloads.get(book_name)
+        # This method reads from active_downloads, so it should be protected.
+        with self._active_lock:
+            log.debug(f"DownloadManager: Acquired active_lock for {book_name} in get_chapter_rate")
+            book = self.active_downloads.get(book_name)
+            log.debug(f"DownloadManager: Released active_lock for {book_name} in get_chapter_rate")
         if not book:
             return 0.0
+        # No need to lock book['download_state'] access here as it's a copy
         dl = book.get("download_state", {})
         ts = dl.get("timestamp", 0)
         cnt = dl.get("total_chapters_downloaded", 0)
@@ -1681,115 +1900,194 @@ class DownloadManager:
         while self.running:
             try:
                 book_name, book, progress = self.download_queue.get(timeout=1)
-                if book_name in self.cancelled_books:
-                    log.legion.debug("DownloadManager: skipping cancelled book", book=book_name)
-                    log.debug("Skipping cancelled book in queue", book=book_name)
-                    continue
+                # 5. In queue_download (already handled by queue_download lock)
+                # This check happens *before* _download_book, so no need for book lock here for cancelled_books
+                # The cancelled_books set itself needs protection, though.
+                with self._book_locks_lock: # Protect access to self.cancelled_books
+                    log.debug(f"DownloadManager: Acquired _book_locks_lock in _worker (cancelled_books check)")
+                    if book_name in self.cancelled_books:
+                        log.legion.debug("DownloadManager: skipping cancelled book", book=book_name)
+                        log.debug("Skipping cancelled book in queue", book=book_name)
+                        log.debug(f"DownloadManager: Released _book_locks_lock in _worker (cancelled_books check)")
+                        continue
+                    log.debug(f"DownloadManager: Released _book_locks_lock in _worker (cancelled_books check)")
+
                 self._download_book(book_name, book, progress)
             except queue.Empty:
                 continue
 
     def _download_book(self, book_name, book, progress):
-        if book_name in self.cancelled_books:
-            log.legion.debug("DownloadManager._download_book: already cancelled, aborting", book=book_name)
-            log.info("Download aborted — book is cancelled", book=book_name)
-            return
-        
-        if book_name in self._queue_order:
-            self._queue_order.remove(book_name)
+        log.debug(f"DownloadManager: _download_book started for {book_name}")
+        # 3. Acquire book lock at the START of the method
+        book_lock = self._get_book_lock(book_name)
+        with book_lock:
+            log.debug(f"DownloadManager: Acquired book lock for {book_name} in _download_book")
 
-        book['download_state']['status'] = 'downloading'
-        save_progress(progress)
-        # _sync_start_url: set by AutoSyncWorker — already the next undownloaded chapter URL
-        sync_start = book.get('download_state', {}).get('_sync_start_url')
-        if sync_start:
-            start_url = sync_start
-            book['download_state'].pop('_sync_start_url', None)
-        else:
-            start_url = book.get('current_url')
-            last_downloaded = book.get('download_state', {}).get('last_downloaded_chapter')
-            # Guard: reject corrupted /null URLs from JS artifacts
-            if last_downloaded and (last_downloaded.endswith('/null') or
-                                    last_downloaded.endswith('/undefined') or
-                                    '/null' in last_downloaded.split('/')[-1:]):
-                last_downloaded = None
-                book['download_state']['last_downloaded_chapter'] = None
-            if last_downloaded:
-                start_url = find_next_chapter(last_downloaded)
-        chapter_num = book.get('download_state', {}).get('total_chapters_downloaded', 0) + 1
-        url = start_url
-        seen = set()
-        while url and url not in seen:
-            seen.add(url)
-            if book_name in self.cancelled_books:
-                log.legion.debug("DownloadManager: mid-download cancel detected, stopping", book=book_name)
-                log.info("Mid-download cancel detected", book=book_name)
-                self.active_downloads.pop(book_name, None)
-                return
-            if book['download_state'].get('pause_requested'):
-                book['download_state']['status'] = 'paused'
-                book['download_state']['pause_requested'] = False
-                save_progress(progress)
-                self.active_downloads.pop(book_name, None)
-                return
-            try:
-                title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url)
-                if error or not paragraphs:
-                    reason = error or 'No content returned'
-                    log.error("Chapter fetch failed during download", book=book_name, url=url, reason=reason)
-                    book['download_state']['failed_chapters'].append(url)
-                    book['download_state']['last_error'] = reason
-                    save_progress(progress)
-                    # Stop — chapter missing means we've hit the end of released chapters
-                    break
+            # Check cancelled_books inside book_lock for consistency
+            with self._book_locks_lock: # Protect self.cancelled_books access
+                log.debug(f"DownloadManager: Acquired _book_locks_lock in _download_book (cancelled check)")
+                if book_name in self.cancelled_books:
+                    log.legion.debug("DownloadManager._download_book: already cancelled, aborting", book=book_name)
+                    log.info("Download aborted — book is cancelled", book=book_name)
+                    log.debug(f"DownloadManager: Released _book_locks_lock and book lock for {book_name} in _download_book (cancelled check)")
+                    return
+                log.debug(f"DownloadManager: Released _book_locks_lock in _download_book (cancelled check)")
+
+            with self._active_lock: # Protect _queue_order access
+                log.debug(f"DownloadManager: Acquired active_lock for {book_name} in _download_book (_queue_order check)")
+                if book_name in self._queue_order:
+                    self._queue_order.remove(book_name)
+                log.debug(f"DownloadManager: Released active_lock for {book_name} in _download_book (_queue_order check)")
+
+            # Use "with lock:" around ALL code that reads/writes book['download_state']
+            # This applies to the entire block as book['download_state'] is accessed/modified extensively.
+            book['download_state']['status'] = 'downloading'
+            save_progress(progress) # This needs to handle its own thread-safety for saving the whole progress dict
+
+            sync_start = book.get('download_state', {}).get('_sync_start_url')
+            if sync_start:
+                start_url = sync_start
+                book['download_state'].pop('_sync_start_url', None)
+            else:
+                start_url = book.get('current_url')
+                last_downloaded = book.get('download_state', {}).get('last_downloaded_chapter')
+                # Guard: reject corrupted /null URLs from JS artifacts
+                if last_downloaded and (last_downloaded.endswith('/null') or
+                                        last_downloaded.endswith('/undefined') or
+                                        '/null' in last_downloaded.split('/')[-1:]):
+                    last_downloaded = None
+                    book['download_state']['last_downloaded_chapter'] = None
+                if last_downloaded:
+                    start_url = find_next_chapter(last_downloaded)
                 else:
-                    # Extract real chapter number from title for accurate tracking
-                    import re as _re2
-                    _m = _re2.search(r'chapter[\s\-_]*(\d+)', title, _re2.IGNORECASE)
-                    real_ch_num = int(_m.group(1)) if _m else chapter_num
-                    append_chapter_to_file(book_name, real_ch_num, title, paragraphs)
-                    book['download_state']['last_downloaded_chapter'] = url
-                    book['download_state']['last_downloaded_chapter_num'] = real_ch_num
-                    book['download_state']['total_chapters_downloaded'] =                         book['download_state'].get('total_chapters_downloaded', 0) + 1
-                    book['download_state']['timestamp'] = time.time()
-                    chapter_num += 1
-                    url = next_url
-                    save_progress(progress)  # save every chapter so UI stays current
-            except Exception as exc:
-                log.error("Exception during chapter download", book=book_name, url=url, error=str(exc))
-                book['download_state']['failed_chapters'].append(url)
-                book['download_state']['last_error'] = str(exc)
-                save_progress(progress)
-                break
-        try:
-            dl_path = get_book_path(book_name)
-            book['download_state']['download_path'] = dl_path
-        except Exception:
-            pass
-        book['download_state']['status'] = 'completed'
-        save_progress(progress)
-        self.active_downloads.pop(book_name, None)  # no longer active
+                    # No previous chapter — current_url is the book landing page, not a chapter.
+                    # Resolve the first chapter URL before starting the download loop.
+                    resolved = resolve_first_chapter_url(start_url)
+                    if resolved:
+                        log.info("Resolved first chapter URL from landing page", book=book_name, first_chapter=resolved)
+                        start_url = resolved
+                    else:
+                        log.error("Could not resolve first chapter URL from landing page — aborting download", book=book_name, landing=start_url)
+                        book['download_state']['status'] = 'idle'
+                        book['download_state']['last_error'] = 'Could not find first chapter URL from landing page'
+                        save_progress(progress)
+                        return
+
+            chapter_num = book.get('download_state', {}).get('total_chapters_downloaded', 0) + 1
+            url = start_url
+            seen = set()
+            while url and url not in seen:
+                seen.add(url)
+                # Check cancelled_books mid-download
+                with self._book_locks_lock: # Protect self.cancelled_books access
+                    log.debug(f"DownloadManager: Acquired _book_locks_lock in _download_book (mid-download cancel check)")
+                    if book_name in self.cancelled_books:
+                        log.legion.debug("DownloadManager: mid-download cancel detected, stopping", book=book_name)
+                        log.info("Mid-download cancel detected", book=book_name)
+                        log.debug(f"DownloadManager: Released _book_locks_lock and book lock for {book_name} in _download_book (mid-download cancel)")
+                        return
+                    log.debug(f"DownloadManager: Released _book_locks_lock in _download_book (mid-download cancel)")
+
+                if book['download_state'].get('pause_requested'):
+                    book['download_state']['status'] = 'paused'
+                    book['download_state']['pause_requested'] = False
+                    save_progress(progress)
+                    log.debug(f"DownloadManager: Released book lock for {book_name} in _download_book (pause requested)")
+                    return
+                try:
+                    title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url)
+                    if error or not paragraphs:
+                        reason = error or 'No content returned'
+                        log.error("Chapter fetch failed during download", book=book_name, url=url, reason=reason)
+                        book['download_state']['failed_chapters'].append(url)
+                        book['download_state']['last_error'] = reason
+                        save_progress(progress)
+                        # Stop — chapter missing means we've hit the end of released chapters
+                        break
+                    else:
+                        # Extract real chapter number from title for accurate tracking
+                        import re as _re2 # Using alias to avoid conflict if re is imported differently
+                        _m = _re2.search(r'chapter[\s\-_]*(\d+)', title, _re2.IGNORECASE)
+                        real_ch_num = int(_m.group(1)) if _m else chapter_num
+                        append_chapter_to_file(book_name, real_ch_num, title, paragraphs)
+                        book['download_state']['last_downloaded_chapter'] = url
+                        book['download_state']['last_downloaded_chapter_num'] = real_ch_num
+                        book['download_state']['total_chapters_downloaded'] =                         book['download_state'].get('total_chapters_downloaded', 0) + 1
+                        book['download_state']['timestamp'] = time.time()
+                        chapter_num += 1
+                        url = next_url
+                        save_progress(progress)  # save every chapter so UI stays current
+                except Exception as exc:
+                    log.error("Exception during chapter download", book=book_name, url=url, error=str(exc))
+                    book['download_state']['failed_chapters'].append(url)
+                    book['download_state']['last_error'] = str(exc)
+                    save_progress(progress)
+                    break
+            try:
+                dl_path = get_book_path(book_name)
+                book['download_state']['download_path'] = dl_path
+            except Exception:
+                pass
+            book['download_state']['status'] = 'completed'
+            save_progress(progress)
+            with self._active_lock: # Protect active_downloads access
+                log.debug(f"DownloadManager: Acquired active_lock for {book_name} in _download_book (pop active_downloads)")
+                self.active_downloads.pop(book_name, None)  # no longer active
+                log.debug(f"DownloadManager: Released active_lock for {book_name} in _download_book (pop active_downloads)")
+
+        log.debug(f"DownloadManager: Released book lock for {book_name} in _download_book (end)")
+
 
     def queue_download(self, book_name, book, progress):
-        if book_name in self.cancelled_books:
-            log.legion.debug("DownloadManager.queue_download: refused for cancelled book", book=book_name)
-            log.warning("queue_download refused — book is cancelled", book=book_name)
-            return
-        if book_name not in self.active_downloads:
-            self.active_downloads[book_name] = book  # track so pause/UI can find it
-            self._queue_order.append(book_name)
-            self.download_queue.put((book_name, book, progress))
+        log.debug(f"DownloadManager: Attempting to queue download for {book_name}")
+        # 5. Acquire book lock before checking cancelled_books
+        book_lock = self._get_book_lock(book_name)
+        with book_lock:
+            log.debug(f"DownloadManager: Acquired book lock for {book_name} in queue_download")
+            with self._book_locks_lock: # Protect access to self.cancelled_books
+                log.debug(f"DownloadManager: Acquired _book_locks_lock in queue_download (cancelled_books check)")
+                if book_name in self.cancelled_books:
+                    log.legion.debug("DownloadManager.queue_download: refused for cancelled book", book=book_name)
+                    log.warning("queue_download refused — book is cancelled", book=book_name)
+                    log.debug(f"DownloadManager: Released _book_locks_lock and book lock for {book_name} in queue_download")
+                    return
+                log.debug(f"DownloadManager: Released _book_locks_lock in queue_download (cancelled_books check)")
+
+            # 5. Acquire active_lock before modifying active_downloads and _queue_order
+            with self._active_lock:
+                log.debug(f"DownloadManager: Acquired active_lock for {book_name} in queue_download")
+                if book_name not in self.active_downloads:
+                    self.active_downloads[book_name] = book  # track so pause/UI can find it
+                    self._queue_order.append(book_name)
+                    self.download_queue.put((book_name, book, progress))
+                    log.debug(f"DownloadManager: Book {book_name} queued. Released active_lock.")
+                else:
+                    log.debug(f"DownloadManager: Book {book_name} already in active_downloads. Released active_lock.")
+            log.debug(f"DownloadManager: Released book lock for {book_name} in queue_download")
+
 
     def pause_download(self, book_name):
-        if book_name in self.active_downloads:
-            book = self.active_downloads[book_name]
-            if book.get('download_state', {}).get('status') == 'downloading':
-                book['download_state']['pause_requested'] = True
+        log.debug(f"DownloadManager: Attempting to pause download for {book_name}")
+        # 6. Acquire book lock before checking status and setting pause_requested
+        book_lock = self._get_book_lock(book_name)
+        with book_lock:
+            log.debug(f"DownloadManager: Acquired book lock for {book_name} in pause_download")
+            # Need to read active_downloads here, so acquire active_lock too
+            with self._active_lock:
+                log.debug(f"DownloadManager: Acquired active_lock for {book_name} in pause_download (checking active_downloads)")
+                if book_name in self.active_downloads:
+                    book = self.active_downloads[book_name]
+                    if book.get('download_state', {}).get('status') == 'downloading':
+                        book['download_state']['pause_requested'] = True
+                        log.debug(f"DownloadManager: Pause requested for {book_name}. Released active_lock and book lock.")
+                log.debug(f"DownloadManager: Released active_lock for {book_name} in pause_download")
 
     def shutdown(self):
+        log.debug("DownloadManager: Shutting down worker thread")
         self.running = False
         if self.worker_thread.is_alive():
             self.worker_thread.join(timeout=2)
+        log.debug("DownloadManager: Worker thread shut down.")
 
 
 download_manager = DownloadManager()
