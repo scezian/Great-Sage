@@ -52,7 +52,10 @@ from great_sage_core import (
     start_mobile_server,
 )
 
-MPV_SOCKET_PATH = os.path.expanduser("~/.great_sage_mpv_socket")
+# MPV_SOCKET_PATH is defined in gs_theme.py (imported via 'from gs_theme import *' above).
+# Do NOT redefine it here — both gs_matrix_ui and any external IPC caller must
+# use the same socket path or IPC commands will be sent to the wrong socket.
+# Current value: MPV_SOCKET_PATH = "/tmp/mpvsocket_gs"  (see gs_theme.py)
 
 
 class TrailerPickerDialog(QDialog):

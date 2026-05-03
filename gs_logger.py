@@ -38,7 +38,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-LOG_DIR      = Path.home() / "Documents" / "great sage" / "logs"
+LOG_DIR      = Path.home() / "Documents" / "Great-Sage" / "logs"
 MAX_AGE_DAYS = 30
 LOG_LEVEL    = logging.DEBUG   # log everything
 

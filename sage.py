@@ -62,7 +62,7 @@ except ImportError:
 
 GROQ_API_KEY     = os.getenv("GROQ_API_KEY")
 GROQ_BASE        = "https://api.groq.com/openai/v1"
-GROQ_MODEL       = "llama-3.3-70b-versatile"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 REQUEST_TIMEOUT  = 120
 TAVILY_API_KEY   = os.getenv("TAVILY_API_KEY")
 TAVILY_API       = "https://api.tavily.com/search"

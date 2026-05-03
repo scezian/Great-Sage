@@ -53,26 +53,12 @@ from great_sage_core import (
     GROQ_MODEL_VERSATILE, GROQ_MODEL_INSTANT,
 )
 
-_legion_mod_cache = None
-
 def _get_legion_mod():
-    global _legion_mod_cache
-    if _legion_mod_cache is None:
-        try:
-            import importlib.util, sys as _sys
-            spec = importlib.util.find_spec("legion")
-            if spec:
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
-                _legion_mod_cache = (mod, None)
-            else:
-                _legion_mod_cache = (None, "legion module not found")
-        except Exception as e:
-            _legion_mod_cache = (None, str(e))
-    return _legion_mod_cache
+    from great_sage_core import legion_mod
+    return legion_mod()
 
 from gs_widgets import ReadingRoomOverlay
-from gs_matrix_ui import _TTSWorker, CalendarDialog, HighlightsDialog, WrappedDialog
+from gs_matrix_ui import CalendarDialog, HighlightsDialog, WrappedDialog
 
 _BG_MODES = {
     "dark":  (BG3,      TEXT),
@@ -105,12 +91,7 @@ class LegionPage(QWidget):
         self._chapter_loading = False # True while a new chapter is being set up
         # Scroll position memory: {book_name: {ch_num: fraction 0.0-1.0}}
         self._scroll_positions = {}
-        # TTS state
-        self._tts_active   = False
-        self._tts_paused   = False
-        self._tts_paragraphs: list[str] = []   # current chapter split into paragraphs
-        self._tts_index    = 0      # which paragraph we're reading
-        self._tts_worker   = None   # QThread
+
         
         # Worker cleanup
         self._meta_workers = [] # Track all background workers for cleanup
@@ -148,8 +129,7 @@ class LegionPage(QWidget):
             self._sage_worker.terminate()
             self._sage_worker.wait(1000)
             self._sage_worker = None
-        # TTS worker
-        self._stop_tts()
+
         # Discovery / meta workers
         self._disc_cancel_worker()
         for w in list(self._meta_workers):
@@ -273,7 +253,6 @@ class LegionPage(QWidget):
 
         # ── Right panel: stacked content area (continued from sidebar build above)
         rv.addWidget(self._right_stack, 1)
-        root.addWidget(right, 1)
 
         # ── Stack page 0: Jump In ──────────────────────────────────────────────
         jumpin_w = QWidget()
@@ -346,12 +325,17 @@ class LegionPage(QWidget):
 
         # Source list (name, id) — verified working sources only
         self._disc_sources = [
+            ("All Sources","global"),
             ("NovelBin","novelbin"), ("NovelFire","novelfire"), ("LightNovelPub","lightnovelpub"),
-            ("Royal Road","royalroad"), ("Scribble Hub","scribblehub"), ("Wuxia World","wuxiaworld"), ("Groq AI","groq")
+            ("Royal Road","royalroad"), ("Scribble Hub","scribblehub"), ("Wuxia World","wuxiaworld"),
+            ("Novel Hall","novelhall"), ("Novel Pub","novelpub"), ("Novel Cool","novelcool"),
+            ("Novel Updates","novelupdates"),
+            ("Groq AI","groq"),
         ]
-        self._disc_active_src_id = "novelbin"
+        self._disc_active_src_id = "global"
         self._disc_src_statuses  = {}
         self._disc_health_worker = None
+        self._global_worker      = None
 
         # ── Top bar: search ─────────────────────────────────────────────────────
         disc_top = QWidget()
@@ -450,15 +434,24 @@ class LegionPage(QWidget):
         self.discover_list.itemClicked.connect(self._disc_book_clicked)
         disc_v.addWidget(self.discover_list, 1)
 
-        self._disc_results      = []
-        self._disc_worker       = None
-        self._disc_page         = 1
-        self._disc_loading_more = False   # True while a next-page fetch is in flight
-        self._disc_exhausted    = False   # True when a page returned 0 results
-        self._disc_seen_titles  = set()   # deduplication across pages
+        self._disc_results        = []
+        self._disc_worker         = None
+        self._disc_page           = 1
+        self._disc_loading_more   = False   # True while a next-page fetch is in flight
+        self._disc_exhausted      = False   # True when a page returned 0 results
+        self._disc_seen_titles    = set()   # deduplication across pages
+        self._disc_pages_remaining = 0      # extra pages to auto-load after a manual Next Page
+        self._disc_src_statuses   = {}      # {src_id: True/False} from health check
 
         # Infinite scroll — trigger next page when near the bottom
         self.discover_list.verticalScrollBar().valueChanged.connect(self._disc_on_scroll)
+
+        # Enable smooth scrolling for mouse wheel, touchpad and touch screen
+        self.discover_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.discover_list.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self._disc_scroll_filter = _DiscoverScrollFilter(self.discover_list)
+        self.discover_list.viewport().installEventFilter(self._disc_scroll_filter)
+        self.discover_list.installEventFilter(self._disc_scroll_filter)
 
         self._right_stack.addWidget(disc_w)   # index 2
 
@@ -523,22 +516,7 @@ class LegionPage(QWidget):
         self._fb_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:11px;")
         self._fb_btn.clicked.connect(lambda: self._font_delta(+1))
 
-        self._rs_btn = QPushButton("⚙ READER")
-        self._rs_btn.setFixedWidth(76)
-        self._rs_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._rs_btn.setToolTip("Reader display settings")
-        self._rs_btn.clicked.connect(self._toggle_reader_settings)
 
-        self._rr_btn = QPushButton("\u2b1b ROOM")
-
-        self._rr_btn.setFixedWidth(62)
-        self._rr_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._rr_btn.setToolTip("Open Reading Room \u2014 distraction-free mode")
-        self._rr_btn.clicked.connect(self._open_reading_room)
         self._sage_top_btn = QPushButton("\u2736 SAGE")
         self._sage_top_btn.setFixedWidth(68)
         self._sage_top_btn.setStyleSheet(
@@ -546,6 +524,14 @@ class LegionPage(QWidget):
             f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
         self._sage_top_btn.setToolTip("Toggle Sage AI panel")
         self._sage_top_btn.clicked.connect(self._toggle_sage_panel)
+
+        self._lens_top_btn = QPushButton("◈ LENS")
+        self._lens_top_btn.setFixedWidth(68)
+        self._lens_top_btn.setStyleSheet(
+            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
+            f"font-size:9px;letter-spacing:1px;padding:5px 10px;border-radius:3px;")
+        self._lens_top_btn.setToolTip("Toggle Lens — paste a description to visualize it")
+        self._lens_top_btn.clicked.connect(self._toggle_lens_panel)
 
         self._notes_top_btn = QPushButton("\u270e NOTES")
         self._notes_top_btn.setFixedWidth(72)
@@ -555,16 +541,8 @@ class LegionPage(QWidget):
         self._notes_top_btn.setToolTip("Toggle chapter notes panel")
         self._notes_top_btn.clicked.connect(self._toggle_notes_panel)
         
-        self._tts_btn = QPushButton("◎ TTS")
-        self._tts_btn.setFixedWidth(58)
-        self._tts_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._tts_btn.setCheckable(True)
-        self._tts_btn.clicked.connect(self._toggle_tts)
-
         for b_ in (self._prev_btn, self._next_btn, self._fa_btn, self._fb_btn,
-                   self._rs_btn, self._rr_btn, self._sage_top_btn, self._notes_top_btn, self._tts_btn):
+                   self._sage_top_btn, self._lens_top_btn, self._notes_top_btn):
             tb.addWidget(b_)
         rw.addWidget(top_bar_w)
 
@@ -585,110 +563,6 @@ class LegionPage(QWidget):
         reader_body.setHandleWidth(2)
         reader_body.setStyleSheet(f"QSplitter::handle{{background:{BORDER};}}")
 
-        # Reader settings panel
-        self._rs_panel = QFrame()
-        self._rs_panel.setFixedWidth(220)
-        self._rs_panel.setStyleSheet(f"background:{BG2};border-right:1px solid {BORDER};")
-        self._rs_panel.setVisible(False)
-        rsv = QVBoxLayout(self._rs_panel)
-        rsv.setContentsMargins(14, 14, 14, 14)
-        rsv.setSpacing(12)
-
-        # Header
-        rs_hdr = QHBoxLayout()
-        rs_hdr.addWidget(lbl("READER  SETTINGS", ACCENT, 10, True))
-        rs_close = QPushButton("✕")
-        rs_close.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:12px;")
-        rs_close.clicked.connect(self._toggle_reader_settings)
-        rs_hdr.addStretch(); rs_hdr.addWidget(rs_close)
-        rsv.addLayout(rs_hdr); rsv.addWidget(hline())
-
-        # Section: TEXT
-        rsv.addWidget(lbl("TEXT", TEXT2, 9, True))
-        
-        # Font size
-        fs_row = QHBoxLayout()
-        fs_row.addWidget(lbl("Font Size", MUTED, 10))
-        self._rs_fs_val = lbl(f"{self._rs['font_size']}px", TEXT2, 10)
-        fs_row.addStretch(); fs_row.addWidget(self._rs_fs_val)
-        rsv.addLayout(fs_row)
-        
-        self._rs_fs_slider = QSlider(Qt.Orientation.Horizontal)
-        self._rs_fs_slider.setRange(12, 32)
-        self._rs_fs_slider.setValue(self._rs['font_size'])
-        self._rs_fs_slider.valueChanged.connect(lambda v: self._on_rs_changed("font_size", v))
-        rsv.addWidget(self._rs_fs_slider)
-
-        # Line height
-        lh_row = QHBoxLayout()
-        lh_row.addWidget(lbl("Line Height", MUTED, 10))
-        self._rs_lh_val = lbl(f"{self._rs['line_height']}", TEXT2, 10)
-        lh_row.addStretch(); lh_row.addWidget(self._rs_lh_val)
-        rsv.addLayout(lh_row)
-        
-        self._rs_lh_slider = QSlider(Qt.Orientation.Horizontal)
-        self._rs_lh_slider.setRange(120, 300)
-        self._rs_lh_slider.setValue(int(self._rs['line_height'] * 100))
-        self._rs_lh_slider.valueChanged.connect(lambda v: self._on_rs_changed("line_height", v/100.0))
-        rsv.addWidget(self._rs_lh_slider)
-
-        rsv.addSpacing(4); rsv.addWidget(hline())
-        
-        # Section: LAYOUT
-        rsv.addWidget(lbl("LAYOUT", TEXT2, 9, True))
-        
-        # H. Margin
-        hm_row = QHBoxLayout()
-        hm_row.addWidget(lbl("H. Margin", MUTED, 10))
-        self._rs_hm_val = lbl(f"{self._rs['padding_h']}px", TEXT2, 10)
-        hm_row.addStretch(); hm_row.addWidget(self._rs_hm_val)
-        rsv.addLayout(hm_row)
-        
-        self._rs_hm_slider = QSlider(Qt.Orientation.Horizontal)
-        self._rs_hm_slider.setRange(10, 200)
-        self._rs_hm_slider.setValue(self._rs['padding_h'])
-        self._rs_hm_slider.valueChanged.connect(lambda v: self._on_rs_changed("padding_h", v))
-        rsv.addWidget(self._rs_hm_slider)
-
-        # V. Padding
-        vp_row = QHBoxLayout()
-        vp_row.addWidget(lbl("V. Padding", MUTED, 10))
-        self._rs_vp_val = lbl(f"{self._rs['padding_v']}px", TEXT2, 10)
-        vp_row.addStretch(); vp_row.addWidget(self._rs_vp_val)
-        rsv.addLayout(vp_row)
-        
-        self._rs_vp_slider = QSlider(Qt.Orientation.Horizontal)
-        self._rs_vp_slider.setRange(10, 100)
-        self._rs_vp_slider.setValue(self._rs['padding_v'])
-        self._rs_vp_slider.valueChanged.connect(lambda v: self._on_rs_changed("padding_v", v))
-        rsv.addWidget(self._rs_vp_slider)
-
-        rsv.addSpacing(4); rsv.addWidget(hline())
-
-        # Section: BACKGROUND
-        rsv.addWidget(lbl("BACKGROUND", TEXT2, 9, True))
-        bg_row = QHBoxLayout()
-        bg_row.setSpacing(4)
-        self._bg_btns = {}
-        for mode in ["dark", "sepia", "white"]:
-            b = QPushButton(mode.capitalize())
-            b.setCheckable(True)
-            b.setChecked(self._rs["bg_mode"] == mode)
-            b.setFixedHeight(24)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda checked, m=mode: self._on_rs_changed("bg_mode", m))
-            bg_row.addWidget(b)
-            self._bg_btns[mode] = b
-        rsv.addLayout(bg_row)
-
-        rsv.addStretch()
-        
-        reset_btn = QPushButton("RESET DEFAULTS")
-        reset_btn.setStyleSheet(f"background:transparent;border:1px solid {BORDER};color:{MUTED};font-size:9px;padding:6px;border-radius:3px;")
-        reset_btn.clicked.connect(self._reset_rs)
-        rsv.addWidget(reset_btn)
-
-        reader_body.addWidget(self._rs_panel)
         self.reader = QTextEdit()
         self.reader.setReadOnly(True)
         self.reader.setWordWrapMode(QTextOption.WrapMode.WordWrap)
@@ -707,6 +581,7 @@ class LegionPage(QWidget):
 
         # Sage reading companion panel
         self._sage_panel = QFrame()
+        self._sage_panel.setFixedWidth(540)
         self._sage_panel.setStyleSheet(f"background:{BG2};border-left:1px solid {BORDER};")
         self._sage_panel.setVisible(False)
         sp = QVBoxLayout(self._sage_panel)
@@ -750,6 +625,76 @@ class LegionPage(QWidget):
         model_row.addStretch()
         sp.addLayout(model_row)
 
+        # ── Template chips: Who is / What is / Ask ────────────────────────
+        _tpl_base = (
+            f"font-size:9px;letter-spacing:0.5px;padding:3px 10px;border-radius:10px;"
+            f"border:1px solid {BORDER};background:#1e1915;color:#8a6d35;"
+        )
+        _tpl_hover_chapter = f"border-color:{ACCENT};color:{ACCENT};"
+        _tpl_sel_chapter   = f"border-color:#8a6d35;color:{TEXT};background:#261f18;"
+        _tpl_base_web      = (
+            f"font-size:9px;letter-spacing:0.5px;padding:3px 10px;border-radius:10px;"
+            f"border:1px solid #2a3a45;background:#151c22;color:#6ab0d4;"
+        )
+        _tpl_sel_web = f"border-color:#4a8aaa;color:#9dd0f0;background:#1a2830;"
+
+        def _tpl_style(kind: str, selected: bool) -> str:
+            if kind == "web":
+                base = _tpl_base_web
+                return base + (_tpl_sel_web if selected else "")
+            base = _tpl_base
+            return base + (_tpl_sel_chapter if selected else "")
+
+        self._sage_tpl_whois  = QPushButton("Who is")
+        self._sage_tpl_whatis = QPushButton("What is")
+        self._sage_tpl_ask    = QPushButton("Ask")
+        self._sage_active_tpl: str | None = None  # "whois" | "whatis" | "ask" | None
+
+        def _apply_tpl_styles():
+            t = self._sage_active_tpl
+            self._sage_tpl_whois.setStyleSheet(_tpl_style("chapter", t == "whois"))
+            self._sage_tpl_whatis.setStyleSheet(_tpl_style("chapter", t == "whatis"))
+            self._sage_tpl_ask.setStyleSheet(_tpl_style("web", t == "ask"))
+
+        def _set_tpl(name: str, prefix: str):
+            if self._sage_active_tpl == name:
+                # toggle off
+                self._sage_active_tpl = None
+                _apply_tpl_styles()
+                self._sage_q.setPlaceholderText("Who is Feng Yuan?  /  What is the Spirit Sea?")
+                return
+            self._sage_active_tpl = name
+            _apply_tpl_styles()
+            current = self._sage_q.text().strip()
+            # Strip any previous prefix before applying new one
+            for p in ("Who is ", "What is ", ""):
+                if current.lower().startswith(p.lower()) and p:
+                    current = current[len(p):].lstrip()
+                    break
+            self._sage_q.setText(prefix + current)
+            self._sage_q.setFocus()
+            self._sage_q.setCursorPosition(len(self._sage_q.text()))
+            if name == "ask":
+                self._sage_q.setPlaceholderText("Ask anything… (web search)")
+            elif name == "whois":
+                self._sage_q.setPlaceholderText("Who is Feng Yuan?")
+            else:
+                self._sage_q.setPlaceholderText("What is the Spirit Sea?")
+
+        self._sage_tpl_whois.clicked.connect(lambda: _set_tpl("whois",  "Who is "))
+        self._sage_tpl_whatis.clicked.connect(lambda: _set_tpl("whatis", "What is "))
+        self._sage_tpl_ask.clicked.connect(lambda: _set_tpl("ask",    ""))
+
+        _apply_tpl_styles()
+
+        tpl_row = QHBoxLayout()
+        tpl_row.setSpacing(4)
+        tpl_row.addWidget(self._sage_tpl_whois)
+        tpl_row.addWidget(self._sage_tpl_whatis)
+        tpl_row.addWidget(self._sage_tpl_ask)
+        tpl_row.addStretch()
+        sp.addLayout(tpl_row)
+
         self._sage_q = QLineEdit()
         self._sage_q.setPlaceholderText("Who is Feng Yuan?  /  What is the Spirit Sea?")
         self._sage_q.setStyleSheet(
@@ -759,6 +704,15 @@ class LegionPage(QWidget):
         sp.addWidget(self._sage_q)
         self._sage_ask_btn = btn("Ask Sage", "accent", self._sage_ask)
         sp.addWidget(self._sage_ask_btn)
+
+        # Web label — shown above answer box for Ask (web) queries
+        self._sage_web_label = QLabel("🌐  WEB RESULT")
+        self._sage_web_label.setStyleSheet(
+            f"background:#151c22;border:1px solid #2a3a45;border-bottom:none;"
+            f"color:#6ab0d4;font-size:9px;letter-spacing:1px;padding:4px 8px;"
+            f"border-radius:4px 4px 0 0;")
+        self._sage_web_label.setVisible(False)
+        sp.addWidget(self._sage_web_label)
 
         self._sage_answer = QTextEdit()
         self._sage_answer.setReadOnly(True)
@@ -771,6 +725,87 @@ class LegionPage(QWidget):
         self._sage_busy.setVisible(False); self._sage_busy.setFixedHeight(3)
         sp.addWidget(self._sage_busy)
         reader_body.addWidget(self._sage_panel)
+
+        # ── Lens panel ────────────────────────────────────────────────────────
+        self._lens_panel = QFrame()
+        self._lens_panel.setFixedWidth(540)
+        self._lens_panel.setStyleSheet(f"background:{BG2};border-left:1px solid {BORDER};")
+        self._lens_panel.setVisible(False)
+        lp = QVBoxLayout(self._lens_panel)
+        lp.setContentsMargins(14, 14, 14, 14)
+        lp.setSpacing(10)
+
+        # Header
+        lens_hdr = QHBoxLayout()
+        lens_hdr.addWidget(lbl("◈  LENS", ACCENT, 10, True))
+        lens_close = QPushButton("✕")
+        lens_close.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:12px;")
+        lens_close.clicked.connect(self._toggle_lens_panel)
+        lens_hdr.addStretch(); lens_hdr.addWidget(lens_close)
+        lp.addLayout(lens_hdr)
+        lp.addWidget(hline())
+
+        # Paste area
+        lens_hint = QLabel("Paste a character or place description:")
+        lens_hint.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:0.5px;")
+        lp.addWidget(lens_hint)
+
+        self._lens_input = QTextEdit()
+        self._lens_input.setPlaceholderText(
+            'e.g. She had silver hair that fell to her waist, eyes like shards of moonstone...')
+        self._lens_input.setFixedHeight(110)
+        self._lens_input.setStyleSheet(
+            f"background:{BG3};border:1px solid {BORDER};color:{TEXT};"
+            f"font-family:{FONT_BODY};font-size:12px;padding:8px;border-radius:3px;")
+        lp.addWidget(self._lens_input)
+
+        # Source selector
+        src_row = QHBoxLayout()
+        src_lbl = QLabel("SOURCE")
+        src_lbl.setStyleSheet(f"color:{MUTED};font-size:9px;letter-spacing:1px;")
+        src_row.addWidget(src_lbl)
+        self._lens_src_btns = {}
+        for src_id, src_label in [("flux", "FLUX"), ("anime", "ANIME")]:
+            b = QPushButton(src_label)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{MUTED};"
+                f"font-size:9px;letter-spacing:1px;padding:4px 10px;border-radius:3px;}}"
+                f"QPushButton:checked{{background:{ACCENT};color:{BG};border-color:{ACCENT};}}"
+                f"QPushButton:hover:!checked{{color:{TEXT};}}"
+            )
+            b.clicked.connect(lambda checked, sid=src_id: self._lens_set_source(sid))
+            src_row.addWidget(b)
+            self._lens_src_btns[src_id] = b
+        src_row.addStretch()
+        lp.addLayout(src_row)
+        self._lens_source = "flux"
+        self._lens_src_btns["flux"].setChecked(True)
+
+        # Generate button
+        self._lens_btn = QPushButton("◈  VISUALIZE")
+        self._lens_btn.setStyleSheet(
+            f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+            f"font-size:9px;letter-spacing:1.5px;padding:9px;border-radius:3px;")
+        self._lens_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lens_btn.clicked.connect(self._lens_generate)
+        lp.addWidget(self._lens_btn)
+
+        # Status label
+        self._lens_status = QLabel("")
+        self._lens_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lens_status.setStyleSheet(f"color:{MUTED};font-size:10px;")
+        lp.addWidget(self._lens_status)
+
+        # Image display
+        self._lens_image_lbl = QLabel()
+        self._lens_image_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lens_image_lbl.setMinimumHeight(200)
+        self._lens_image_lbl.setStyleSheet(
+            f"background:{BG3};border-radius:4px;color:{MUTED};font-size:11px;")
+        self._lens_image_lbl.setText("Image will appear here")
+        lp.addWidget(self._lens_image_lbl, 1)
 
         # Catalogue notes panel
         _CatPanel = _catalogue_panel_class()
@@ -802,8 +837,11 @@ class LegionPage(QWidget):
         except Exception:
             self._reader_slot = None
 
+        # Lens panel — must be last in splitter so index [-1] is always lens
+        reader_body.addWidget(self._lens_panel)
+
         self._reader_body = reader_body  # store ref for notes panel toggle
-        reader_body.setSizes([900, 320, 0, 0])
+        reader_body.setSizes([900, 320, 0, 0, 0])
         rw.addWidget(reader_body, 1)
 
         # ── Bottom chapter navigation bar ────────────────────────────────
@@ -932,6 +970,37 @@ class LegionPage(QWidget):
         self._detail_from_list = "jumpin"
         self._detail_download()
 
+    def _detail_move_to_bookmarks(self, name: str):
+        """Move a book from Jump In to Bookmarks (completed by default)."""
+        from PyQt6.QtWidgets import QInputDialog
+        statuses = ["Completed", "Reading", "Plan to Read", "Dropped"]
+        status, ok = QInputDialog.getItem(
+            self, "Move to Bookmarks",
+            f"Move '{name}' to Bookmarks as:",
+            statuses, 0, False
+        )
+        if not ok:
+            return
+        # Add to bookmarks
+        bm = bookmarks_data()
+        bm.setdefault("bookmarks", {})
+        ld   = legion_data()
+        book = ld.get("books", {}).get(name, {})
+        bm["bookmarks"][name] = {
+            "title":    name,
+            "url":      book.get("current_url", "") or book.get("url", ""),
+            "status":   status,
+            "metadata": book.get("metadata", {}),
+        }
+        save_json(LEGION_BOOKMARKS, bm)
+        # Remove from Jump In
+        ld["books"].pop(name, None)
+        save_json(LEGION_PROGRESS, ld)
+        # Refresh both lists
+        self.refresh()
+        self._populate_bookmarks()
+        log.legion.info("Book moved to bookmarks", book=name, status=status)
+
     # ── Discovery — source / browse / search ───────────────────────────────────
 
     def _disc_src_combo_changed(self, idx: int):
@@ -941,7 +1010,10 @@ class LegionPage(QWidget):
             return
         self._disc_active_src_id = sid
         self._disc_input.clear()
-        if sid == "groq":
+        if sid == "global":
+            self._disc_status_lbl.setText("Global Search — type a title and press Search to search all sources")
+            self.discover_list.clear()
+        elif sid == "groq":
             self._disc_status_lbl.setText("Groq AI — type a description and press Search")
             self.discover_list.clear()
         else:
@@ -981,16 +1053,7 @@ class LegionPage(QWidget):
         w.all_statuses.connect(self._disc_on_all_statuses)
         w.start()
 
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_disc_start_health_check).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_start_health_check).")
 
     def _disc_on_first_live(self, src_id: str):
         """Called as soon as the first working source is found."""
@@ -1015,7 +1078,9 @@ class LegionPage(QWidget):
         for i in range(self._disc_src_combo.count()):
             sid  = self._disc_src_combo.itemData(i)
             name = next((n for n, s in self._disc_sources if s == sid), sid)
-            if sid == "groq":
+            if sid == "global":
+                self._disc_src_combo.setItemText(i, f"  {name}")
+            elif sid == "groq":
                 self._disc_src_combo.setItemText(i, f"✦ {name}")
             elif statuses.get(sid) is False:
                 self._disc_src_combo.setItemText(i, f"✕ {name}")
@@ -1024,7 +1089,7 @@ class LegionPage(QWidget):
         self._disc_src_combo.blockSignals(False)
 
     def _disc_cancel_worker(self):
-        """Disconnect and abandon any running discovery/browse worker so its result is ignored."""
+        """Disconnect and abandon any running discovery/browse/global worker so its result is ignored."""
         if self._disc_worker is not None:
             try:
                 self._disc_worker.done.disconnect()
@@ -1032,10 +1097,23 @@ class LegionPage(QWidget):
             except Exception:
                 pass
             self._disc_worker = None
+        if self._global_worker is not None:
+            try:
+                self._global_worker.cancel()
+                self._global_worker.partial_results.disconnect()
+                self._global_worker.status_update.disconnect()
+                self._global_worker.done.disconnect()
+            except Exception:
+                pass
+            self._global_worker = None
 
     def _disc_browse(self):
         self._disc_cancel_worker() # This sets self._disc_worker = None
         src_id = self._disc_active_src_id
+        if src_id == "global":
+            self._disc_status_lbl.setText("Global Search — type a title and press Search to search all sources")
+            self.discover_list.clear()
+            return
         if src_id == "groq":
             self._disc_status_lbl.setText("Groq AI — type a description and press Search")
             self.discover_list.clear()
@@ -1047,11 +1125,12 @@ class LegionPage(QWidget):
         name = next((n for n, s in self._disc_sources if s == src_id), src_id)
         self._disc_status_lbl.setText(f"Loading {name}…")
         self.discover_list.clear()
-        self._disc_page         = 1
-        self._disc_loading_more = False
-        self._disc_exhausted    = False
-        self._disc_seen_titles  = set()
-        self._disc_results      = []
+        self._disc_page           = 1
+        self._disc_loading_more   = False
+        self._disc_exhausted      = False
+        self._disc_seen_titles    = set()
+        self._disc_results        = []
+        self._disc_pages_remaining = 0
         w = _BrowseWorker(src_id, "", genre, status, page=1) # Renamed to 'w'
         log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
         w.finished.connect(lambda: self._cleanup_worker(w))
@@ -1060,16 +1139,7 @@ class LegionPage(QWidget):
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
 
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_disc_browse).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_browse).")
 
     def _disc_search(self):
         self._disc_cancel_worker() # This sets self._disc_worker = None
@@ -1081,11 +1151,27 @@ class LegionPage(QWidget):
         self._disc_spin.setVisible(True)
         self._disc_next_btn.setVisible(False)
         self.discover_list.clear()
-        self._disc_page         = 1
-        self._disc_loading_more = False
-        self._disc_exhausted    = False
-        self._disc_seen_titles  = set()
-        self._disc_results      = []
+        self._disc_page           = 1
+        self._disc_loading_more   = False
+        self._disc_exhausted      = False
+        self._disc_seen_titles    = set()
+        self._disc_results        = []
+        self._disc_pages_remaining = 0
+        if src_id == "global":
+            if not query:
+                self._disc_search_btn.setEnabled(True)
+                self._disc_spin.setVisible(False)
+                self._disc_status_lbl.setText("Enter a title and press Search to search all sources")
+                return
+            self._disc_status_lbl.setText("Searching all sources…")
+            self._disc_next_btn.setVisible(False)
+            gw = _GlobalSearchWorker(query, self)
+            self._global_worker = gw
+            gw.partial_results.connect(self._disc_on_global_partial)
+            gw.status_update.connect(self._disc_status_lbl.setText)
+            gw.done.connect(self._disc_on_global_done)
+            gw.start()
+            return
         if src_id == "groq":
             if not query:
                 self._disc_search_btn.setEnabled(True)
@@ -1117,16 +1203,7 @@ class LegionPage(QWidget):
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
 
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_disc_search).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_search).")
 
     def _disc_on_results(self, results: list):
         self._disc_search_btn.setEnabled(True)
@@ -1162,9 +1239,14 @@ class LegionPage(QWidget):
         # Auto-prefetch until 80 items are loaded with a polite delay; then show Next button
         # Skip auto-prefetch when user is doing a search — only prefetch during browse (no query)
         active_query = self._disc_input.text().strip()
+        pages_remaining = getattr(self, "_disc_pages_remaining", 0)
         if total < 80 and not self._disc_exhausted and self._disc_active_src_id != "groq" and not active_query:
             QTimer.singleShot(1500, self._disc_load_next_page)  # 1.5s delay — avoids 429/403
+        elif pages_remaining > 0 and not self._disc_exhausted:
+            # Manual "Next Page" was pressed — chain remaining pages with a polite delay
+            QTimer.singleShot(1200, lambda: self._disc_load_next_page(manual=True, _pages_remaining=pages_remaining))
         else:
+            self._disc_pages_remaining = 0
             self._disc_next_btn.setVisible(True)
 
     def _disc_on_scroll(self, value: int):
@@ -1182,46 +1264,81 @@ class LegionPage(QWidget):
         if sb.maximum() > 0 and value >= sb.maximum() * 0.50:
             self._disc_load_next_page()
 
-    def _disc_load_next_page(self, manual=False):
-        self._disc_cancel_worker() # This sets self._disc_worker = None
+    def _disc_load_next_page(self, manual=False, _pages_remaining=4):
+        """Load the next page of results. When called manually, loads 4 pages in sequence."""
+        self._disc_cancel_worker()
         if self._disc_loading_more:
             return
         if self._disc_exhausted and not manual:
             return
         self._disc_loading_more = True
-        self._disc_exhausted    = False   # reset so new results can come in
+        self._disc_exhausted    = False
         self._disc_next_btn.setVisible(False)
         self._disc_page += 1
         self._disc_spin.setVisible(True)
         query  = self._disc_input.text().strip()
         genre  = self._disc_genre_combo.currentText()
         status = self._disc_status_combo.currentText()
-        w = _BrowseWorker( # Renamed to 'w'
+        # Remember how many more pages to auto-load after this one finishes
+        self._disc_pages_remaining = max(0, _pages_remaining - 1)
+        w = _BrowseWorker(
             self._disc_active_src_id, query, genre, status, page=self._disc_page)
         log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
         w.finished.connect(lambda: self._cleanup_worker(w))
-        self._disc_worker = w # Reassign _disc_worker
+        self._disc_worker = w
         self._disc_worker.done.connect(self._disc_on_results)
         self._disc_worker.error.connect(self._disc_on_error)
         self._disc_worker.start()
-
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_disc_load_next_page).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_load_next_page).")
 
     def _disc_on_error(self, msg: str):
         self._disc_search_btn.setEnabled(True)
         self._disc_spin.setVisible(False)
         self._disc_loading_more = False
-        self._disc_status_lbl.setText(f"⚠ {msg[:80]}")
         log.legion.error("Discovery error", error=msg)
+
+        # Auto-fallback: if the current source failed and we have other live sources,
+        # silently switch to the next working one and retry.
+        statuses = getattr(self, "_disc_src_statuses", {})
+        live_sources = [sid for sid, ok in statuses.items() if ok and sid not in ("global", "groq")]
+        current = self._disc_active_src_id
+        candidates = [s for s in live_sources if s != current]
+        if candidates and self._disc_page == 1:
+            next_src = candidates[0]
+            name = next((n for n, s in self._disc_sources if s == next_src), next_src)
+            self._disc_status_lbl.setText(f"⚠ {current} unavailable — trying {name}…")
+            self._disc_active_src_id = next_src
+            idx = self._disc_src_combo.findData(next_src)
+            if idx >= 0:
+                self._disc_src_combo.blockSignals(True)
+                self._disc_src_combo.setCurrentIndex(idx)
+                self._disc_src_combo.blockSignals(False)
+            QTimer.singleShot(600, self._disc_browse)
+        else:
+            self._disc_status_lbl.setText(f"⚠ {msg[:80]}")
+
+    def _disc_on_global_partial(self, results: list, src_id: str):
+        """Called each time a source in global search returns results."""
+        fresh = []
+        for r in results:
+            t = r.get("title", "").strip()
+            if t and t not in self._disc_seen_titles:
+                self._disc_seen_titles.add(t)
+                fresh.append(r)
+        if fresh:
+            self._disc_results.extend(fresh)
+            self._disc_append_grid(fresh)
+
+    def _disc_on_global_done(self):
+        """Called when all global search sources have responded."""
+        self._disc_search_btn.setEnabled(True)
+        self._disc_spin.setVisible(False)
+        total = len(self._disc_results)
+        if total == 0:
+            self._disc_status_lbl.setText("No results found across all sources")
+        else:
+            self._disc_status_lbl.setText(f"{total} result(s) across all sources")
+        self._global_worker = None
 
     def _disc_append_grid(self, results: list):
         """Add items to the grid immediately with placeholder covers, then load covers async."""
@@ -1231,7 +1348,9 @@ class LegionPage(QWidget):
             title   = r.get("title", "Unknown")
             display = title if len(title) <= 14 else title[:13] + "…"
             item    = QListWidgetItem(display)
-            item.setToolTip(title + ("\n" + r.get("desc", "") if r.get("desc") else ""))
+            src_badge = r.get("_global_src", "")
+            tip = title + (f"\n[{src_badge}]" if src_badge else "") + ("\n" + r.get("desc","") if r.get("desc") else "")
+            item.setToolTip(tip)
             item.setData(Qt.ItemDataRole.UserRole, r)
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
             # Placeholder cover immediately — real one loads async below
@@ -1255,16 +1374,7 @@ class LegionPage(QWidget):
             
             w.start()
             
-            # Keep a reference in _meta_workers (replacing _cover_workers logic)
             self._meta_workers.append(w)
-            # Enforce max size
-            if len(self._meta_workers) > self._max_stored_workers:
-                oldest = self._meta_workers[0]
-                if oldest.isFinished():
-                    self._meta_workers.pop(0)
-                    log.debug("Removed oldest finished worker from _meta_workers (_disc_append_grid).")
-                else:
-                    log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_disc_append_grid).")
 
     def _disc_on_cover_ready(self, item: "QListWidgetItem", px: "QPixmap"):
         from PyQt6.QtGui import QIcon
@@ -1303,24 +1413,45 @@ class LegionPage(QWidget):
     def _disc_book_clicked(self, item):
         r = item.data(Qt.ItemDataRole.UserRole)
         if not r: return
-        # Fetch metadata from the book page before opening the dialog
         url = r.get("url", "")
-        if url and not r.get("desc"):
-            mod, _ = _get_legion_mod()
-            if mod and hasattr(mod, "fetch_book_metadata"):
-                try:
-                    meta = mod.fetch_book_metadata(url) or {}
-                    if meta.get("synopsis"):
-                        r["desc"] = meta["synopsis"]
-                    if meta.get("author") and not r.get("author"):
-                        r["author"] = meta["author"]
-                    if meta.get("genres") and not r.get("genres"):
-                        r["genres"] = meta["genres"]
-                except Exception:
-                    pass
+        # If the card only has a short snippet, fetch the full synopsis from the book page
+        if url and len(r.get("desc", "")) < 150:
+            self._disc_fetch_synopsis(r, item)
+            return
         dlg = DiscoverDetailDialog(r, self)
         dlg.book_chosen.connect(self._on_disc_book_chosen)
         dlg.exec()
+
+    def _disc_fetch_synopsis(self, result: dict, item):
+        """Fetch full synopsis from book page in background, then open detail dialog."""
+        url = result.get("url", "")
+        if not url:
+            dlg = DiscoverDetailDialog(result, self)
+            dlg.book_chosen.connect(self._on_disc_book_chosen)
+            dlg.exec()
+            return
+
+        # Show brief loading feedback in status bar
+        self._disc_status_lbl.setText("Loading synopsis…")
+
+        w = _SynopsisFetchWorker(result, url)
+        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
+        w.finished.connect(lambda: self._cleanup_worker(w))
+
+        def _on_done(enriched: dict):
+            self._disc_status_lbl.setText(
+                f"{len(self._disc_results)} novel(s)  ·  "
+                + next((n for n, s in self._disc_sources if s == self._disc_active_src_id),
+                       self._disc_active_src_id))
+            # Persist enriched data back onto the list item so re-clicks are instant
+            item.setData(Qt.ItemDataRole.UserRole, enriched)
+            dlg = DiscoverDetailDialog(enriched, self)
+            dlg.book_chosen.connect(self._on_disc_book_chosen)
+            dlg.exec()
+
+        w.done.connect(_on_done)
+        w.start()
+        self._meta_workers.append(w)
 
     def _on_disc_book_chosen(self, title: str, url: str):
         """Ask user where to add the discovered book, resolve first chapter URL, fetch metadata, then save."""
@@ -1389,24 +1520,10 @@ class LegionPage(QWidget):
         metadata = {}
 
         if url:
-            mod, _ = _get_legion_mod()
-            if mod and hasattr(mod, "resolve_first_chapter_url"):
-                try:
-                    chapter_url = mod.resolve_first_chapter_url(url)
-                except Exception as e:
-                    log.legion.warning("Failed to resolve first chapter", error=str(e))
-            # Fallback: use original URL if resolution failed
-            if not chapter_url:
-                chapter_url = url
+            chapter_url = url  # use book URL directly; auto-sync will resolve first chapter
+            metadata = {}
 
-            # Fetch metadata from book page
-            if mod and hasattr(mod, "fetch_book_metadata"):
-                try:
-                    metadata = mod.fetch_book_metadata(url) or {}
-                except Exception as e:
-                    log.legion.warning("Failed to fetch metadata", error=str(e))
-
-        status_lbl.setText("Ready to add." if chapter_url else "Using book URL (chapter resolution failed).")
+        status_lbl.setText("Ready to add.")
 
         if not dlg.exec() or not chosen["dest"]:
             return
@@ -1432,7 +1549,7 @@ class LegionPage(QWidget):
                 main_win = self.window()
                 if hasattr(main_win, "_run_auto_sync"):
                     QTimer.singleShot(500, main_win._run_auto_sync)
-            self._switch_tab(0)
+            # Stay on Discover — user was browsing, don't yank them away
         else:
             # Add to bookmarks list (planning / reading / completed / dropped)
             bm = bookmarks_data()
@@ -1447,103 +1564,11 @@ class LegionPage(QWidget):
                 })
                 save_json(LEGION_BOOKMARKS, bm)
                 self.refresh()
-            self._switch_tab(1)
-            # Switch to the right sub-tab in bookmarks
-            tab_map = {"planning": 0, "reading": 1, "dropped": 2, "completed": 3}
-            if dest in tab_map:
-                self._bm_tabs.setCurrentIndex(tab_map[dest])
+            # Stay on Discover — toast confirms the add without navigating away
 
     def _open_discovery(self):
         """Legacy entry point — switches to Discover tab."""
         self._switch_tab(2)
-
-    def _toggle_tts(self, checked: bool):
-        if checked:
-            self._start_tts()
-        else:
-            self._stop_tts()
-
-    def _start_tts(self):
-        text = self.reader.toPlainText()
-        self._tts_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        if not self._tts_paragraphs:
-            self._tts_btn.setChecked(False)
-            return
-        self._tts_index  = 0
-        self._tts_active = True
-        self._tts_worker = _TTSWorker(self._tts_paragraphs, 0)
-        self._tts_worker.paragraph_started.connect(self._on_tts_paragraph)
-        self._tts_worker.finished.connect(self._on_tts_finished)
-        self._tts_worker.error.connect(self._on_tts_error)
-        self._tts_worker.start()
-        self._tts_btn.setStyleSheet(
-            f"background:transparent;border:1px solid #3CBF7A;color:#3CBF7A;"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-
-    def _stop_tts(self):
-        if self._tts_worker:
-            self._tts_worker.stop()
-            self._tts_worker.wait(2000)
-            self._tts_worker = None
-        self._tts_active = False
-        self._tts_btn.setChecked(False)
-        self._tts_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._tts_clear_highlight()
-
-    def _on_tts_paragraph(self, index: int, text: str):
-        self._tts_index = index
-        self._tts_highlight(text)
-
-    def _on_tts_finished(self):
-        self._stop_tts()
-
-    def _on_tts_error(self, msg: str):
-        self._stop_tts()
-        if hasattr(self, "_show_toast"):
-            self._show_toast(f"TTS error: {msg}")
-        else:
-            log.error("TTS error", error=msg)
-
-    def _tts_highlight(self, para_text: str):
-        # Clear previous
-        self._tts_clear_highlight()
-        # Find and highlight
-        doc = self.reader.document()
-        # search by first 60 chars to be safe and fast
-        cursor = doc.find(para_text[:60])
-        if not cursor.isNull():
-            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(BG3))
-            fmt.setForeground(QColor(ACCENT))
-            cursor.mergeCharFormat(fmt)
-            self.reader.setTextCursor(cursor)
-            self.reader.ensureCursorVisible()
-            self._tts_highlight_cursor = cursor
-
-    def _tts_clear_highlight(self):
-        if hasattr(self, "_tts_highlight_cursor") and self._tts_highlight_cursor:
-            cur = QTextCursor(self.reader.document())
-            cur.select(QTextCursor.SelectionType.Document)
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(BG))
-            fmt.setForeground(QColor(TEXT))
-            cur.mergeCharFormat(fmt)
-            self._tts_highlight_cursor = None
-
-    def _toggle_reader_settings(self):
-        visible = self._rs_panel.isVisible()
-        self._rs_panel.setVisible(not visible)
-        if not visible:
-            self._rs_btn.setStyleSheet(
-                f"background:transparent;border:1px solid {ACCENT};color:{ACCENT};"
-                f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        else:
-            self._rs_btn.setStyleSheet(
-                f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-                f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
 
     def _on_rs_changed(self, key, value):
         self._rs[key] = value
@@ -1609,10 +1634,96 @@ class LegionPage(QWidget):
             self._sage_top_btn.setText("✦ SAGE")
         else:
             self._sage_panel.setVisible(True)
-            sage_w  = 340
+            sage_w  = 420
             reader_w = max(200, sizes[1] - sage_w)
             self._reader_body.setSizes([sizes[0], reader_w, sage_w, sizes[3]])
             self._sage_top_btn.setText("✕ SAGE")
+
+    def _toggle_lens_panel(self):
+        visible = self._lens_panel.isVisible()
+        sizes = list(self._reader_body.sizes())  # lens is always last
+        if visible:
+            self._lens_panel.setVisible(False)
+            sizes[1] += sizes[-1]
+            sizes[-1] = 0
+            self._reader_body.setSizes(sizes)
+            self._lens_top_btn.setText("◈ LENS")
+        else:
+            self._lens_panel.setVisible(True)
+            lens_w   = 540
+            sizes[1] = max(300, sizes[1] - lens_w)
+            sizes[-1] = lens_w
+            self._reader_body.setSizes(sizes)
+            self._lens_top_btn.setText("✕ LENS")
+
+    def _lens_set_source(self, src_id: str):
+        self._lens_source = src_id
+        for sid, btn in self._lens_src_btns.items():
+            btn.setChecked(sid == src_id)
+        # Show cached result for this source immediately if available
+        desc = self._lens_input.toPlainText().strip()
+        cache = getattr(self, "_lens_cache", {})
+        cached_px = cache.get((desc, src_id))
+        if cached_px:
+            self._lens_status.setText("")
+            scaled = cached_px.scaled(
+                512, 768,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._lens_image_lbl.setPixmap(scaled)
+        else:
+            self._lens_image_lbl.setText("Image will appear here")
+            self._lens_status.setText("")
+
+    def _lens_generate(self):
+        desc = self._lens_input.toPlainText().strip()
+        if not desc:
+            self._lens_status.setText("Paste a description first.")
+            return
+        src = getattr(self, "_lens_source", "flux")
+        # Return cached result instantly if prompt+source already generated
+        cache = getattr(self, "_lens_cache", {})
+        if (desc, src) in cache:
+            self._lens_on_result(cache[(desc, src)])
+            return
+        # Cancel any running worker before starting a new one
+        if getattr(self, "_lens_worker", None) is not None:
+            try:
+                self._lens_worker.done.disconnect()
+                self._lens_worker.error.disconnect()
+                self._lens_worker.finished.disconnect()
+            except Exception:
+                pass
+            self._lens_worker = None
+        self._lens_btn.setEnabled(False)
+        self._lens_status.setText("Generating…")
+        self._lens_image_lbl.setText("")
+        self._lens_worker = _LensWorker(desc, source=src)
+        self._lens_worker.done.connect(lambda px, d=desc, s=src: self._lens_on_result(px, d, s))
+        self._lens_worker.error.connect(self._lens_on_error)
+        self._lens_worker.finished.connect(lambda: setattr(self, "_lens_worker", None))
+        self._lens_worker.start()
+
+    def _lens_on_result(self, pixmap, desc=None, src=None):
+        # Store in cache if we know the key
+        if desc is not None and src is not None:
+            if not hasattr(self, "_lens_cache"):
+                self._lens_cache = {}
+            self._lens_cache[(desc, src)] = pixmap
+        self._lens_btn.setEnabled(True)
+        self._lens_status.setText("")
+        scaled = pixmap.scaled(
+            512, 768,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._lens_image_lbl.setPixmap(scaled)
+
+    def _lens_on_error(self, msg: str):
+        self._lens_btn.setEnabled(True)
+        self._lens_status.setText(f"Error: {msg}")
+        self._lens_image_lbl.setText("Could not generate image.")
 
     def _toggle_notes_panel(self):
         if not self._catalogue_panel:
@@ -1639,16 +1750,32 @@ class LegionPage(QWidget):
         if not q: return
         book    = self._current_book or "this book"
         cur_ch  = self._current_ch_num or 0
+        is_web  = getattr(self, "_sage_active_tpl", None) == "ask"
         self._sage_busy.setVisible(True)
         self._sage_ask_btn.setEnabled(False)
-        self._sage_answer.setPlainText("Scanning chapters…")
-        self._sage_worker = _SageCompanionWorker(q, book, current_chapter=cur_ch)
-        self._sage_worker.done.connect(self._sage_answered)
+        self._sage_web_label.setVisible(False)
+        self._sage_answer.setPlainText("Searching the web…" if is_web else "Scanning chapters…")
+        self._sage_worker = _SageCompanionWorker(
+            q, book, current_chapter=cur_ch, web_search=is_web)
+        self._sage_worker.done.connect(lambda ans, _w=is_web: self._sage_answered(ans, _w))
         self._sage_worker.start()
 
-    def _sage_answered(self, answer):
+    def _sage_answered(self, answer: str, is_web: bool = False):
         self._sage_busy.setVisible(False)
         self._sage_ask_btn.setEnabled(True)
+        self._sage_web_label.setVisible(is_web)
+        # Square off top corners of answer box when web label is showing
+        if is_web:
+            from gs_theme import BG3, FONT_BODY, TEXT
+            self._sage_answer.setStyleSheet(
+                f"background:{BG3};border:none;padding:12px;"
+                f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;"
+                f"border-radius:0 0 4px 4px;")
+        else:
+            from gs_theme import BG3, FONT_BODY, TEXT
+            self._sage_answer.setStyleSheet(
+                f"background:{BG3};border:none;padding:12px;"
+                f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;")
         self._sage_answer.setPlainText(answer or "(No response)")
 
     def _apply_font(self):
@@ -1999,11 +2126,12 @@ class LegionPage(QWidget):
         url = b.get("current_url","") or b.get("url","")
         if url and not b.get("metadata"):
             self._refresh_meta_silent(name, url)
-        dlg = BookDetailDialog(name, b, self)
+        dlg = BookDetailDialog(name, b, from_list="jumpin", parent=self)
         dlg.read_requested.connect(self._detail_read)
         dlg.delete_requested.connect(self._detail_delete_name)
         dlg.reset_time_requested.connect(self._detail_reset_time_name)
         dlg.download_requested.connect(self._detail_download_name)
+        dlg.bookmark_requested.connect(self._detail_move_to_bookmarks)
         dlg.exec()
 
     def _bm_clicked(self, item, list_name):
@@ -2064,14 +2192,6 @@ class LegionPage(QWidget):
         w.start()
         
         self._meta_workers.append(w)  # keep reference so GC doesn't destroy running thread
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (silent meta refresh).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (silent meta refresh).")
 
     def _show_detail(self, name, book, from_list="jumpin"):
         """Populate the detail panel and switch to it."""
@@ -2275,7 +2395,6 @@ class LegionPage(QWidget):
 
         Always updates _current_ch_num, _reading_local, _total_ch_local.
         """
-        self._stop_tts()
         name = self._current_book
         if not name: return
         log.legion.info("Loading chapter", book=name, chapter=ch_num, has_url=bool(fallback_url))
@@ -2391,7 +2510,7 @@ class LegionPage(QWidget):
             if not hasattr(self, "_heartbeat_timer"):
                 self._heartbeat_timer = QTimer(self)
                 self._heartbeat_timer.timeout.connect(self._heartbeat_save)
-            self._heartbeat_timer.start(60_000)  # 1 minute
+            self._heartbeat_timer.start(120_000)  # 2 minutes
             return
 
         # No local chapter — fall back to web scrape
@@ -2585,16 +2704,7 @@ class LegionPage(QWidget):
             lambda count, err: self._on_new_chapters_checked(name, book, count, err))
         w.start()
 
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_detail_check_new).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_detail_check_new).")
 
     def _on_new_chapters_checked(self, name, book, count, err):
         self._btn_new_chs.setEnabled(True)
@@ -2662,16 +2772,7 @@ class LegionPage(QWidget):
             lambda meta, err: self._on_meta_refreshed(name, meta, err))
         w.start()
 
-        # Append to _meta_workers
         self._meta_workers.append(w)
-        # Enforce max size
-        if len(self._meta_workers) > self._max_stored_workers:
-            oldest = self._meta_workers[0]
-            if oldest.isFinished():
-                self._meta_workers.pop(0)
-                log.debug("Removed oldest finished worker from _meta_workers (_detail_refresh_meta).")
-            else:
-                log.warning("Max _meta_workers size exceeded, but oldest worker is still running (_detail_refresh_meta).")
 
     def _on_meta_refreshed(self, name, meta, err):
         if err:
@@ -2693,20 +2794,21 @@ class LegionPage(QWidget):
         # 1. Work out where the .txt file is — it always lives next to legion.py
         txt_path = None
         mod, _ = _get_legion_mod()
-        if mod:
-            legion_dir = os.path.dirname(os.path.abspath(mod.__file__))
-            fname = re.sub(r'[^\w\-_\. ]', '_', name) + ".txt"
-            candidate = os.path.join(legion_dir, fname)
-            if os.path.exists(candidate):
-                txt_path = candidate
+        if mod and hasattr(mod, "get_book_path"):
+            try:
+                candidate = mod.get_book_path(name)
+                if os.path.exists(candidate):
+                    txt_path = candidate
+                # Also check the parent library dir for cleanup
+                import pathlib
+                lib_dir = pathlib.Path(candidate).parent
+            except Exception:
+                pass
 
         # 2. Stop any active download for this book
         if mod and hasattr(mod, "download_manager"):
             try:
-                mod.download_manager.active_downloads.pop(name, None)
-                book_dl = mod.download_manager.active_downloads.get(name, {})
-                if book_dl.get("download_state"):
-                    book_dl["download_state"]["pause_requested"] = True
+                mod.download_manager.cancel_book(name)
             except Exception:
                 pass
 
@@ -2841,11 +2943,18 @@ class LegionPage(QWidget):
         log.legion.error("Chapter load error", book=getattr(self,"_current_book","?"),
                          chapter=getattr(self,"_current_ch_num",0), error=msg)
         self.progress_bar.setVisible(False)
-        self.reader.setPlainText(
-            f"Error loading chapter:\n\n{msg}\n\n"
-            "Tips:\n- Check the URL is a valid chapter page\n"
-            "- Some sites block scrapers - try opening in browser first\n"
-            "- Try a mirror: novelbin.me or novelfull.com")
+        if msg.startswith("Cannot load legion.py:"):
+            display_msg = (
+                "Legion module failed to load.\n\n"
+                "Please restart Great Sage. If the problem persists,\n"
+                "run: pip install beautifulsoup4 --break-system-packages")
+        else:
+            display_msg = (
+                f"Error loading chapter:\n\n{msg}\n\n"
+                "Tips:\n- Check the URL is a valid chapter page\n"
+                "- Some sites block scrapers - try opening in browser first\n"
+                "- Try a mirror: novelbin.me or novelfull.com")
+        self.reader.setPlainText(display_msg)
         self.reader_status.setText("Failed.")
 
     def _heartbeat_save(self):
@@ -2888,7 +2997,6 @@ class LegionPage(QWidget):
         self._chapter_open_time = None
 
     def _next_chapter(self):
-        self._stop_tts()
         if self._reading_local and self._current_ch_num > 0:
             self._save_reading_time()
             # Accumulate words_read on chapter completion (not on open)
@@ -3030,7 +3138,6 @@ class LegionPage(QWidget):
         dlg.exec()
 
     def _prev_chapter(self):
-        self._stop_tts()
         self._save_reading_time()
         if self._reading_local and self._current_ch_num > 0:
             # Look up actual previous chapter number from the file (handles gaps)
@@ -3066,52 +3173,6 @@ class LegionPage(QWidget):
         self._apply_font()
         self._save_rs()
 
-    def _open_reading_room(self):
-        text = self.reader.toPlainText()
-        if not text.strip():
-            return
-        title = self.chapter_title.text() or self._current_book
-        book_data = self._book_data.get(self._current_book, {})
-        genre = _detect_genre(self._current_book, book_data)
-        # Get main window reference to hide/restore it
-        main_win = self.window()
-        self._reading_room = ReadingRoomOverlay(text, title, genre)
-
-        # Keyboard shortcut callbacks
-        def _rr_next():
-            self._next_chapter()
-            QTimer.singleShot(1800, lambda: (
-                self._reading_room.load_text(
-                    self.reader.toPlainText(),
-                    self.chapter_title.text() or self._current_book)
-                if self._reading_room else None))
-        def _rr_prev():
-            self._prev_chapter()
-            QTimer.singleShot(1800, lambda: (
-                self._reading_room.load_text(
-                    self.reader.toPlainText(),
-                    self.chapter_title.text() or self._current_book)
-                if self._reading_room else None))
-        def _rr_sage():
-            self._reading_room.close()
-            if hasattr(main_win, '_navigate'):
-                main_win._navigate("sage")
-
-        self._reading_room.on_next = _rr_next
-        self._reading_room.on_prev = _rr_prev
-        self._reading_room.on_sage = _rr_sage
-
-        def _on_rr_closed():
-            main_win.showNormal()
-            main_win.raise_()
-            main_win.activateWindow()
-        self._reading_room.closed.connect(_on_rr_closed)
-        main_win.showMinimized()
-        self._reading_room.showFullScreen()
-        self._reading_room.raise_()
-        self._reading_room.activateWindow()
-        self._reading_room.setFocus()
-        self._reading_room.grabKeyboard()
 
     def _add_book(self):
         dlg = AddBookDialog(self)
@@ -3145,11 +3206,13 @@ class BookDetailDialog(QDialog):
     delete_requested     = pyqtSignal(str)
     reset_time_requested = pyqtSignal(str)
     download_requested   = pyqtSignal(str)
+    bookmark_requested   = pyqtSignal(str)   # book name
 
-    def __init__(self, name: str, book: dict, parent=None):
+    def __init__(self, name: str, book: dict, from_list: str = "jumpin", parent=None):
         super().__init__(parent)
-        self._name = name
-        self._book = book
+        self._name      = name
+        self._book      = book
+        self._from_list = from_list
         self.setWindowTitle(name)
         self.setModal(True)
         self.setMinimumSize(700, 480)
@@ -3333,9 +3396,23 @@ class BookDetailDialog(QDialog):
             self.reset_time_requested.emit(self._name)
             self.accept()
 
+        def _preview():
+            self.accept()
+            dlg = BookPreviewDialog(self._name, self._book, self.parent())
+            dlg.exec()
+
+        def _bookmark():
+            self.bookmark_requested.emit(self._name)
+            self.accept()
+
         btn_row.addWidget(_mk("▶  READ",        "accent", _read))
         btn_row.addWidget(_mk("REMOVE",          "danger", _delete))
-        btn_row.addWidget(_mk("↺  RESET TIME",   "",       _reset))
+        if ch_read == 0:
+            btn_row.addWidget(_mk("PREVIEW",     "",       _preview))
+        else:
+            btn_row.addWidget(_mk("↺  RESET TIME", "",    _reset))
+        if self._from_list == "jumpin":
+            btn_row.addWidget(_mk("☆  BOOKMARK", "",      _bookmark))
         btn_row.addStretch()
         btn_row.addWidget(_mk("✕  CLOSE",        "",       self.reject))
         iv.addLayout(btn_row)
@@ -3354,6 +3431,378 @@ class BookDetailDialog(QDialog):
                 scaled = px.scaled(168, 236,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation)
+                self._cover_lbl.setPixmap(scaled)
+                self._cover_lbl.setText("")
+        except Exception:
+            self._cover_lbl.setText("No cover")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BOOK PREVIEW  — worker + dialog
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class BookPreviewWorker(QThread):
+    """
+    Reads the first ~20 local chapters, samples the text, sends it to Groq,
+    and emits a structured result dict (or an error string).
+    """
+    done  = pyqtSignal(object)   # dict on success, str on error
+
+    # Groq prompt — asks for exactly the three sections we display
+    _PROMPT = """\
+You are analysing the opening of a web novel. Below are excerpts from the first chapters.
+Respond with ONLY a JSON object — no markdown, no extra text — in this exact shape:
+
+{{
+  "facts": {{
+    "main_character": "...",
+    "setting": "...",
+    "power_system": "...",
+    "protagonist_type": "...",
+    "tone": "...",
+    "early_cast": "..."
+  }},
+  "vibe": "One paragraph (4-6 sentences) written like a friend describing what the novel actually feels like to read — pacing, emotional hook, world-building style.",
+  "score": 4,
+  "verdict": "One punchy sentence summarising the first impression."
+}}
+
+score must be an integer 1-5.
+verdict must be under 15 words.
+
+NOVEL EXCERPTS:
+{excerpts}"""
+
+    def __init__(self, book_name: str, book: dict, parent=None):
+        super().__init__(parent)
+        self._name = book_name
+        self._book = book
+
+    def run(self):
+        try:
+            excerpts = self._gather_excerpts()
+            if not excerpts:
+                self.done.emit("No downloaded chapters found for this book.")
+                return
+
+            result = self._call_groq(excerpts)
+            self.done.emit(result)
+        except Exception as e:
+            self.done.emit(f"Preview failed: {e}")
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _gather_excerpts(self) -> str:
+        """
+        Returns sampled text from chapters 1-3 (full-ish) + ch 10 + ch 20.
+        Falls back to reading directly from the .txt file via legion helpers.
+        """
+        from great_sage_core import legion_mod
+        mod, _ = legion_mod()
+        if not mod:
+            return ""
+
+        get_ch   = getattr(mod, "get_chapter_from_file", None)
+        get_path = getattr(mod, "get_book_path", None)
+        if not (get_ch and get_path):
+            return ""
+
+        parts = []
+        # First 3 chapters in full (up to 4 000 chars each)
+        for n in range(1, 4):
+            title, paras = get_ch(self._name, n)
+            if paras:
+                body = "\n\n".join(paras)[:4000]
+                parts.append(f"--- Chapter {n}: {title} ---\n{body}")
+
+        # Chapter 10 and 20 as mid/late samples (up to 2 000 chars each)
+        for n in (10, 20):
+            title, paras = get_ch(self._name, n)
+            if paras:
+                body = "\n\n".join(paras)[:2000]
+                parts.append(f"--- Chapter {n}: {title} ---\n{body}")
+
+        return "\n\n".join(parts)
+
+    def _call_groq(self, excerpts: str) -> dict:
+        import json as _json
+        from great_sage_core import sage_mod, matrix_data, get_session_groq_model
+
+        mod, err = sage_mod()
+        if not mod or not hasattr(mod, "groq_chat"):
+            return f"Sage unavailable: {err or 'sage.py not loaded'}"
+
+        _s = matrix_data().get("settings", {})
+        if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
+            mod.GROQ_API_KEY = _s["groq_api_key"]
+        active_model = get_session_groq_model() or _s.get("groq_model")
+        if active_model and hasattr(mod, "GROQ_MODEL"):
+            mod.GROQ_MODEL = active_model
+
+        prompt = self._PROMPT.format(excerpts=excerpts)
+        resp, error = mod.groq_chat(prompt)
+        if error:
+            return f"Groq error: {error}"
+
+        # Strip accidental markdown fences
+        text = resp.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text)
+            text = re.sub(r"```$", "", text).strip()
+
+        try:
+            return _json.loads(text)
+        except Exception:
+            return f"Could not parse Groq response:\n{text[:400]}"
+
+
+class BookPreviewDialog(QDialog):
+    """Full-page preview dialog — extracted facts, vibe summary, first impression."""
+
+    def __init__(self, name: str, book: dict, parent=None):
+        super().__init__(parent)
+        self._name = name
+        self._book = book
+        self.setWindowTitle(f"Preview — {name}")
+        self.setModal(True)
+        self.setMinimumSize(700, 520)
+        self.setStyleSheet(f"background:{BG}; color:{TEXT};")
+        if parent:
+            pg = parent.window().geometry()
+            w, h = 720, 540
+            self.setGeometry(
+                pg.x() + (pg.width() - w) // 2,
+                pg.y() + (pg.height() - h) // 2,
+                w, h,
+            )
+        self._build()
+        self._start_worker()
+
+    # ── layout ───────────────────────────────────────────────────────────────
+
+    def _build(self):
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Left cover panel (mirrors BookDetailDialog) ───────────────────
+        cover_panel = QWidget()
+        cover_panel.setFixedWidth(200)
+        cover_panel.setStyleSheet(f"background:{BG2};")
+        cv = QVBoxLayout(cover_panel)
+        cv.setContentsMargins(16, 20, 16, 20)
+        cv.setSpacing(0)
+
+        self._cover_lbl = QLabel()
+        self._cover_lbl.setFixedSize(168, 236)
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_lbl.setStyleSheet(
+            f"background:{BG3};border-radius:6px;color:{MUTED};font-size:11px;")
+        self._cover_lbl.setText("Loading\ncover…")
+        cv.addWidget(self._cover_lbl)
+        cv.addStretch()
+        root.addWidget(cover_panel)
+        root.addWidget(vline())
+
+        # ── Right info panel ──────────────────────────────────────────────
+        info_panel = QWidget()
+        iv = QVBoxLayout(info_panel)
+        iv.setContentsMargins(24, 20, 24, 16)
+        iv.setSpacing(8)
+
+        # Title + meta
+        title_lbl = QLabel(self._name)
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet(
+            f"font-size:20px;font-weight:bold;color:{ACCENT};"
+            f"font-family:{FONT_BODY};")
+        iv.addWidget(title_lbl)
+
+        meta = self._book.get("metadata", {})
+        meta_parts = []
+        if meta.get("author"): meta_parts.append(meta["author"])
+        if meta.get("status"): meta_parts.append(meta["status"])
+        meta_lbl = QLabel("  ·  ".join(meta_parts) if meta_parts else "")
+        meta_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
+        iv.addWidget(meta_lbl)
+        iv.addWidget(hline())
+
+        # ── Stacked widget: loading / results / error ─────────────────────
+        self._stack = QStackedWidget()
+
+        # -- Loading page --
+        loading_w = QWidget()
+        lv = QVBoxLayout(loading_w)
+        lv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lv.setSpacing(10)
+        scan_lbl = QLabel("Scanning first 20 chapters…")
+        scan_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scan_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
+        hint_lbl = QLabel("Sending to Groq for analysis")
+        hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_lbl.setStyleSheet(f"color:{MUTED};font-size:10px;")
+        lv.addWidget(scan_lbl)
+        lv.addWidget(hint_lbl)
+        self._stack.addWidget(loading_w)   # index 0
+
+        # -- Results page --
+        results_w = QWidget()
+        rv = QVBoxLayout(results_w)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(8)
+
+        # Section: Extracted facts (2-col grid via QFormLayout)
+        facts_lbl = QLabel("EXTRACTED FACTS")
+        facts_lbl.setStyleSheet(
+            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
+        rv.addWidget(facts_lbl)
+
+        self._facts_form = QWidget()
+        self._facts_layout = QFormLayout(self._facts_form)
+        self._facts_layout.setContentsMargins(0, 0, 0, 0)
+        self._facts_layout.setSpacing(4)
+        self._facts_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        rv.addWidget(self._facts_form)
+        rv.addWidget(hline())
+
+        # Section: Vibe
+        vibe_lbl = QLabel("VIBE")
+        vibe_lbl.setStyleSheet(
+            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
+        rv.addWidget(vibe_lbl)
+
+        self._vibe_box = QTextEdit()
+        self._vibe_box.setReadOnly(True)
+        self._vibe_box.setStyleSheet(
+            f"background:{BG3};border:none;padding:10px;color:{TEXT};"
+            f"font-family:{FONT_BODY};font-size:12px;")
+        self._vibe_box.setFixedHeight(110)
+        rv.addWidget(self._vibe_box)
+        rv.addWidget(hline())
+
+        # Section: First impression
+        imp_lbl = QLabel("FIRST IMPRESSION")
+        imp_lbl.setStyleSheet(
+            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
+        rv.addWidget(imp_lbl)
+
+        imp_row = QHBoxLayout()
+        imp_row.setSpacing(10)
+        self._score_lbl = QLabel()
+        self._score_lbl.setStyleSheet(
+            f"color:{ACCENT};font-size:13px;font-weight:bold;letter-spacing:2px;")
+        self._verdict_lbl = QLabel()
+        self._verdict_lbl.setWordWrap(True)
+        self._verdict_lbl.setStyleSheet(
+            f"color:{TEXT2};font-size:11px;font-style:italic;")
+        imp_row.addWidget(self._score_lbl)
+        imp_row.addWidget(self._verdict_lbl, 1)
+        rv.addLayout(imp_row)
+
+        self._stack.addWidget(results_w)   # index 1
+
+        # -- Error page --
+        error_w = QWidget()
+        ev = QVBoxLayout(error_w)
+        ev.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._error_lbl = QLabel()
+        self._error_lbl.setWordWrap(True)
+        self._error_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._error_lbl.setStyleSheet(f"color:{RED};font-size:12px;")
+        ev.addWidget(self._error_lbl)
+        self._stack.addWidget(error_w)     # index 2
+
+        iv.addWidget(self._stack, 1)
+        iv.addWidget(hline())
+
+        # ── Buttons ───────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        def _mk(text, style="", cb=None):
+            b = QPushButton(text)
+            if style == "accent":
+                b.setStyleSheet(
+                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
+                    f"font-size:9px;letter-spacing:1.2px;padding:8px 18px;border-radius:3px;")
+            else:
+                b.setStyleSheet(
+                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
+                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            if cb:
+                b.clicked.connect(cb)
+            return b
+
+        btn_row.addWidget(_mk("← BACK", "", self.reject))
+        btn_row.addStretch()
+        iv.addLayout(btn_row)
+
+        root.addWidget(info_panel, 1)
+
+        # Load cover art
+        QTimer.singleShot(0, self._load_cover)
+
+    # ── worker ────────────────────────────────────────────────────────────────
+
+    def _start_worker(self):
+        self._stack.setCurrentIndex(0)
+        self._worker = BookPreviewWorker(self._name, self._book, self)
+        self._worker.done.connect(self._on_result)
+        self._worker.start()
+
+    def _on_result(self, result):
+        if isinstance(result, str):
+            # error
+            self._error_lbl.setText(result)
+            self._stack.setCurrentIndex(2)
+            return
+
+        # Populate facts
+        label_map = {
+            "main_character": "Main character",
+            "setting":        "Setting",
+            "power_system":   "Power system",
+            "protagonist_type": "Protagonist type",
+            "tone":           "Tone",
+            "early_cast":     "Early cast",
+        }
+        facts = result.get("facts", {})
+        for key, display in label_map.items():
+            val = facts.get(key, "—")
+            if not val:
+                val = "—"
+            key_lbl = QLabel(display.upper())
+            key_lbl.setStyleSheet(
+                f"color:{MUTED};font-size:9px;letter-spacing:0.5px;")
+            val_lbl = QLabel(str(val))
+            val_lbl.setWordWrap(True)
+            val_lbl.setStyleSheet(f"color:{ACCENT2};font-size:11px;")
+            self._facts_layout.addRow(key_lbl, val_lbl)
+
+        # Vibe
+        self._vibe_box.setPlainText(result.get("vibe", ""))
+
+        # Score + verdict
+        score   = int(result.get("score", 0))
+        verdict = result.get("verdict", "")
+        score_text = f"{'[ ' + '#' * score + ' ' * (5 - score) + ' ]'}"
+        self._score_lbl.setText(f"{score}/5  {score_text}")
+        self._verdict_lbl.setText(f'"{verdict}"')
+
+        self._stack.setCurrentIndex(1)
+
+    def _load_cover(self):
+        try:
+            from plugins.book_covers import get_cover
+            src = self._book.get("current_url", "") or self._book.get("url", "")
+            px  = get_cover(self._name, src)
+            if px and not px.isNull():
+                scaled = px.scaled(
+                    168, 236,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
                 self._cover_lbl.setPixmap(scaled)
                 self._cover_lbl.setText("")
         except Exception:
@@ -3534,6 +3983,68 @@ class DiscoverDetailDialog(QDialog):
 # COVER LOADER WORKER  — fetches cover images off the main thread
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class _LensWorker(QThread):
+    """Fetches a generated image for a given description.
+
+    Sources:
+      'flux'  — Pollinations.ai FLUX model  (no key, general/realistic)
+      'anime' — Pollinations.ai flux-anime  (no key, stylised characters)
+      'fal'   — fal.ai FLUX.1 schnell       (API key required, best quality)
+    """
+    done  = pyqtSignal(object)   # QPixmap
+    error = pyqtSignal(str)
+
+    _STYLE_FLUX = (
+        "fantasy illustration, detailed, cinematic lighting, digital art, "
+        "concept art, highly detailed, atmospheric: "
+    )
+    _STYLE_ANIME = (
+        "anime style, manga illustration, detailed, vibrant colors, "
+        "soft lighting, expressive: "
+    )
+
+    def __init__(self, description: str, source: str = "flux", parent=None):
+        super().__init__(parent)
+        self._desc   = description
+        self._source = source
+
+    def run(self):
+        self._run_pollinations()
+
+    def _run_pollinations(self):
+        import urllib.parse, urllib.request
+        if self._source == "anime":
+            prompt = self._STYLE_ANIME + self._desc
+            model  = "flux-anime"
+        else:
+            prompt = self._STYLE_FLUX + self._desc
+            model  = "flux"
+        encoded = urllib.parse.quote(prompt)
+        url = (
+            f"https://image.pollinations.ai/prompt/{encoded}"
+            f"?width=512&height=768&nologo=true&model={model}"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "GreatSage/1.0"})
+        last_err = None
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    data = resp.read()
+                px = QPixmap()
+                if not px.loadFromData(data):
+                    self.error.emit("Could not decode image from Pollinations.")
+                    return
+                self.done.emit(px)
+                return
+            except Exception as e:
+                last_err = e
+                import socket
+                if attempt == 0 and isinstance(e, (TimeoutError, socket.timeout)):
+                    continue
+                break
+        self.error.emit(str(last_err))
+
+
 class _CoverLoaderWorker(QThread):
     """Loads cover images for a batch of grid items without blocking the UI."""
     cover_ready = pyqtSignal(object, object)   # (QListWidgetItem, QPixmap)
@@ -3592,9 +4103,16 @@ class _SourceHealthWorker(QThread):
     all_statuses = pyqtSignal(dict)         # {src_id: True/False}
 
     PROBE_URLS = {
-        "novelbin":"https://novelbin.com", "novelfire":"https://novelfire.net/home",
-        "lightnovelpub":"https://lightnovelpub.me", "royalroad":"https://www.royalroad.com/home",
-        "scribblehub":"https://www.scribblehub.com", "wuxiaworld":"https://www.wuxiaworld.com"
+        "novelbin":     "https://novelbin.com",
+        "novelfire":    "https://novelfire.net/home",
+        "lightnovelpub":"https://lightnovelpub.me",
+        "royalroad":    "https://www.royalroad.com/home",
+        "scribblehub":  "https://www.scribblehub.com",
+        "wuxiaworld":   "https://www.wuxiaworld.com",
+        "novelhall":    "https://www.novelhall.com",
+        "novelpub":     "https://www.novelpub.com",
+        "novelcool":    "https://www.novelcool.com",
+        "novelupdates": "https://www.novelupdates.com",
     }
 
     HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
@@ -3655,6 +4173,10 @@ class _BrowseWorker(QThread):
         "royalroad":     {"base": "https://www.royalroad.com",   "browse": "https://www.royalroad.com/fictions/best-rated?page={page}",                                                                                      "search": "https://www.royalroad.com/fictions/search?title={q}&page={page}"},
         "scribblehub":   {"base": "https://www.scribblehub.com", "browse": "https://www.scribblehub.com/series-finder/?sf=1&sort=ratings&order=desc&pg={page}",                                                             "search": "https://www.scribblehub.com/?s={q}&post_type=fictionposts&pg={page}"},
         "wuxiaworld":    {"base": "https://www.wuxiaworld.com",  "browse": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Popular",                                                                  "search": "https://www.wuxiaworld.com/api/novels?page={page}&pageSize=20&sortType=Relevance&title={q}"},
+        "novelhall":     {"base": "https://www.novelhall.com",    "browse": "https://www.novelhall.com/all/?orderBy=view&page={page}",                                                                                          "search": "https://www.novelhall.com/index.php?s=so&module=book&keyword={q}"},
+        "novelpub":      {"base": "https://www.novelpub.com",     "browse": "https://www.novelpub.com/genre/novel/all/popular?page={page}",                                                                                     "search": "https://www.novelpub.com/search?keyword={q}&page={page}"},
+        "novelcool":     {"base": "https://www.novelcool.com",    "browse": "https://www.novelcool.com/rank/?rank=view&page={page}",                                                                                            "search": "https://www.novelcool.com/search/?name={q}&page={page}"},
+        "novelupdates":  {"base": "https://www.novelupdates.com", "browse": "https://www.novelupdates.com/series-finder/?sf=1&sort=sdate&order=desc&pg={page}",                                                                "search": "https://www.novelupdates.com/?s={q}&post_type=seriesplans"},
     }
 
     GENRE_MAP = {
@@ -3772,6 +4294,10 @@ class _BrowseWorker(QThread):
             "lightnovelpub": self._parse_lightnovelpub,
             "royalroad":     self._parse_royalroad,
             "scribblehub":   self._parse_scribblehub,
+            "novelhall":     self._parse_novelhall,
+            "novelpub":      self._parse_novelpub,
+            "novelcool":     self._parse_novelcool,
+            "novelupdates":  self._parse_novelupdates,
             # wuxiaworld handled above
         }
         parser = parsers.get(self.src_id); return parser(soup,base) if parser else []
@@ -3948,6 +4474,294 @@ class _BrowseWorker(QThread):
             if r: results.append(r)
             if len(results) >= 40: break
         return results
+
+
+
+    def _parse_novelhall(self, soup, base):
+        """_parse_novelhall: select ".book-ol li", a[href*='/'], img, title span"""
+        results = []
+        for item in soup.select(".book-ol li, .booklist li, ul.ul-list1 li"):
+            a   = item.select_one("a[href]")
+            img = item.select_one("img")
+            if not a: continue
+            title = a.get("title","") or a.get_text(strip=True)
+            cover = img.get("data-src") or img.get("src","") if img else ""
+            desc_el = item.select_one(".intro, .book-intro, p")
+            desc = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(title, a.get("href",""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        if not results:
+            # search results page uses different layout
+            for a in soup.select("a[href*='/novel/'], a[href*='/book/'], h3 a, h4 a"):
+                href  = a.get("href","")
+                title = a.get("title","") or a.get_text(strip=True)
+                if not title or len(title) < 3: continue
+                img   = a.find("img")
+                cover = img.get("data-src") or img.get("src","") if img else ""
+                r = self._make_result(title, href, cover, "", base)
+                if r: results.append(r)
+                if len(results) >= 40: break
+        return results
+
+    def _parse_novelpub(self, soup, base):
+        """_parse_novelpub: select ".novel-list .novel-item", img, .novel-title"""
+        results = []
+        for item in soup.select(".novel-list .novel-item, .list-novel li"):
+            a   = item.select_one("a.novel-title, h3 a, h4 a, a[href*='/novel/']")
+            img = item.select_one("img")
+            if not a: continue
+            title = a.get_text(strip=True)
+            cover = img.get("data-src") or img.get("src","") if img else ""
+            desc_el = item.select_one(".synopsis, .summary, p")
+            desc = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(title, a.get("href",""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
+
+    def _parse_novelcool(self, soup, base):
+        """_parse_novelcool: select ".bookitem", img, .bookname a"""
+        results = []
+        for item in soup.select(".bookitem, .novel-item, li.book"):
+            a   = item.select_one(".bookname a, h3 a, h4 a, a[href*='/novel/']")
+            img = item.select_one("img")
+            if not a: continue
+            title = a.get_text(strip=True)
+            cover = img.get("data-src") or img.get("src","") if img else ""
+            desc_el = item.select_one(".bookdesc, .intro, p")
+            desc = desc_el.get_text(strip=True) if desc_el else ""
+            r = self._make_result(title, a.get("href",""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
+
+    def _parse_novelupdates(self, soup, base):
+        """_parse_novelupdates: select ".search_main_box_nu", img, .search_title a"""
+        results = []
+        for item in soup.select(".search_main_box_nu, .w-blog-entry"):
+            a   = item.select_one(".search_title a, h2 a, h3 a")
+            img = item.select_one("img")
+            if not a: continue
+            title = a.get_text(strip=True)
+            cover = img.get("src","") if img else ""
+            desc_el = item.select_one(".search_body_nu, .entry-summary, p")
+            desc = desc_el.get_text(strip=True) if desc_el else ""
+            # NU links go to their own series page, not a reading source
+            r = self._make_result(title, a.get("href",""), cover, desc, base)
+            if r: results.append(r)
+            if len(results) >= 40: break
+        return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GLOBAL SEARCH WORKER  — fires one _BrowseWorker per searchable source in
+# parallel and emits partial_results as each source responds.
+# AJAX-only sources (novelfire, lightnovelpub, wuxiaworld) are skipped silently.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _GlobalSearchWorker(QObject):
+    """
+    Not a QThread itself — manages a pool of _BrowseWorker threads and
+    aggregates their results, emitting partial_results after each source
+    finishes and done when all sources have responded.
+    """
+    partial_results = pyqtSignal(list, str)   # (results, source_name)
+    status_update   = pyqtSignal(str)          # live status bar text
+    done            = pyqtSignal()
+
+    # Sources that return empty HTML for search (JS-rendered) — skip in global
+    AJAX_SOURCES = {"novelfire", "lightnovelpub", "wuxiaworld"}
+
+    # All sources eligible for global search
+    SEARCH_SOURCES = [
+        "novelbin", "royalroad", "scribblehub",
+        "novelhall", "novelpub", "novelcool", "novelupdates",
+    ]
+
+    def __init__(self, query: str, parent=None):
+        super().__init__(parent)
+        self._query    = query
+        self._workers  = []
+        self._pending  = 0
+        self._statuses = {}   # src_id -> "searching" | "done" | "error"
+        self._seen     = set()
+
+    def start(self):
+        for src_id in self.SEARCH_SOURCES:
+            w = _BrowseWorker(src_id, self._query, "All Genres", "All Status", page=1)
+            self._statuses[src_id] = "searching"
+            self._pending += 1
+            self._workers.append(w)
+            w.done.connect(lambda results, s=src_id: self._on_source_done(s, results))
+            w.error.connect(lambda msg,   s=src_id: self._on_source_error(s, msg))
+            w.finished.connect(lambda s=src_id: self._on_worker_finished(s))
+            w.start()
+        self._emit_status()
+
+    def _on_source_done(self, src_id: str, results: list):
+        self._statuses[src_id] = "done"
+        # Deduplicate against already-emitted titles
+        fresh = []
+        for r in results:
+            t = r.get("title", "").strip().lower()
+            if t and t not in self._seen:
+                self._seen.add(t)
+                fresh.append(r)
+        if fresh:
+            name = src_id  # use src_id directly; display name mapped in _emit_status
+            # Inject source label into each result
+            for r in fresh:
+                r["_global_src"] = src_id
+            self.partial_results.emit(fresh, src_id)
+        self._emit_status()
+
+    def _on_source_error(self, src_id: str, msg: str):
+        self._statuses[src_id] = "error"
+        log.legion.warning("GlobalSearch source error", src=src_id, error=msg)
+        self._emit_status()
+
+    def _on_worker_finished(self, src_id: str):
+        self._pending -= 1
+        if self._pending <= 0:
+            self.done.emit()
+
+    def _emit_status(self):
+        parts = []
+        icons = {"searching": "…", "done": "✓", "error": "✕"}
+        for src_id in self.SEARCH_SOURCES:
+            st   = self._statuses.get(src_id, "searching")
+            name = src_id.replace("novelupdates","NU").replace("novelhall","NHall")                          .replace("novelpub","NPub").replace("novelcool","NCool")                          .replace("novelbin","NB").replace("royalroad","RR")                          .replace("scribblehub","SH")
+            parts.append(f"{icons[st]} {name}")
+        self.status_update.emit("  ·  ".join(parts))
+
+    def cancel(self):
+        for w in self._workers:
+            try:
+                w.done.disconnect()
+                w.error.disconnect()
+                w.finished.disconnect()
+            except Exception:
+                pass
+        self._workers.clear()
+        self._pending = 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SYNOPSIS FETCH WORKER  — fetches the full book page and extracts synopsis
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _SynopsisFetchWorker(QThread):
+    """Fetches the book detail page and enriches the result dict with a full synopsis."""
+    done = pyqtSignal(dict)
+
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    # CSS selectors tried in order to find a synopsis block
+    SYNOPSIS_SELECTORS = [
+        ".desc-text", ".summary__content", ".novel-synopsis",
+        ".description", "[class*=synopsis]", "[class*=description]",
+        "[class*=summary]", ".content", "article p",
+    ]
+
+    def __init__(self, result: dict, url: str, parent=None):
+        super().__init__(parent)
+        self._result = dict(result)
+        self._url    = url
+
+    def run(self):
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            resp = requests.get(self._url, headers=self.HEADERS, timeout=12, allow_redirects=True)
+            if resp.status_code >= 400:
+                self.done.emit(self._result)
+                return
+            soup = BeautifulSoup(resp.text, "html.parser")
+            synopsis = ""
+            for sel in self.SYNOPSIS_SELECTORS:
+                el = soup.select_one(sel)
+                if el:
+                    synopsis = el.get_text(separator=" ", strip=True)
+                    if len(synopsis) > 80:
+                        break
+            # Also try collecting multiple <p> tags from likely containers
+            if len(synopsis) < 80:
+                for container_sel in (".panel-story-description", ".novel-body", ".story-container"):
+                    container = soup.select_one(container_sel)
+                    if container:
+                        paras = container.find_all("p")
+                        synopsis = " ".join(p.get_text(strip=True) for p in paras if p.get_text(strip=True))
+                        if len(synopsis) > 80:
+                            break
+            if synopsis:
+                self._result["desc"] = synopsis[:3000]
+        except Exception as e:
+            log.legion.warning("SynopsisFetchWorker failed", url=self._url, error=str(e))
+        self.done.emit(self._result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISCOVER SCROLL FILTER  — enables mouse wheel, touchpad and touch-screen
+#                           scrolling on the Discovery grid (QListWidget)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _DiscoverScrollFilter(QObject):
+    """
+    Event filter installed on discover_list and its viewport.
+    Converts wheel events and touch gestures into smooth vertical scroll actions
+    so the grid responds to all input methods.
+    """
+
+    def __init__(self, list_widget, parent=None):
+        super().__init__(parent)
+        self._lw = list_widget
+        self._touch_start_y = None
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        t = event.type()
+
+        # ── Mouse wheel / touchpad (two-finger swipe generates WheelEvent) ──
+        if t == QEvent.Type.Wheel:
+            sb = self._lw.verticalScrollBar()
+            delta = event.angleDelta().y()
+            # angleDelta is in eighths of a degree; 120 = one notch ≈ 3 rows
+            # Multiply by 2 for a snappier feel on trackpads
+            sb.setValue(sb.value() - delta // 2)
+            event.accept()
+            return True
+
+        # ── Touch-screen: track finger press/move/release ───────────────────
+        if t == QEvent.Type.TouchBegin:
+            pts = event.points()
+            if pts:
+                self._touch_start_y = pts[0].position().y()
+            event.accept()
+            return True
+
+        if t == QEvent.Type.TouchUpdate:
+            pts = event.points()
+            if pts and self._touch_start_y is not None:
+                current_y = pts[0].position().y()
+                delta = int(self._touch_start_y - current_y)
+                sb = self._lw.verticalScrollBar()
+                sb.setValue(sb.value() + delta)
+                self._touch_start_y = current_y
+            event.accept()
+            return True
+
+        if t == QEvent.Type.TouchEnd:
+            self._touch_start_y = None
+            event.accept()
+            return True
+
+        return False
 
 
 class AddBookDialog(QDialog):

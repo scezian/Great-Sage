@@ -42,7 +42,7 @@ TAGS = [
 ]
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-CATALOGUE_ROOT = Path.home() / "Documents" / "great sage" / "Catalogue"
+CATALOGUE_ROOT = Path.home() / "Documents" / "Great-Sage" / "Catalogue"
 
 
 

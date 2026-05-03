@@ -352,7 +352,13 @@ def save_progress(data: dict):
     except Exception as e:
         log.warning("Failed to merge progress with disk state", error=str(e))
         pass
-    tmp = PROGRESS_FILE + ".tmp"
+    # Use a unique .tmp filename so concurrent calls (from the download worker
+    # thread and the GUI thread) never race on the same temporary file.
+    # This also eliminates the race with great_sage_core.save_json which used
+    # to produce the same PROGRESS_FILE + ".tmp" path.
+    import threading as _threading
+    _uid = f"{os.getpid()}_{_threading.get_ident()}"
+    tmp  = PROGRESS_FILE + f".{_uid}.tmp"
     try:
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
@@ -363,6 +369,11 @@ def save_progress(data: dict):
         os.replace(tmp, PROGRESS_FILE)
     except Exception as e:
         log.error("Failed to save progress (atomic write failed), trying direct write", error=str(e))
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
         try:
             with open(PROGRESS_FILE, "w") as f:
                 json.dump(data, f, indent=2)
@@ -918,44 +929,57 @@ def _generic_get_with_retry(url: str) -> tuple[requests.Response | None, str]:
                 time.sleep(actual_wait)
                 continue # Go to next retry attempt
             
-            # Keep existing cloudscraper fallback for 403
+            # 403 handling — detect Cloudflare challenge and fail fast
             if resp.status_code == 403:
-                log.warning(f"403 Forbidden for {current_attempt_url}. Attempting Cloudflare bypass.")
-                _MIRROR_FAILURES[urlparse(current_attempt_url).netloc] = time.time() # Mark domain as potentially problematic
-                cloudscraper_success = False
-                if CLOUDSCRAPER and not SCRAPER:
-                    try:
-                        cs = cloudscraper.create_scraper()
-                        resp2 = cs.get(current_attempt_url, timeout=20, headers=headers)
-                        if resp2.status_code == 200:
-                            log.debug(f"Cloudflare bypass successful for {current_attempt_url}.")
-                            return resp2, current_attempt_url
-                        last_error_message = f"403 Forbidden - Cloudflare bypass failed (status: {resp2.status_code})"
-                    except Exception as cs_e:
-                        last_error_message = f"403 Forbidden - Cloudflare bypass failed ({type(cs_e).__name__}: {str(cs_e)})"
-                elif SCRAPER:
-                    try:
-                        time.sleep(2) # Give Cloudscraper time if it's already active
-                        resp2 = SCRAPER.get(current_attempt_url, timeout=30, headers=headers)
-                        if resp2.status_code == 200:
-                            log.debug(f"Cloudscraper re-attempt successful for {current_attempt_url}.")
-                            return resp2, current_attempt_url
-                        last_error_message = f"403 Forbidden - SCRAPER re-attempt failed (status: {resp2.status_code})"
-                    except Exception as scr_e:
-                        last_error_message = f"403 Forbidden - SCRAPER re-attempt failed ({type(scr_e).__name__}: {str(scr_e)})"
-                
-                # If Cloudflare bypass/re-attempt failed, treat as retryable error
-                log.warning(f"{last_error_message}. Retrying...")
-                
-                retries += 1
-                if retries >= max_retries: break # Exit if max retries reached
+                domain = urlparse(current_attempt_url).netloc
+                _MIRROR_FAILURES[domain] = time.time()
 
-                base_wait = 2 ** retries
-                jitter = random.uniform(0, base_wait * 0.3)
-                actual_wait = base_wait + jitter
-                log.debug(f"Waiting for {actual_wait:.2f}s before next retry.")
-                time.sleep(actual_wait)
-                continue # Go to next retry attempt
+                # Detect Cloudflare: CF-Ray header or challenge page body markers
+                is_cloudflare = (
+                    "cf-ray" in resp.headers or
+                    "cloudflare" in resp.headers.get("server", "").lower() or
+                    "Just a moment" in resp.text or
+                    "cf-browser-verification" in resp.text or
+                    "_cf_chl" in resp.text
+                )
+
+                if is_cloudflare:
+                    # Try cloudscraper — one attempt only, it either works or it doesn't
+                    cf_bypassed = False
+                    if CLOUDSCRAPER:
+                        scraper_instance = SCRAPER if SCRAPER else cloudscraper.create_scraper()
+                        try:
+                            resp2 = scraper_instance.get(current_attempt_url, timeout=30, headers=headers)
+                            if resp2.status_code == 200:
+                                log.debug(f"Cloudscraper bypassed Cloudflare for {current_attempt_url}")
+                                return resp2, current_attempt_url
+                            last_error_message = f"403 Forbidden — Cloudflare protected (cloudscraper status: {resp2.status_code})"
+                        except Exception as cs_e:
+                            last_error_message = f"403 Forbidden — Cloudflare protected (cloudscraper: {type(cs_e).__name__})"
+                    else:
+                        last_error_message = "403 Forbidden — Cloudflare protected (no cloudscraper)"
+
+                    # Cloudflare blocks the whole domain — mark ALL known mirrors failed
+                    # so we don't waste time trying them. Extend failure window to 30 min.
+                    _cf_expire = time.time() + 1800  # 30 minutes from now
+                    for mirror_domain in _DEFAULT_MIRROR_DOMAINS + [domain]:
+                        _MIRROR_FAILURES[mirror_domain] = _cf_expire - _MIRROR_FAIL_DURATION
+                    log.error(
+                        f"All mirrors failed: 403 Forbidden — Cloudflare protected for {original_url}"
+                    )
+                    # Fail immediately — retrying other mirrors will also get 403
+                    break
+
+                else:
+                    # Plain 403 (not Cloudflare) — retry with backoff as normal
+                    last_error_message = f"403 Forbidden (non-Cloudflare) for {current_attempt_url}"
+                    log.warning(f"{last_error_message}. Retrying...")
+                    retries += 1
+                    if retries >= max_retries: break
+                    base_wait = 2 ** retries
+                    jitter = random.uniform(0, base_wait * 0.3)
+                    time.sleep(base_wait + jitter)
+                    continue
             
             resp.raise_for_status() # Raises HTTPError for other bad responses (4xx or 5xx)
             log.info(f"Successfully fetched {current_attempt_url}")

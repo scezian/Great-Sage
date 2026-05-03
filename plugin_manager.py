@@ -65,7 +65,7 @@ from PyQt6.QtWidgets import (
 )
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-PLUGINS_DIR    = Path.home() / "Documents" / "great sage" / "plugins"
+PLUGINS_DIR    = Path.home() / "Documents" / "Great-Sage" / "plugins"
 PLUGINS_CONFIG = Path.home() / ".great_sage_plugins.json"
 PLUGIN_DATA    = Path.home() / ".great_sage_plugin_data.json"
 

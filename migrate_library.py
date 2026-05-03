@@ -1,7 +1,7 @@
 import os, shutil
 from pathlib import Path
 
-ROOT = Path.home() / "Documents" / "great sage"
+ROOT = Path.home() / "Documents" / "Great-Sage"
 LIBRARY = ROOT / "library"
 
 txt_files = [p for p in ROOT.glob("*.txt") if p.is_file()]

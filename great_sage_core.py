@@ -884,27 +884,72 @@ class MetadataWorker(QThread):
 class _SageCompanionWorker(QThread):
     done = pyqtSignal(str)
 
-    def __init__(self, question: str, book: str, current_chapter: int = 0):
+    def __init__(self, question: str, book: str,
+                 current_chapter: int = 0, web_search: bool = False):
         super().__init__()
         self.question        = question
         self.book            = book
         self.current_chapter = current_chapter
+        self.web_search      = web_search
 
     def run(self):
         mod, err = sage_mod()
-        # Guard FIRST, before any attribute access on mod:
         if not mod or not hasattr(mod, "groq_chat"):
             self.done.emit(f"Sage unavailable: {err or 'sage.py not loaded'}")
             return
+
+        # Apply API key / model overrides from settings
         _s = matrix_data().get("settings", {})
         if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
             mod.GROQ_API_KEY = _s["groq_api_key"]
-        # Session override takes priority over saved settings
         active_model = get_session_groq_model() or _s.get("groq_model")
         if active_model and hasattr(mod, "GROQ_MODEL"):
             mod.GROQ_MODEL = active_model
 
-        q            = self.question.strip()
+        q = self.question.strip()
+
+        # ── WEB SEARCH MODE ──────────────────────────────────────────────────
+        # When the user toggled the "Ask" (web) template in the reader sidebar,
+        # we do a Tavily search and inject the results into the Groq prompt.
+        # This path does NOT look at local chapter excerpts.
+        if self.web_search:
+            search_context = ""
+            if hasattr(mod, "tavily_search"):
+                try:
+                    search_context = mod.tavily_search(q)
+                except Exception:
+                    pass
+
+            if search_context:
+                prompt = (
+                    f"You are a knowledgeable assistant helping a reader.\n"
+                    f"The reader is currently reading \'{self.book}\' "
+                    f"(chapter {self.current_chapter}).\n\n"
+                    f"[Live web search results for: \"{q}\"]\n"
+                    f"{search_context}\n\n"
+                    f"---\n"
+                    f"Using the search results above, answer the reader's question "
+                    f"clearly and concisely. Cite sources where relevant.\n\n"
+                    f"Question: {q}"
+                )
+            else:
+                # No Tavily key or search failed — fall back to Groq knowledge
+                prompt = (
+                    f"You are a knowledgeable assistant. "
+                    f"Answer the following question as accurately as possible. "
+                    f"If the answer requires very recent information you may not have, "
+                    f"say so clearly.\n\nQuestion: {q}"
+                )
+            try:
+                resp, error = mod.groq_chat(prompt)
+                self.done.emit(resp if not error else f"Error: {error}")
+            except Exception as e:
+                self.done.emit(f"Error: {e}")
+            return
+
+        # ── BOOK COMPANION MODE ───────────────────────────────────────────────
+        # Normal path: look up terms in local chapter excerpts first,
+        # then fall back to Groq general knowledge.
         lookup_match = re.match(
             r"^(?:who\s+is|what\s+is|tell\s+me\s+about|describe|explain)\s+(.+)$",
             q, re.IGNORECASE)
@@ -916,28 +961,28 @@ class _SageCompanionWorker(QThread):
                 is_who = re.match(r"who\s+is", q, re.IGNORECASE)
                 if is_who:
                     prompt = (
-                        f"You are a reading companion for '{self.book}'.\n"
-                        f"The reader is on chapter {self.current_chapter} and wants to know about '{term}'.\n"
+                        f"You are a reading companion for \'{self.book}\'.\n"
+                        f"The reader is on chapter {self.current_chapter} and wants to know about \'{term}\'.\n"
                         f"Using ONLY the excerpts below (no outside knowledge), write a detailed character dossier.\n\n"
                         f"EXCERPTS:\n{excerpts}"
                     )
                 else:
                     prompt = (
-                        f"You are a reading companion for '{self.book}'.\n"
-                        f"The reader is on chapter {self.current_chapter} and wants to know about '{term}'.\n"
+                        f"You are a reading companion for \'{self.book}\'.\n"
+                        f"The reader is on chapter {self.current_chapter} and wants to know about \'{term}\'.\n"
                         f"Using ONLY the excerpts below, write a detailed entry.\n\n"
                         f"EXCERPTS:\n{excerpts}"
                     )
             else:
                 prompt = (
-                    f"You are a reading companion for '{self.book}' (chapter {self.current_chapter}).\n"
-                    f"The reader asks: '{q}'\n"
+                    f"You are a reading companion for \'{self.book}\' (chapter {self.current_chapter}).\n"
+                    f"The reader asks: \'{q}\'\n"
                     f"No local chapter data was found. Answer based on general knowledge if available."
                 )
         else:
             prompt = (
-                f"The user is reading '{self.book}' (chapter {self.current_chapter}). "
-                f"Quick reading companion question: '{q}'\n\n"
+                f"The user is reading \'{self.book}\' (chapter {self.current_chapter}). "
+                f"Quick reading companion question: \'{q}\'\n\n"
                 f"Answer clearly and concisely — under 100 words."
             )
 

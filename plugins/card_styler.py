@@ -1,7 +1,7 @@
 """
 card_styler.py — Great Sage Plugin
 Restyle the four dashboard module cards.
-Drop into ~/Documents/great sage/plugins/
+Drop into ~/Documents/Great-Sage/plugins/
 """
 
 PLUGIN_NAME        = "Card Styler"

@@ -106,10 +106,37 @@ from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
 try:
     from artemis import EditorPage
-except ImportError:
-    from PyQt6.QtWidgets import QWidget as EditorPage
-    import warnings
-    warnings.warn("artemis module not found, using placeholder")
+except ImportError as _artemis_err:
+    import warnings as _warnings
+    _warnings.warn(f"artemis module not found — using placeholder EditorPage ({_artemis_err})")
+
+    from PyQt6.QtWidgets import QVBoxLayout, QLabel as _QLabel
+
+    class EditorPage(QWidget):           # type: ignore[no-redef]
+        """
+        Placeholder shown when artemis.py fails to import.
+        Implements the same surface as all page objects so MainWindow.
+        _navigate() never crashes (refresh, resizeEvent, etc.).
+        """
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(40, 40, 40, 40)
+            msg = _QLabel(
+                "✦ Artemis editor unavailable\n\n"
+                f"Reason: {_artemis_err}\n\n"
+                "Check that artemis.py is present in the same directory as great_sage_gui.py.",
+            )
+            msg.setStyleSheet(
+                f"color: {MUTED}; font-size: 13px; qproperty-alignment: AlignCenter;"
+            )
+            msg.setWordWrap(True)
+            layout.addStretch()
+            layout.addWidget(msg)
+            layout.addStretch()
+
+        def refresh(self):
+            pass   # nothing to refresh in the placeholder
 
 # ── Core ─────────────────────────────────────────────────────────────────────
 from great_sage_core import (
