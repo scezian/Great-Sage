@@ -91,7 +91,8 @@ class TestFindBookTxt:
 class TestProfileToText:
     """Smoke test for sage.profile_to_text — ensure it produces a string."""
 
-    def test_empty_profile(self):
+    @staticmethod
+    def test_empty_profile():
         import sage
         profile = {
             "novels": [],

@@ -227,7 +227,8 @@ class NavRail(QFrame):
         self._apply_style(tile, False)
         return tile
 
-    def _apply_style(self, tile: QWidget, active: bool):
+    @staticmethod
+    def _apply_style(tile: QWidget, active: bool):
         if active:
             tile.setStyleSheet(
                 "QWidget { background:#1A1106; border:1px solid #C9A84C44; border-radius:10px; }")
@@ -739,32 +740,10 @@ class ReadingRoomOverlay(QWidget):
         elif mode == "stars":
             p.setPen(Qt.PenStyle.NoPen)
             for pt in self._amb_particles:
-                alpha = int(pt["a"] * (0.5 + 0.5 * _m.sin(pt["phase"])))
-                sz = pt["sz"]; x = int(pt["x"] * W); y = int(pt["y"] * H)
-                p.setBrush(QBrush(QColor(pr, pg, pb, max(0, alpha))))
-                p.drawEllipse(int(x - sz/2), int(y - sz/2), int(sz + 1), int(sz + 1))
-        else:   # mist / motes
-            p.setPen(Qt.PenStyle.NoPen)
-            for pt in self._amb_particles:
-                alpha = int(pt["a"] * pt["life"] *
-                            (0.6 + 0.4 * _m.sin(pt["phase"] + self._amb_t * 0.5)))
-                sz = pt["sz"]; x = int(pt["x"] * W); y = int(pt["y"] * H)
-                p.setBrush(QBrush(QColor(pr, pg, pb, max(0, alpha))))
-                p.drawEllipse(int(x - sz/2), int(y - sz/2), int(sz + 1), int(sz + 1))
+                # ── Sound ─────────────────────────────────────────────────────────────────
 
-        # 4. Cinematic vignette — pulls focus to centre
-        p.setPen(Qt.PenStyle.NoPen)
-        vg = QRadialGradient(W / 2, H / 2, max(W, H) * 0.72)
-        vg.setColorAt(0,    QColor(0, 0, 0,   0))
-        vg.setColorAt(0.50, QColor(0, 0, 0,   0))
-        vg.setColorAt(1,    QColor(0, 0, 0, 170))
-        p.setBrush(QBrush(vg))
-        p.drawRect(0, 0, W, H)
-        p.end()
-
-    # ── Sound ─────────────────────────────────────────────────────────────────
-
-    def _pick_sound(self, genre):
+    @staticmethod
+    def _pick_sound(genre):
         if genre in ("cultivation", "fantasy"): return "forest"
         if genre == "romance":                  return "cafe"
         if genre in ("sci-fi", "thriller"):     return "library"
@@ -935,7 +914,7 @@ class ReadingRoomOverlay(QWidget):
                 line-height: {p['line_height']};
                 selection-background-color: rgba(255,255,255,0.12);
             }}
-        """)
+        ")
         reader.setPlainText(text)
         self._reader = reader
 
@@ -952,7 +931,8 @@ class ReadingRoomOverlay(QWidget):
         ov.addWidget(glass, 1)
         return outer
 
-    def _make_bot_bar(self, title):
+    @staticmethod
+    def _make_bot_bar(title):
         bar = QWidget()
         bar.setFixedHeight(40)
         bar.setStyleSheet(
@@ -1415,7 +1395,7 @@ class MemoryPalaceWindow(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root.setContentsMargins(0,0,0); root.setSpacing(0)
 
         bar = QWidget()
         bar.setFixedHeight(36)
@@ -1438,7 +1418,8 @@ class MemoryPalaceWindow(QWidget):
         else:
             self._build_native(root)
 
-    def _build_native(self, root):
+    @staticmethod
+    def _build_native(root):
         """Native Qt fallback — renders when QtWebEngine is not installed."""
         ld = legion_data()
         md = matrix_data()

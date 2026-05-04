@@ -44,14 +44,17 @@ class SourcePlugin(ABC):
     def fetch_chapter(self, url: str, session, scraper=None) -> ChapterResult:
         """Fetch and parse one chapter. session = requests.Session."""
 
-    def search(self, query: str, session) -> list[SearchResult]:
+    @staticmethod
+    def search(query: str, session) -> list[SearchResult]:
         """Search for novels. Override if supports_search = True."""
         return []
 
-    def fetch_metadata(self, book_url: str, session) -> BookMetadata:
+    @staticmethod
+    def fetch_metadata(book_url: str, session) -> BookMetadata:
         """Fetch book-level metadata from a series/book page. Optional."""
         return BookMetadata()
 
-    def clean_content(self, paragraphs: list[str]) -> list[str]:
+    @staticmethod
+    def clean_content(paragraphs: list[str]) -> list[str]:
         """Post-process extracted paragraphs. Default: return as-is."""
         return paragraphs

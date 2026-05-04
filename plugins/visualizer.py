@@ -194,7 +194,8 @@ class AudioCapture:
             try: proc.terminate()
             except Exception: pass
 
-    def _find_monitor(self):
+    @staticmethod
+    def _find_monitor():
         import subprocess as _sp, shutil
         if shutil.which("pactl"):
             try:
@@ -292,28 +293,30 @@ class VisualizerCanvas(QWidget):
     def _get_colors(self):
         return [QColor(c) for c in PALETTES[PAL_NAMES[self._pal_idx]]]
 
-    def _bar_color(self, frac, colors, alpha=220):
-        n   = len(colors) - 1
-        pos = frac * n
-        i   = min(int(pos), n - 1)
-        t   = pos - i
-        c1, c2 = colors[i], colors[i + 1]
-        return QColor(
-            int(c1.red()   + t * (c2.red()   - c1.red())),
-            int(c1.green() + t * (c2.green() - c1.green())),
-            int(c1.blue()  + t * (c2.blue()  - c1.blue())),
-            alpha,
-        )
+        @staticmethod
+        def _bar_color(frac, colors, alpha=220):
+            n   = len(colors) - 1
+            pos = frac * n
+            i   = min(int(pos), n - 1)
+            t   = pos - i
+            c1, c2 = colors[i], colors[i + 1]
+            return QColor(
+                int(c1.red()   + t * (c2.red()   - c1.red())),
+                int(c1.green() + t * (c2.green() - c1.green())),
+                int(c1.blue()  + t * (c2.blue()  - c1.blue())),
+                alpha,
+            )
 
-    def _mirrored_bars(self, src):
-        n = len(src)
-        result = []
-        for i in range(n):
-            half = n // 2
-            s = (half - 1 - i) if i < half else (i - half)
-            s = max(0, min(s, half - 1))
-            result.append(src[s])
-        return result
+        @staticmethod
+        def _mirrored_bars(src):
+            n = len(src)
+            result = []
+            for i in range(n):
+                half = n // 2
+                s = (half - 1 - i) if i < half else (i - half)
+                s = max(0, min(s, half - 1))
+                result.append(src[s])
+            return result
 
     def paintEvent(self, _):
         p = QPainter(self)

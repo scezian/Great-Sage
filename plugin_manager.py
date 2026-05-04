@@ -164,7 +164,8 @@ class PluginAPI:
 
     # ── Core data ──────────────────────────────────────────────────────────────
 
-    def legion_data(self) -> dict:
+    @staticmethod
+    def legion_data() -> dict:
         """Return the current Legion progress data (books, chapters, etc.)."""
         try:
             path = Path.home() / ".great_sage_legion.json"
@@ -174,7 +175,8 @@ class PluginAPI:
             pass
         return {"books": {}}
 
-    def matrix_data(self) -> dict:
+    @staticmethod
+    def matrix_data() -> dict:
         """Return the current Matrix data (watching, watchlist, settings)."""
         try:
             path = Path.home() / ".config" / "matrix" / "progress.json"
@@ -238,7 +240,8 @@ class PluginAPI:
             except Exception:
                 pass
 
-    def make_label(self, text: str, color: str = None,
+    @staticmethod
+    def make_label(text: str, color: str = None,
                    size: int = 13, bold: bool = False) -> QLabel:
         """Convenience — create a styled QLabel matching app style."""
         w = QLabel(text)
@@ -249,7 +252,8 @@ class PluginAPI:
         w.setStyleSheet(s)
         return w
 
-    def make_button(self, text: str, accent: bool = False) -> QPushButton:
+    @staticmethod
+    def make_button(text: str, accent: bool = False) -> QPushButton:
         """Convenience — create a styled QPushButton matching app style."""
         b = QPushButton(text)
         if accent:
@@ -265,15 +269,6 @@ class PluginAPI:
                 f"border-radius:4px; }}"
                 f"QPushButton:hover {{ border-color:{ACCENT}; color:{ACCENT}; }}")
         return b
-
-    # ── Slot injection ─────────────────────────────────────────────────────────
-
-    # Available slot names:
-    #   "dashboard_top"         — full-width strip above the dashboard title
-    #   "dashboard_below_cards" — full-width area below the 4 main cards
-    #   "reader_sidebar"        — extra panel in the Legion reader
-    #   "matrix_header"         — strip above the Matrix tab bar
-    #   "sage_below_output"     — area below Sage's response text
 
     def register_slot(self, slot_name: str, widget: "QWidget",
                       label: str = "") -> bool:

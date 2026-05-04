@@ -147,7 +147,8 @@ class LegionPage(QWidget):
         self.cleanup_all_workers()
         super().hideEvent(event)
 
-    def _make_icon_list(self):
+    @staticmethod
+    def _make_icon_list():
         """Create a standard icon-mode QListWidget matching the Jump In grid style."""
         lw = QListWidget()
         lw.setViewMode(QListWidget.ViewMode.IconMode)
@@ -1033,7 +1034,8 @@ class LegionPage(QWidget):
         else:
             self._disc_browse()
 
-    def _disc_src_style(self, active: bool) -> str:
+    @staticmethod
+    def _disc_src_style(active: bool) -> str:
         if active:
             return (f"background:{ACCENT};color:{BG};border:1px solid {ACCENT};"
                     f"border-radius:10px;font-size:9px;padding:3px 12px;font-weight:bold;")
@@ -1376,7 +1378,8 @@ class LegionPage(QWidget):
             
             self._meta_workers.append(w)
 
-    def _disc_on_cover_ready(self, item: "QListWidgetItem", px: "QPixmap"):
+    @staticmethod
+    def _disc_on_cover_ready(item: "QListWidgetItem", px: "QPixmap"):
         from PyQt6.QtGui import QIcon
         try:
             if item and item.listWidget() is not None and not px.isNull():
@@ -1384,7 +1387,8 @@ class LegionPage(QWidget):
         except RuntimeError:
             pass  # item was deleted before cover arrived
 
-    def _make_placeholder_cover(self, title: str, w: int, h: int) -> "QPixmap":
+    @staticmethod
+    def _make_placeholder_cover(title: str, w: int, h: int) -> "QPixmap":
         """Generate a dark styled cover card with title initials."""
         from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient, QBrush, QPen
         from PyQt6.QtCore import QRect
@@ -2026,12 +2030,14 @@ class LegionPage(QWidget):
 
         layout.addStretch()
 
-    def _dl_panel_pause(self, name):
+    @staticmethod
+    def _dl_panel_pause(name):
         mod, _ = _get_legion_mod()
         if mod and hasattr(mod, "download_manager"):
             mod.download_manager.pause_download(name)
 
-    def _dl_panel_resume(self, name):
+    @staticmethod
+    def _dl_panel_resume(name):
         mod, _ = _get_legion_mod()
         if not mod: return
         ld = legion_data()
@@ -2056,7 +2062,7 @@ class LegionPage(QWidget):
         if self._right_stack.currentIndex() == 4:
             self._refresh_downloads_panel()
 
-    def refresh(self):
+    def refresh(selfn):
         ld = legion_data(); books = ld.get("books",{})
         self.jumpin_list.clear()
         self._book_data = {}
@@ -2870,7 +2876,8 @@ class LegionPage(QWidget):
         else: self._bm_move_raw(title, url, target)
         self.refresh()
 
-    def _bm_move_raw(self, title, url, target):
+    @staticmethod
+    def _bm_move_raw(title, url, target):
         bm = bookmarks_data()
         for k in bm:
             bm[k] = [e for e in bm[k]

@@ -143,7 +143,8 @@ class NovelBinPlugin(SourcePlugin):
             chapter_num=url_ch_num
         )
 
-    def _extract_nav(self, soup, link_id, base):
+    @staticmethod
+    def _extract_nav(soup, link_id, base):
         def _make_abs(href):
             if not href or href.startswith("javascript") or href in ("#", "null", "undefined"):
                 return None
