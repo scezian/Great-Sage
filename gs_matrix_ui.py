@@ -1050,7 +1050,7 @@ class MatrixPage(QWidget):
                 fstem = os.path.splitext(fname)[0].lower()
                 # Strip language suffix like .en before comparing  e.g. "Show.S01E01.en" -> "Show.S01E01"
                 fstem_clean = re.sub(r'\.[a-z]{2,3}$', '', fstem)
-                if fstem == stem or fstem_clean == stem:
+                if stem in (fstem, fstem_clean):
                     return os.path.join(sub_dir, fname)
         return ""
 
