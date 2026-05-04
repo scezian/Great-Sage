@@ -619,7 +619,9 @@ class FetchChapterWorker(QThread):
             self.error.emit(f"Cannot load legion.py: {err}")
             return
         try:
-            signal.signal(signal.SIGALRM, lambda s, f: exec('raise TimeoutError("Fetch timed out after 30s")'))
+            def _timeout_handler(s, f):
+                raise TimeoutError("Fetch timed out after 30s")
+            signal.signal(signal.SIGALRM, _timeout_handler)
             signal.alarm(30)
             try:
                 title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
@@ -1395,7 +1397,7 @@ def start_mobile_server():
             return jsonify({"ok": True})
 
         def _run():
-            app.run(host="0.0.0.0", port=_mobile_server_port, debug=False, use_reloader=False)
+            app.run(host="127.0.0.1", port=_mobile_server_port, debug=False, use_reloader=False)
 
         _mobile_server_thread = threading.Thread(target=_run, daemon=True)
         _mobile_server_thread.start()

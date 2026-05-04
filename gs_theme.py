@@ -6,7 +6,9 @@ Import everything with:  from gs_theme import *
 """
 
 # ── Runtime constants ───────────────────────────────────────────────────────────
-MPV_SOCKET_PATH = "/tmp/mpvsocket_gs"  # Unix socket for mpv IPC
+import tempfile
+import os as _os
+MPV_SOCKET_PATH = _os.path.join(tempfile.gettempdir(), "mpvsocket_gs")  # Unix socket for mpv IPC
 
 # ── Design tokens — Ink & Amber ────────────────────────────────────────────────
 # Deep editorial palette: near-black backgrounds, warm amber accents,

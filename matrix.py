@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import json
+import tempfile
 from great_sage_core import sage_mod, matrix_data, save_json
 from typing import Optional
 import time
@@ -477,11 +478,7 @@ class MediaPlayer:
             return False, 0, 0
 
         duration = MediaPlayer._get_duration(file_path)
-        socket_path = "/tmp/mpvsocket"
-
-        if os.path.exists(socket_path):
-            try:
-                os.remove(socket_path)
+        socket_path = os.path.join(tempfile.gettempdir(), "mpvsocket")
             except Exception:
                 pass
 
@@ -595,7 +592,7 @@ class MediaPlayer:
             return True, False
 
         duration     = MediaPlayer._get_duration(file_path)
-        socket_path  = "/tmp/mpvsocket"
+        socket_path  = os.path.join(tempfile.gettempdir(), "mpvsocket")
 
         # Only spawn a new mpv process if one isn't already running on the socket.
         # When called after a loadfile swap the process is still alive — we must
