@@ -2056,7 +2056,8 @@ class EditorPage(QWidget):
 
         root.addWidget(self._ai_sidebar)
 
-    def _margin_widget(self):
+    @staticmethod
+    def _margin_widget():
         """Decorative side margin with a faint rule."""
         w = QWidget()
         w.setStyleSheet(f"background:{BG};")
@@ -2175,7 +2176,8 @@ class EditorPage(QWidget):
         self._modified = False
         self._update_status()
 
-    def _save_recent(self, path: str):
+    @staticmethod
+    def _save_recent(path: str):
         try:
             with open(RECENT_FILE, "w") as f:
                 json.dump({"last_open": path}, f)

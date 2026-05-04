@@ -308,7 +308,8 @@ class DashboardPage(QWidget):
 
         QTimer.singleShot(0, self.refresh)
 
-    def _make_stat_pill(self, value: str, label: str) -> QWidget:
+    @staticmethod
+    def _make_stat_pill(value: str, label: str) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background:transparent;")
         h = QHBoxLayout(w)
@@ -688,7 +689,8 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log.warning("_post_activate_refresh failed", error=str(e))
 
-    def _reset_stale_downloads(self):
+    @staticmethod
+    def _reset_stale_downloads():
         legion_data = get_legion_data()
         changed = False
         for name, book in legion_data.get("books", {}).items():

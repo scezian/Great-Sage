@@ -169,57 +169,58 @@ class AudioCapture:
         cmd = [
             "parec",
             "--device", device,
-            "--rate", str(self.SAMPLE_RATE),
-            "--channels", "1",
-            "--format", "s16le",
-            "--latency-msec", "50",
-        ]
-        try:
-            import subprocess as _sp
-            proc = _sp.Popen(cmd, stdout=_sp.PIPE, stderr=_sp.DEVNULL)
-        except Exception as e:
-            raise RuntimeError(f"parec failed: {e}")
+        "--rate", str(self.SAMPLE_RATE),
+        "--channels", "1",
+        "--format", "s16le",
+        "--latency-msec", "50",
+    ]
+    try:
+        import subprocess as _sp
+        proc = _sp.Popen(cmd, stdout=_sp.PIPE, stderr=_sp.DEVNULL)
+    except Exception as e:
+        raise RuntimeError(f"parec failed: {e}")
 
-        try:
-            while self._running:
-                r, _, _ = select.select([proc.stdout], [], [], 0.5)
-                if r:
-                    raw = proc.stdout.read(CHUNK * 2)
-                    if not raw:
-                        break
-                    samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-                    if len(samples) >= self.BLOCK_SIZE:
-                        self._process_chunk(samples[:self.BLOCK_SIZE], prev)
-        finally:
-            try: proc.terminate()
-            except Exception: pass
+    try:
+        while self._running:
+            r, _, _ = select.select([proc.stdout], [], [], 0.5)
+            if r:
+                raw = proc.stdout.read(CHUNK * 2)
+                if not raw:
+                    break
+                samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                if len(samples) >= self.BLOCK_SIZE:
+                    self._process_chunk(samples[:self.BLOCK_SIZE], prev)
+    finally:
+        try: proc.terminate()
+        except Exception: pass
 
-    def _find_monitor(self):
-        import subprocess as _sp, shutil
-        if shutil.which("pactl"):
+        @staticmethod
+        def _find_monitor():
+            import subprocess as _sp, shutil
+            if shutil.which("pactl"):
+                try:
+                    r = _sp.run(["pactl", "list", "sources", "short"],
+                                capture_output=True, text=True, timeout=3)
+                    lines = r.stdout.strip().splitlines()
+                    for line in lines:
+                        if "monitor" in line and "RUNNING" in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                return parts[1]
+                    for line in lines:
+                        if "monitor" in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                return parts[1]
+                except Exception:
+                    pass
             try:
-                r = _sp.run(["pactl", "list", "sources", "short"],
-                            capture_output=True, text=True, timeout=3)
-                lines = r.stdout.strip().splitlines()
-                for line in lines:
-                    if "monitor" in line and "RUNNING" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            return parts[1]
-                for line in lines:
-                    if "monitor" in line:
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            return parts[1]
-            except Exception:
-                pass
-        try:
-            import sounddevice as sd
-            devices = sd.query_devices()
-            for d in devices:
-                if d["name"].lower() == "cava" and d["max_input_channels"] > 0:
-                    return d["name"]
-            for p in ["pipewire", "pulse"]:
+                import sounddevice as sd
+                devices = sd.query_devices()
+                for d in devices:
+                    if d["name"].lower() == "cava" and d["max_input_channels"] > 0:
+                        return d["name"]
+                for p in ["pipewire", "pulse"]:
                 for d in devices:
                     if p.lower() in d["name"].lower() and d["max_input_channels"] > 0:
                         return d["name"]
@@ -292,7 +293,8 @@ class VisualizerCanvas(QWidget):
     def _get_colors(self):
         return [QColor(c) for c in PALETTES[PAL_NAMES[self._pal_idx]]]
 
-    def _bar_color(self, frac, colors, alpha=220):
+    @staticmethod
+    def _bar_color(frac, colors, alpha=220):
         n   = len(colors) - 1
         pos = frac * n
         i   = min(int(pos), n - 1)
@@ -305,7 +307,8 @@ class VisualizerCanvas(QWidget):
             alpha,
         )
 
-    def _mirrored_bars(self, src):
+    @staticmethod
+    def _mirrored_bars(src):
         n = len(src)
         result = []
         for i in range(n):

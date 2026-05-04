@@ -1273,7 +1273,8 @@ class Storage:
         
         return self._get_default_data()
     
-    def _get_default_data(self) -> Dict:
+    @staticmethod
+    def _get_default_data() -> Dict:
         """Get default data structure"""
         return {
             'watchlist': {
@@ -2858,7 +2859,8 @@ class SyncManager:
             elif key == "d" and (trakt_ok or anilist_ok):
                 cfg = self._disconnect(cfg)
 
-    def _setup_trakt(self, cfg: dict) -> dict:
+    @staticmethod
+    def _setup_trakt(cfg: dict) -> dict:
         clear_screen()
         safe_print("\n  Trakt Setup", "[bold]")
         safe_print("  You need a Trakt application to get a Client ID and Secret.", "[dim]")
@@ -2884,7 +2886,8 @@ class SyncManager:
             save_sync_config(cfg)
         return cfg
 
-    def _setup_anilist(self, cfg: dict) -> dict:
+    @staticmethod
+    def _setup_anilist(cfg: dict) -> dict:
         clear_screen()
         safe_print("\n  AniList Setup", "[bold]")
         safe_print("  AniList uses your public username — no login required.", "[dim]")
@@ -2909,7 +2912,8 @@ class SyncManager:
         save_sync_config(cfg)
         return cfg
 
-    def _disconnect(self, cfg: dict) -> dict:
+    @staticmethod
+    def _disconnect(cfg: dict) -> dict:
         services = []
         if cfg.get("trakt_token"):
             services.append(("t", "Trakt"))

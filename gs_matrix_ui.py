@@ -296,7 +296,8 @@ if WEBENGINE_OK:
     )
 
     class AnimeInterceptor(QWebEngineUrlRequestInterceptor):
-        def interceptRequest(self, info: QWebEngineUrlRequestInfo):
+        @staticmethod
+        def interceptRequest(info: QWebEngineUrlRequestInfo):
             url = info.requestUrl().toString()
             host = info.requestUrl().host().lower()
 
@@ -1035,7 +1036,8 @@ class MatrixPage(QWidget):
         if title in md.get("watching",{}): del md["watching"][title]
         save_json(MATRIX_PROGRESS, md); self.refresh()
 
-    def _find_subtitle(self, video_path: str) -> str:
+    @staticmethod
+    def _find_subtitle(video_path: str) -> str:
         """
         Look for a matching subtitle in ~/Subtitles/ for the given video file.
         Matches on the video file stem (without extension), case-insensitive.
@@ -1054,12 +1056,9 @@ class MatrixPage(QWidget):
                     return os.path.join(sub_dir, fname)
         return ""
 
-
     def _launch_mpv(self, path, start=0):
         if not os.path.exists(path):
             QMessageBox.warning(self, "Not Found", f"File not found:\n{path}"); return
-
-        filename = os.path.basename(path)
 
         mod, _ = matrix_mod()
         # Use the immediate parent folder name as the show title
@@ -2795,7 +2794,8 @@ class WrappedDialog(QDialog):
         bb.rejected.connect(self.reject); lay.addWidget(bb)
         self._populate()
 
-    def _stat(self, label, value, color=TEXT):
+    @staticmethod
+    def _stat(label, value, color=TEXT):
         row = QHBoxLayout()
         row.addWidget(lbl(label, TEXT2, 13))
         row.addStretch()

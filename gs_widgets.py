@@ -227,7 +227,8 @@ class NavRail(QFrame):
         self._apply_style(tile, False)
         return tile
 
-    def _apply_style(self, tile: QWidget, active: bool):
+    @staticmethod
+    def _apply_style(tile: QWidget, active: bool):
         if active:
             tile.setStyleSheet(
                 "QWidget { background:#1A1106; border:1px solid #C9A84C44; border-radius:10px; }")
@@ -764,7 +765,8 @@ class ReadingRoomOverlay(QWidget):
 
     # ── Sound ─────────────────────────────────────────────────────────────────
 
-    def _pick_sound(self, genre):
+    @staticmethod
+    def _pick_sound(genre):
         if genre in ("cultivation", "fantasy"): return "forest"
         if genre == "romance":                  return "cafe"
         if genre in ("sci-fi", "thriller"):     return "library"
@@ -952,7 +954,8 @@ class ReadingRoomOverlay(QWidget):
         ov.addWidget(glass, 1)
         return outer
 
-    def _make_bot_bar(self, title):
+    @staticmethod
+    def _make_bot_bar(title):
         bar = QWidget()
         bar.setFixedHeight(40)
         bar.setStyleSheet(
@@ -1415,7 +1418,7 @@ class MemoryPalaceWindow(QWidget):
 
     def _build(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0,0,0,0); root.setSpacing(0)
+        root.setContentsMargins(0,0,0); root.setSpacing(0)
 
         bar = QWidget()
         bar.setFixedHeight(36)
@@ -1438,7 +1441,8 @@ class MemoryPalaceWindow(QWidget):
         else:
             self._build_native(root)
 
-    def _build_native(self, root):
+    @staticmethod
+    def _build_native(root):
         """Native Qt fallback — renders when QtWebEngine is not installed."""
         ld = legion_data()
         md = matrix_data()

@@ -369,7 +369,8 @@ class AmbientBackground(QWidget):
         self._frame_count += 1
         self.update()
         
-    def _draw_orb(self, painter, x, y, radius, color_center, color_edge):
+    @staticmethod
+    def _draw_orb(painter, x, y, radius, color_center, color_edge):
         if radius <= 0:
             return
         gradient = QRadialGradient(x, y, radius)
