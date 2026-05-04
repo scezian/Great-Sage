@@ -240,7 +240,7 @@ class _NoteCard(QFrame):
         # Tags row — flow layout so chips wrap on narrow panels
         tags = self._note.get("tags", [])
         if tags:
-            tag_map = {t: c for t, c in TAGS}
+            tag_map = dict(TAGS)
             tag_flow = _FlowLayout(h_spacing=4, v_spacing=3)
             for tag in tags:
                 color = tag_map.get(tag, MUTED)
@@ -265,7 +265,6 @@ class _NoteCard(QFrame):
 
 # ── Main panel ─────────────────────────────────────────────────────────────────
 class CataloguePanel(QFrame):
-    """
     Drop-in sidebar panel — mirrors the Sage panel.
     Usage in LegionPage:
         self._catalogue_panel = CataloguePanel(reader_body_widget)
