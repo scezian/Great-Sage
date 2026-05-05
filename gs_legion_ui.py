@@ -183,21 +183,13 @@ class LegionPage(QWidget):
         hdr_w.setFixedHeight(52)
         hw = QHBoxLayout(hdr_w)
         hw.setContentsMargins(16,0,12,0)
-        back_b = QPushButton("← HOME")
-        back_b.setStyleSheet(
-            f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 0;")
-        back_b.clicked.connect(lambda: self.window()._navigate("dashboard"))
-        tl = QLabel("LEGION"); tl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;"
-            f"color:{ACCENT};letter-spacing:3px;margin-left:10px;")
         self._menu_btn = QPushButton("☰")
         self._menu_btn.setFixedSize(28, 28)
         self._menu_btn.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
             f"font-size:16px;padding:0;")
         self._menu_btn.clicked.connect(self._toggle_menu)
-        hw.addWidget(back_b); hw.addWidget(tl); hw.addStretch()
+        hw.addStretch()
         hw.addWidget(self._menu_btn)
         sv.addWidget(hdr_w); sv.addWidget(hline())
 

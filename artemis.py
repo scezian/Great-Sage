@@ -213,9 +213,6 @@ class DocumentSidebar(QWidget):
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.back_btn.clicked.connect(self._on_home)
 
-        bh.addWidget(logo)
-        bh.addSpacing(8)
-        bh.addWidget(app_name)
         bh.addStretch()
         bh.addWidget(self.back_btn)
         v.addWidget(brand)
