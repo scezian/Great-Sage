@@ -6,6 +6,8 @@ Built with PyQt6 and the Ink & Amber design system.
 - ## Overview
 - 
 Great Sage replaces the usual pile of browser tabs, tracking spreadsheets, and disconnected note apps with a single native application. It has four core modules that share a unified data layer, so your AI companion can make recommendations that span both what you're reading and what you're watching.
+
+Great Sage replaces the usual pile of browser tabs, tracking spreadsheets, and disconnected note apps with a single native application. It has four core modules that share a unified data layer, so your AI companion c
 The media side is built around your local files — point Matrix at your downloaded movies and shows, and it handles playback via mpv, progress tracking, metadata, and subtitles. Web novels in Legion are fetched and downloaded for offline reading. Everything runs on what's already on your machine.
 
 ---
