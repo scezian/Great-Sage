@@ -3,7 +3,7 @@ gs_matrix_ui.py — Great Sage
 ==============================
 Matrix module UI: media tracker page and related dialogs.
 """
-import os, re, subprocess, sys, threading, time
+import os, re, subprocess, sys, threading, time, datetime as dt
 from pathlib import Path
 
 try:
@@ -907,7 +907,6 @@ class MatrixPage(QWidget):
             self._browser_play()
         else:
             try:
-                import subprocess
                 subprocess.Popen(["xdg-open", path])
             except Exception as e:
                 log.warning("Operation failed", error=str(e), location="_browser_activate")
@@ -1050,7 +1049,7 @@ class MatrixPage(QWidget):
                 fstem = os.path.splitext(fname)[0].lower()
                 # Strip language suffix like .en before comparing  e.g. "Show.S01E01.en" -> "Show.S01E01"
                 fstem_clean = re.sub(r'\.[a-z]{2,3}$', '', fstem)
-                if stem in (fstem, fstem_clean):
+                if fstem == stem or fstem_clean == stem:
                     return os.path.join(sub_dir, fname)
         return ""
 
@@ -1874,16 +1873,15 @@ class MatrixPage(QWidget):
            animekai.to/watch/{slug}?ep={num}
            animekai.to/{slug}/ep-{num}
         """
-        import re as _re
         # Pattern 1: /watch/slug#ep=12 or /watch/slug?ep=12
-        m = _re.search(r'/watch/([^#?/]+)[#?]ep[=:](\d+)', url)
+        m = re.search(r'/watch/([^#?/]+)[#?]ep[=:](\d+)', url)
         if m:
             slug = m.group(1)
             ep = int(m.group(2))
-            title = _re.sub(r'-[a-z0-9]{3,6}$', '', slug).replace('-', ' ').title()
+            title = re.sub(r'-[a-z0-9]{3,6}$', '', slug).replace('-', ' ').title()
             self._update_now_watching(title, ep); return
         # Pattern 2: /slug/ep-12
-        m = _re.search(r'/([a-z0-9-]+)/ep-(\d+)', url)
+        m = re.search(r'/([a-z0-9-]+)/ep-(\d+)', url)
         if m:
             slug = m.group(1)
             ep = int(m.group(2))
@@ -1896,7 +1894,6 @@ class MatrixPage(QWidget):
            'Watch Solo Leveling Ep 12 Online'
            'Solo Leveling - Episode 12'
         """
-        import re as _re
         if not title: return
         t_lower = title.lower()
         # Must be an AnimeKai page or watch page
@@ -1917,12 +1914,12 @@ class MatrixPage(QWidget):
             r'^(.+?)\s+(\d+)\s*[-–]',
         ]
         for pat in patterns:
-            m = _re.search(pat, title, _re.IGNORECASE)
+            m = re.search(pat, title, re.IGNORECASE)
             if m:
                 show = m.group(1).strip()
                 # Strip site name suffixes
-                show = _re.sub(r'\s*[-|]\s*(AnimeKai|Watch Online|HD|Sub|Dub).*$',
-                               '', show, flags=_re.IGNORECASE).strip()
+                show = re.sub(r'\s*[-|]\s*(AnimeKai|Watch Online|HD|Sub|Dub).*$',
+                               '', show, flags=re.IGNORECASE).strip()
                 ep = int(m.group(2))
                 if show and ep > 0:
                     self._update_now_watching(show, ep)
@@ -2412,8 +2409,8 @@ class _CalendarWorker(QThread):
         return overlap >= 0.7
 
     def run(self):
-        import datetime as dt, urllib.request, urllib.parse
-        import concurrent.futures, threading
+        import urllib.request, urllib.parse
+        import concurrent.futures
 
         md = matrix_data()
         wl = md.get("watchlist", {})
@@ -2662,7 +2659,6 @@ class CalendarDialog(QDialog):
         lay.addWidget(hline())
 
         # ── Calendar grid (7 day buttons) ─────────────────────────────────
-        import datetime as dt
         self._today = dt.datetime.now()
         grid = QHBoxLayout()
         grid.setSpacing(6)
@@ -2747,7 +2743,6 @@ class CalendarDialog(QDialog):
         self._select_day(self._selected)
 
     def _select_day(self, date_s):
-        import datetime as dt
         self._selected = date_s
         # Update button states
         for d, b in self._day_btns.items():
@@ -2778,7 +2773,6 @@ class WrappedDialog(QDialog):
     """Stats & Wrapped — year or all-time."""
     def __init__(self, period="year", parent=None):
         super().__init__(parent)
-        import datetime as dt
         self._period = period
         year = dt.datetime.now().year
         title = f"🏆  Your {year} Wrapped" if period == "year" else "📊  All-Time Stats"
@@ -2804,7 +2798,6 @@ class WrappedDialog(QDialog):
         return row
 
     def _populate(self):
-        import datetime as dt
         ld = legion_data()
         md = matrix_data()
         bd = behaviour_data()
