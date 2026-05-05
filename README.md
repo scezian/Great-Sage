@@ -13,6 +13,21 @@ Built with PyQt6 and the **Ink & Amber** design system.
 Great Sage replaces the usual pile of browser tabs, tracking spreadsheets, and disconnected note apps with a single native application. It has four core modules that share a unified data layer, so your AI companion can make recommendations that span both what you're reading and what you're watching.
 
 ---
+##    Scerrnshots
+- dashboard
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/45807b11-4d2f-4822-a39b-a9611e533499" />
+- Legion
+- <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/ebcd5c8e-ad9e-492c-807d-484c828cda19" />
+  <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5fdcc15c-5a5e-4d20-aaef-99e7c36f0f3e" />
+  <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5a137e56-f5c3-40ec-a025-d59d32353e7f" />
+
+- Matrix
+- <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/7bdd8c76-7df4-4bd8-8688-c9090124dfaa" />
+
+- Sage
+- <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a1fa60d2-58ef-41a6-bf75-66ea84683b8b" />
+  <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8b72a740-2c5d-4cf9-9000-69b47a47855c" />
+
 
 ## Modules
 
@@ -56,8 +71,7 @@ Powered by Groq Cloud. Sage has access to your full Legion and Matrix data and b
 - **Quick Pick** — instant single recommendation
 - **Analyse tab** — chapter summaries, title breakdowns, watchlist prioritization
 - **Chat** — free-form conversation about your media
-- **DuckDuckGo fallback** — web search when Groq is unavailable
-
+- **DuckDuckGo fallback** — web search when Groq is unavailable<img 
 
 
 ### Artemis — Rich-Text Editor
