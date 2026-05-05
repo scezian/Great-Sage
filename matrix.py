@@ -479,8 +479,6 @@ class MediaPlayer:
 
         duration = MediaPlayer._get_duration(file_path)
         socket_path = os.path.join(tempfile.gettempdir(), "mpvsocket")
-            except Exception:
-                pass
 
         cmd = [
             "mpv",
