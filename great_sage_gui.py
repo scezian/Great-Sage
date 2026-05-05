@@ -6,7 +6,7 @@ Entry point and shell. Pure native PyQt6 — no HTML pages.
 Run:  python3 great_sage_gui.py
 """
 
-import os, sys, json, time, re, subprocess, threading
+import os, sys, time, threading
 from pathlib import Path
 
 # Software rendering — avoids Mesa/EGL seg faults on stylesheet parse

@@ -3,8 +3,7 @@ gs_legion_ui.py — Great Sage
 =============================
 Legion module UI: novel reader page and all related dialogs.
 """
-import os, re, subprocess, sys, threading, time
-from pathlib import Path
+import os, re, time
 
 try:
     from gs_logger import log

@@ -9,7 +9,7 @@ import sys
 import re
 import json
 import tempfile
-from great_sage_core import sage_mod, matrix_data, save_json
+from great_sage_core import sage_mod, matrix_data, save_json, MATRIX_PROGRESS
 from typing import Optional
 import time
 import glob

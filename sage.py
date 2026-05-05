@@ -22,7 +22,6 @@ import sys
 import time
 import textwrap
 import requests
-from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables

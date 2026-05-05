@@ -4,8 +4,7 @@ gs_widgets.py — Great Sage
 Shared UI components: NavRail, helper functions, toasts, overlays,
 ambient canvas, memory palace, watchface.
 """
-import os, re, subprocess, sys, threading, time
-from pathlib import Path
+import os
 
 try:
     from gs_logger import log

@@ -51,9 +51,7 @@ except Exception:
 import importlib.util
 import json
 import os
-import sys
-import time
-import threading
+
 from pathlib import Path
 
 from PyQt6.QtCore    import Qt, QTimer, QSize, pyqtSignal, QThread

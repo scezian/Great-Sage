@@ -3,8 +3,7 @@ gs_sage_ui.py — Great Sage
 ===========================
 Sage AI page and Settings page.
 """
-import os, re, subprocess, sys, tempfile, threading, time
-from pathlib import Path
+import os, re, subprocess, tempfile, threading
 
 try:
     from gs_logger import log
@@ -13,6 +12,8 @@ except Exception as _log_err:
         def __getattr__(self, name): return _NoopLog()
         def __call__(self, *a, **kw): return None
     log = _NoopLog()
+
+from gs_matrix_ui import AddToWLDialog
 
 from gs_theme import *
 from gs_widgets import lbl, btn, hline, vline, tag, NavRail, EyeBreakToast, SyncToast, _mobile_server_port
