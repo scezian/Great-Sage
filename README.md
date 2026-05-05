@@ -26,9 +26,9 @@ Full-featured web novel reader with automatic chapter scraping and offline suppo
 - **Discover** tab — browse and search live sources, or describe what you want to Groq AI
 - **Offline reading** — download entire novels as `.txt` files for local reading
 - **Auto-sync** — background worker checks for new chapters and downloads them
-- **Progress tracking** — chapter position, words read, reading time, daily streaks
+- **Progress tracking** — Tracks the currnet chapter you are in
 - **Reader settings** — adjustable font size, line height, padding, dark/sepia/white modes
-- **Sage companion panel** — AI sidebar that reads along with you
+- **Sage companion panel** — AI sidebar that reads along with you with templates: Who is, What is and Ask
 - **Lens panel** — paste a scene description to visualize it with AI-generated images
 - **Chapter notes** — per-chapter annotation via the Catalogue module
 
@@ -39,7 +39,7 @@ Track and watch your anime and shows with native mpv integration.
 - **Watchlist** — Planning, Watching, Dropped, Completed states
 - **Continue Watching** — resume exactly where you left off
 - **Browse** tab — filesystem browser for your local video library
-- **Stream** tab — watch online via an embedded browser with ad blocking
+- **Stream** tab — watch online via an embedded browser 
 - **mpv integration** — native playback with automatic position saving
 - **Next-episode flow** — Lua overlay in mpv prompting to continue to the next episode
 - **Subtitle management** — search and download subtitles via OpenSubtitles
@@ -57,7 +57,8 @@ Powered by Groq Cloud. Sage has access to your full Legion and Matrix data and b
 - **Analyse tab** — chapter summaries, title breakdowns, watchlist prioritization
 - **Chat** — free-form conversation about your media
 - **DuckDuckGo fallback** — web search when Groq is unavailable
-- **Template chips** — Who is, What is, Ask shortcuts in the reader companion
+
+
 
 ### Artemis — Rich-Text Editor
 
