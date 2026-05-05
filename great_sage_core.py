@@ -558,8 +558,7 @@ def _detect_show_genre(title: str, is_anime: bool = False) -> str:
 def _grep_book_for_term(book_name: str, term: str, up_to_chapter: int,
                          max_excerpts: int = 60) -> str:
     # Match get_book_path() in legion.py: library/{safe_name}/{safe_name}.txt
-    import re as _re
-    safe = _re.sub(r'[^\w\-_\. ]', '_', book_name)
+    safe = re.sub(r'[^\w\-_\. ]', '_', book_name)
     library_path = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
     # Legacy fallback candidates for any files stored under old layout
     candidates = [

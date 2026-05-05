@@ -1701,8 +1701,7 @@ class WatchfaceWindow(QWidget):
 
     def update_sage_pick(self, text: str):
         """Call this after Sage generates a quick pick."""
-        import re as _re
-        m = _re.search(r'\d+[.)]\s*\*{0,2}(.+?)\*{0,2}\s*[-—]', text)
+        m = re.search(r'\d+[.)]\s*\*{0,2}(.+?)\*{0,2}\s*[-—]', text)
         pick = m.group(1).strip() if m else text.split("\n")[0][:60]
         self._sage_pick.setText(pick)
 

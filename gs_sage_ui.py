@@ -580,12 +580,11 @@ class SagePage(QWidget):
     @staticmethod
     def _strip_md(text: str) -> str:
         """Strip markdown formatting for plain-text display."""
-        import re as _re
-        t = _re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)   # **bold** / *italic*
-        t = _re.sub(r'^#{1,6}\s+', '', t, flags=_re.M)      # ## headers
-        t = _re.sub(r'`+([^`]*)`+', r'\1', t)               # `code`
-        t = _re.sub(r'^\s*[-*]\s+', '  • ', t, flags=_re.M) # - bullets → •
-        t = _re.sub(r'\n{3,}', '\n\n', t)                   # collapse blank lines
+        t = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', text)   # **bold** / *italic*
+        t = re.sub(r'^#{1,6}\s+', '', t, flags=re.M)      # ## headers
+        t = re.sub(r'`+([^`]*)`+', r'\1', t)               # `code`
+        t = re.sub(r'^\s*[-*]\s+', '  • ', t, flags=re.M) # - bullets → •
+        t = re.sub(r'\n{3,}', '\n\n', t)                   # collapse blank lines
         return t.strip()
 
     def _speak_sage(self, text: str):
@@ -651,19 +650,18 @@ class SagePage(QWidget):
     def _sage_watch_trailer(self):
         """Extract all recommended titles from Sage output and let user pick one."""
         if not self._last_response: return
-        import re as _re
         text = self._last_response
 
         # Extract all titles from numbered list e.g. "1. **Title** —"
         titles = []
-        for m in _re.finditer(r"^\d+[.)]\s+\*{0,2}(.+?)\*{0,2}\s*(?:[-\u2014(]|$)", text, _re.M):
+        for m in re.finditer(r"^\d+[.)]\s+\*{0,2}(.+?)\*{0,2}\s*(?:[-\u2014(]|$)", text, re.M):
             t = m.group(1).strip().rstrip("*- ")
             if t and len(t) > 1:
                 titles.append(t)
 
         # Fallback: all bold **Title** instances
         if not titles:
-            for m in _re.finditer(r"\*{1,2}(.+?)\*{1,2}", text):
+            for m in re.finditer(r"\*{1,2}(.+?)\*{1,2}", text):
                 t = m.group(1).strip()
                 if t and len(t) > 1:
                     titles.append(t)

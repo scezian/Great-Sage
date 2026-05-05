@@ -1252,7 +1252,7 @@ def _extract_json_ld(soup) -> dict:
     meta = {}
     for tag in soup.find_all('script', type='application/ld+json'):
         try:
-            data = _json.loads(tag.string or '')
+            data = json.loads(tag.string or '')
             if not isinstance(data, dict):
                 continue
             if data.get('@type') in ('Book', 'CreativeWork', 'WebPage', 'Article'):

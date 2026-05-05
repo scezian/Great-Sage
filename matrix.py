@@ -739,7 +739,6 @@ class MediaPlayer:
                 _state["result"] = (True, False)
 
         # ── Run monitor in background thread, listen for q ────────────────
-        import threading
         t = threading.Thread(target=_monitor, daemon=True)
         t.start()
 
@@ -1691,7 +1690,7 @@ class MetadataFetcher:
             _cfg = _os.path.expanduser("~/.config/matrix/progress.json")
             if _os.path.exists(_cfg):
                 with open(_cfg) as _f:
-                    _k = _j.load(_f).get("settings", {}).get("tmdb_api_key", "")
+                    _k = json.load(_f).get("settings", {}).get("tmdb_api_key", "")
                 if _k:
                     TMDB_API_KEY = _k
         except Exception:
