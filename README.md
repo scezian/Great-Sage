@@ -1,16 +1,12 @@
 # Great Sage
 
 A unified desktop media hub for Linux. Read web novels, track anime and shows, and chat with an AI companion that knows exactly what you're consuming — all in one dark, distraction-free app.
+Built with PyQt6 and the Ink & Amber design system.
 
-Built with PyQt6 and the **Ink & Amber** design system.
-
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![PyQt6](https://img.shields.io/badge/UI-PyQt6-green) ![License](https://img.shields.io/badge/License-MIT-yellow) ![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey)
-
----
-
-## Overview
-
+- ## Overview
+- 
 Great Sage replaces the usual pile of browser tabs, tracking spreadsheets, and disconnected note apps with a single native application. It has four core modules that share a unified data layer, so your AI companion can make recommendations that span both what you're reading and what you're watching.
+The media side is built around your local files — point Matrix at your downloaded movies and shows, and it handles playback via mpv, progress tracking, metadata, and subtitles. Web novels in Legion are fetched and downloaded for offline reading. Everything runs on what's already on your machine.
 
 ---
 ##    Scerrnshots
