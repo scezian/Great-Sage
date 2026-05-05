@@ -377,51 +377,10 @@ class MatrixPage(QWidget):
     def _build(self):
         import types as _mt
         from PyQt6.QtGui import (QPainter as _mP, QLinearGradient as _mG,
-                                  QColor as _mC, QBrush as _mB, QPen as _mPen,
-                                  QRadialGradient as _mRG)
+                                  QColor as _mC, QBrush as _mB, QPen as _mPen)
         root = QVBoxLayout(self)
         root.setContentsMargins(0,0,0,0)
         root.setSpacing(0)
-
-        header_w = QWidget()
-        header_w.setFixedHeight(64)
-        def _hdr_paint(self_w, event):
-            p = _mP(self_w)
-            p.setRenderHint(_mP.RenderHint.Antialiasing)
-            W, H = self_w.width(), self_w.height()
-            g = _mG(0, 0, W, 0)
-            g.setColorAt(0, _mC("#0D1520")); g.setColorAt(0.4, _mC(BG2)); g.setColorAt(1.0, _mC("#0A0F18"))
-            p.fillRect(0, 0, W, H, _mB(g))
-            rg = _mRG(0, H // 2, W * 0.5)
-            c1 = _mC(BLUE)
-            c1.setAlpha(30)
-            rg.setColorAt(0, c1); rg.setColorAt(1, _mC(0, 0, 0, 0))
-            p.fillRect(0, 0, W, H, _mB(rg))
-            bl = _mG(0, 0, W, 0)
-            bl.setColorAt(0, _mC(BLUE).darker(200)); bl.setColorAt(0.2, _mC(BLUE))
-            bl.setColorAt(0.8, _mC(BLUE)); bl.setColorAt(1.0, _mC(BLUE).darker(200))
-            p.setPen(_mPen(_mB(bl), 1)); p.drawLine(0, H - 1, W, H - 1); p.end()
-        header_w.paintEvent = _mt.MethodType(_hdr_paint, header_w)
-
-        hv = QHBoxLayout(header_w)
-        hv.setContentsMargins(24, 0, 24, 0)
-        hv.setSpacing(0)
-        back_b = QPushButton("⬡  HOME")
-        back_b.setStyleSheet(
-            f"QPushButton{{background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:2px;padding:4px 10px 4px 0;}}"
-            f"QPushButton:hover{{color:{BLUE};}}")
-        back_b.setCursor(__import__('PyQt6.QtCore', fromlist=['Qt']).Qt.CursorShape.PointingHandCursor)
-        back_b.clicked.connect(lambda: self.window()._navigate("dashboard"))
-        sep_lbl = QLabel(">"); sep_lbl.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;padding:0 6px;")
-        ico_lbl = QLabel("▣"); ico_lbl.setStyleSheet(f"color:{BLUE};font-size:18px;background:transparent;padding-right:10px;")
-        title_l = QLabel("MATRIX")
-        title_l.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;color:{TEXT};letter-spacing:5px;background:transparent;")
-        sub_l = QLabel("MEDIA MANAGER")
-        sub_l.setStyleSheet(f"color:{MUTED};font-size:8px;letter-spacing:3px;background:transparent;margin-left:14px;margin-top:2px;")
-        hv.addWidget(back_b); hv.addWidget(sep_lbl); hv.addWidget(ico_lbl)
-        hv.addWidget(title_l); hv.addWidget(sub_l); hv.addStretch()
-        root.addWidget(header_w)
 
         tabs = QTabWidget()
         tabs.setStyleSheet(f"""

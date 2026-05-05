@@ -72,44 +72,6 @@ class SagePage(QWidget):
         sv.setContentsMargins(0,0,0,0)
         sv.setSpacing(0)
 
-        hero = QWidget()
-        hero.setStyleSheet(f"background:{BG}; border-bottom:1px solid #1A1A24;")
-        hv = QVBoxLayout(hero)
-        hv.setContentsMargins(20,18,20,14)
-        hv.setSpacing(0)
-        eye_outer = QLabel()
-        eye_outer.setFixedSize(32, 32)
-        eye_outer.setStyleSheet(
-            "border:1px solid rgba(201,168,76,0.27); border-radius:16px; background:transparent;")
-        eye_mid = QLabel(eye_outer)
-        eye_mid.setFixedSize(20, 20)
-        eye_mid.move(5, 5)
-        eye_mid.setStyleSheet(
-            "border:1px solid rgba(201,168,76,0.53); border-radius:10px; background:transparent;")
-        eye_core = QLabel(eye_mid)
-        eye_core.setFixedSize(9, 9)
-        eye_core.move(5, 5)
-        eye_core.setStyleSheet(f"background:{ACCENT}; border-radius:4px; border:none;")
-        hv.addWidget(eye_outer); hv.addSpacing(8)
-        name_lbl = QLabel("SAGE")
-        name_lbl.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:20px; font-weight:bold; "
-            f"letter-spacing:6px; color:{ACCENT}; border:none; background:transparent;")
-        hv.addWidget(name_lbl)
-        sub_lbl = QLabel("INTELLIGENCE  ·  TASTE  ·  MEMORY")
-        sub_lbl.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:8px; letter-spacing:2px; "
-            f"color:#454560; border:none; background:transparent;")
-        hv.addWidget(sub_lbl); hv.addSpacing(14)
-        sv.addWidget(hero)
-
-        rule = QWidget()
-        rule.setFixedHeight(1)
-        rule.setStyleSheet(
-            "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 {ACCENT}, stop:0.5 {ACCENT2}, stop:1 transparent);")
-        sv.addWidget(rule)
-
         tab_bar = QWidget()
         tab_bar.setFixedHeight(36)
         tab_bar.setStyleSheet(f"background:{BG}; border-bottom:1px solid #1A1A24;")
