@@ -6,164 +6,254 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo ""
-echo "╔══════════════════════════════════╗"
-echo "║       Great Sage — Setup         ║"
-echo "╚══════════════════════════════════╝"
-echo ""
+# ── Colors & styles ───────────────────────────────────────────────────────────
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
 
-# ── 1. Detect package manager ────────────────────────────────────────────────
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
+CYAN="\033[0;36m"
+WHITE="\033[0;37m"
+MAGENTA="\033[0;35m"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+ok()   { echo -e "  ${GREEN}${BOLD}✓${RESET}  $1"; }
+warn() { echo -e "  ${YELLOW}${BOLD}⚠${RESET}  $1"; }
+err()  { echo -e "  ${RED}${BOLD}✗${RESET}  $1"; }
+info() { echo -e "  ${CYAN}${BOLD}→${RESET}  $1"; }
+
+section() {
+    echo ""
+    echo -e "  ${BOLD}${MAGENTA}$1${RESET}"
+    echo -e "  ${DIM}$(printf '─%.0s' {1..40})${RESET}"
+}
+
+spinner() {
+    local pid=$1
+    local msg=$2
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r  ${CYAN}${frames[$i]}${RESET}  ${DIM}%s...${RESET}" "$msg"
+        i=$(( (i+1) % ${#frames[@]} ))
+        sleep 0.08
+    done
+    printf "\r"
+}
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+
+clear
+echo ""
+echo -e "  ${BOLD}${MAGENTA}╔══════════════════════════════════════════╗${RESET}"
+echo -e "  ${BOLD}${MAGENTA}║${RESET}                                          ${BOLD}${MAGENTA}║${RESET}"
+echo -e "  ${BOLD}${MAGENTA}║${RESET}   ${BOLD}${WHITE}⚡  G R E A T   S A G E${RESET}               ${BOLD}${MAGENTA}║${RESET}"
+echo -e "  ${BOLD}${MAGENTA}║${RESET}   ${DIM}Setup & Installation${RESET}                  ${BOLD}${MAGENTA}║${RESET}"
+echo -e "  ${BOLD}${MAGENTA}║${RESET}                                          ${BOLD}${MAGENTA}║${RESET}"
+echo -e "  ${BOLD}${MAGENTA}╚══════════════════════════════════════════╝${RESET}"
+echo ""
+sleep 0.4
+
+# ── 1. Detect package manager ─────────────────────────────────────────────────
+
+section "01  Detecting system"
 
 detect_pkg_manager() {
-    if command -v pacman &>/dev/null; then
-        echo "pacman"
-    elif command -v apt &>/dev/null; then
-        echo "apt"
-    elif command -v dnf &>/dev/null; then
-        echo "dnf"
-    elif command -v zypper &>/dev/null; then
-        echo "zypper"
-    else
-        echo "unknown"
+    if command -v pacman &>/dev/null;  then echo "pacman"
+    elif command -v apt &>/dev/null;   then echo "apt"
+    elif command -v dnf &>/dev/null;   then echo "dnf"
+    elif command -v zypper &>/dev/null; then echo "zypper"
+    else echo "unknown"
     fi
 }
 
 PKG_MANAGER=$(detect_pkg_manager)
 
 if [ "$PKG_MANAGER" = "unknown" ]; then
-    echo "⚠  Could not detect a supported package manager."
-    echo "   Please manually install: python3, python3-venv, mpv, git"
-    echo "   Then re-run this script."
+    err "Could not detect a supported package manager."
+    warn "Please manually install: python3, python3-venv, mpv, git"
+    warn "Then re-run this script."
     exit 1
 fi
 
-echo "✓ Detected package manager: $PKG_MANAGER"
+DISTRO_LABEL=""
+case "$PKG_MANAGER" in
+    pacman) DISTRO_LABEL="Arch / EndeavourOS / Manjaro" ;;
+    apt)    DISTRO_LABEL="Ubuntu / Debian / Mint" ;;
+    dnf)    DISTRO_LABEL="Fedora / RHEL" ;;
+    zypper) DISTRO_LABEL="openSUSE" ;;
+esac
 
-# ── 2. Install system dependencies ───────────────────────────────────────────
+ok "Package manager: ${BOLD}$PKG_MANAGER${RESET}  ${DIM}($DISTRO_LABEL)${RESET}"
 
-echo "Installing system dependencies (may prompt for sudo)..."
+# ── 2. System dependencies ────────────────────────────────────────────────────
+
+section "02  System dependencies"
+
+# Cache sudo credentials upfront so the password prompt is clean
+echo -e "  ${DIM}Sudo access is needed to install system packages.${RESET}"
+echo ""
+sudo -v
+echo ""
 
 case "$PKG_MANAGER" in
     pacman)
-        sudo pacman -Sy --needed --noconfirm python python-pip mpv git
+        sudo pacman -Sy --needed --noconfirm python python-pip mpv git &>/dev/null &
         ;;
     apt)
-        sudo apt update -qq
-        sudo apt install -y python3 python3-pip python3-venv mpv git \
-            libxcb-xinerama0 libxcb-cursor0
-        # libxcb packages needed for PyQt6 on some Ubuntu setups
+        (sudo apt update -qq && sudo apt install -y python3 python3-pip python3-venv \
+            mpv git libxcb-xinerama0 libxcb-cursor0 &>/dev/null) &
         ;;
     dnf)
-        sudo dnf install -y python3 python3-pip mpv git
+        sudo dnf install -y python3 python3-pip mpv git &>/dev/null &
         ;;
     zypper)
-        sudo zypper install -y python3 python3-pip mpv git
+        sudo zypper install -y python3 python3-pip mpv git &>/dev/null &
         ;;
 esac
 
-echo "✓ System dependencies installed"
+INSTALL_PID=$!
+spinner $INSTALL_PID "Installing system packages"
+wait $INSTALL_PID
+ok "System dependencies installed"
 
-# ── 3. Create config and mpv dirs ────────────────────────────────────────────
+# ── 3. Directories ────────────────────────────────────────────────────────────
+
+section "03  Directories"
 
 mkdir -p ~/.config/mpv/scripts
 mkdir -p ~/.config/great_sage
-echo "✓ Config directories ready"
-
-# ── 4. Remove duplicate next_episode.lua if present ──────────────────────────
+ok "~/.config/great_sage"
+ok "~/.config/mpv/scripts"
 
 if [ -f "$HOME/.config/mpv/scripts/next_episode.lua" ]; then
     rm "$HOME/.config/mpv/scripts/next_episode.lua"
-    echo "✓ Removed duplicate next_episode.lua from mpv scripts"
+    ok "Removed duplicate next_episode.lua"
 fi
 
-# ── 5. Set up virtualenv ──────────────────────────────────────────────────────
+# ── 4. Virtual environment ────────────────────────────────────────────────────
+
+section "04  Virtual environment"
 
 if [ ! -d "$SCRIPT_DIR/venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "$SCRIPT_DIR/venv"
-    echo "✓ venv created"
+    python3 -m venv "$SCRIPT_DIR/venv" &>/dev/null &
+    VENV_PID=$!
+    spinner $VENV_PID "Creating venv"
+    wait $VENV_PID
+    ok "venv created at ${DIM}$SCRIPT_DIR/venv${RESET}"
 else
-    echo "✓ venv already exists"
+    ok "venv already exists"
 fi
 
-# ── 6. Install Python dependencies ───────────────────────────────────────────
+# ── 5. Python dependencies ────────────────────────────────────────────────────
 
-echo "Installing Python dependencies..."
-"$SCRIPT_DIR/venv/bin/pip" install --quiet --upgrade pip
-"$SCRIPT_DIR/venv/bin/pip" install --quiet \
-    PyQt6 \
-    PyQt6-WebEngine \
-    flask \
-    requests \
-    beautifulsoup4 \
-    rich \
-    yt-dlp \
-    groq \
-    cloudscraper \
-    python-dotenv \
-    sounddevice \
-    numpy \
-    markdown-it-py \
-    Pygments
+section "05  Python packages"
 
-echo "✓ Python dependencies installed"
+PACKAGES=(
+    "PyQt6"
+    "PyQt6-WebEngine"
+    "flask"
+    "requests"
+    "beautifulsoup4"
+    "rich"
+    "yt-dlp"
+    "groq"
+    "cloudscraper"
+    "python-dotenv"
+    "sounddevice"
+    "numpy"
+    "markdown-it-py"
+    "Pygments"
+)
 
-# ── 7. API key setup ──────────────────────────────────────────────────────────
+"$SCRIPT_DIR/venv/bin/pip" install --quiet --upgrade pip &>/dev/null
+
+TOTAL=${#PACKAGES[@]}
+for i in "${!PACKAGES[@]}"; do
+    PKG="${PACKAGES[$i]}"
+    NUM=$((i + 1))
+    BAR_FILLED=$(( NUM * 20 / TOTAL ))
+    BAR_EMPTY=$(( 20 - BAR_FILLED ))
+    BAR_STR=""
+    for ((b=0; b<BAR_FILLED; b++)); do BAR_STR+="█"; done
+    EMPTY_STR=""
+    for ((b=0; b<BAR_EMPTY; b++)); do EMPTY_STR+="░"; done
+
+    printf "\r  ${GREEN}%s${RESET}${DIM}%s${RESET}  ${DIM}%-22s${RESET}  ${CYAN}%2d/%d${RESET}" \
+        "$BAR_STR" "$EMPTY_STR" "$PKG" "$NUM" "$TOTAL"
+
+    "$SCRIPT_DIR/venv/bin/pip" install --quiet "$PKG" &>/dev/null
+done
+
+FULL_BAR=""
+for ((b=0; b<20; b++)); do FULL_BAR+="█"; done
+printf "\r  ${GREEN}%s${RESET}  %-22s  ${GREEN}${BOLD}Done!${RESET}              \n" "$FULL_BAR" ""
+ok "All Python packages installed"
+
+# ── 6. API key ────────────────────────────────────────────────────────────────
+
+section "06  Groq API key"
 
 ENV_FILE="$SCRIPT_DIR/.env"
 
 if [ ! -f "$ENV_FILE" ]; then
     echo ""
-    echo "Great Sage needs a Groq API key to use the AI features."
-    echo "Get one free at: https://console.groq.com"
+    echo -e "  ${DIM}Great Sage uses Groq for AI features.${RESET}"
+    echo -e "  ${DIM}Get a free key at: ${CYAN}https://console.groq.com${RESET}"
     echo ""
-    read -rp "Enter your Groq API key (or press Enter to skip): " GROQ_KEY
+    read -rp "$(echo -e "  ${BOLD}${CYAN}Groq API key${RESET} ${DIM}(Enter to skip)${RESET}: ")" GROQ_KEY
+    echo ""
 
     if [ -n "$GROQ_KEY" ]; then
         echo "GROQ_API_KEY=$GROQ_KEY" > "$ENV_FILE"
-        echo "✓ API key saved to .env"
+        ok "API key saved to .env"
     else
-        echo "⚠  Skipped. Add GROQ_API_KEY=your_key to $ENV_FILE before launching."
+        warn "Skipped — add GROQ_API_KEY=your_key to .env before launching"
         echo "GROQ_API_KEY=" > "$ENV_FILE"
     fi
 else
-    echo "✓ .env already exists, skipping API key setup"
+    ok ".env already exists, skipping"
 fi
 
-# ── 8. Shell alias setup ──────────────────────────────────────────────────────
+# ── 7. Shell aliases ──────────────────────────────────────────────────────────
+
+section "07  Shell aliases"
 
 BASH_ALIAS="alias open-great-sage=\"bash $SCRIPT_DIR/launch-great-sage.sh\""
 FISH_ALIAS="alias open-great-sage 'bash $SCRIPT_DIR/launch-great-sage.sh'"
 
-# bash
 if [ -f ~/.bashrc ] && ! grep -q "open-great-sage" ~/.bashrc; then
     echo "$BASH_ALIAS" >> ~/.bashrc
-    echo "✓ Alias added to ~/.bashrc"
+    ok "Added to ~/.bashrc"
 fi
 
-# zsh
 if [ -f ~/.zshrc ] && ! grep -q "open-great-sage" ~/.zshrc; then
     echo "$BASH_ALIAS" >> ~/.zshrc
-    echo "✓ Alias added to ~/.zshrc"
+    ok "Added to ~/.zshrc"
 fi
 
-# fish (uses different alias syntax)
 if command -v fish &>/dev/null; then
     mkdir -p "$HOME/.config/fish"
     FISH_CONFIG="$HOME/.config/fish/config.fish"
     if ! grep -q "open-great-sage" "$FISH_CONFIG" 2>/dev/null; then
         echo "$FISH_ALIAS" >> "$FISH_CONFIG"
-        echo "✓ Alias added to fish config"
+        ok "Added to fish config"
     fi
 fi
 
-# ── 9. Done ───────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "══════════════════════════════════════"
-echo "  ✓ Great Sage is ready!"
-echo ""
-echo "  Run:  open-great-sage"
-echo "  (open a new terminal or run: source ~/.bashrc)"
-echo "══════════════════════════════════════"
+sleep 0.3
+echo -e "  ${BOLD}${GREEN}╔══════════════════════════════════════════╗${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}                                          ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}   ${BOLD}${WHITE}✓  Setup complete!${RESET}                    ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}                                          ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}   ${DIM}Open a new terminal, then run:${RESET}        ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}   ${BOLD}${CYAN}open-great-sage${RESET}                       ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}║${RESET}                                          ${BOLD}${GREEN}║${RESET}"
+echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════╝${RESET}"
 echo ""
