@@ -67,6 +67,8 @@ class ClockWidget(QWidget):
         super().__init__(parent)
         self._api   = api
         self._quote = ""
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
         self._build()
         self._tick()
         self._timer = QTimer(self)
@@ -77,6 +79,9 @@ class ClockWidget(QWidget):
         self._q_timer.timeout.connect(self._refresh_quote)
         self._q_timer.start(600_000)
         QTimer.singleShot(800, self._refresh_quote)
+
+    def paintEvent(self, event):
+        pass  # fully transparent — no background fill
 
     def _build(self):
         self.setStyleSheet("background:transparent;")
@@ -117,12 +122,14 @@ class ClockWidget(QWidget):
         self._quote_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         self._quote_lbl.setWordWrap(True)
         self._quote_lbl.setMaximumWidth(480)
+        self._quote_lbl.setVisible(False)
 
         self._src_lbl = QLabel()
         self._src_lbl.setStyleSheet(
             "background:transparent; color:#353550; "
             "font-size:10px; letter-spacing:1px;")
         self._src_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._src_lbl.setVisible(False)
 
         right.addWidget(self._quote_lbl)
         right.addWidget(self._src_lbl)
@@ -144,7 +151,7 @@ class ClockWidget(QWidget):
     def _set_quote(self, q):
         if q:
             self._quote_lbl.setText(f'"{q}"')
-            # Find book name for attribution
+            self._quote_lbl.setVisible(True)
             try:
                 import json
                 with open(os.path.expanduser("~/.great_sage_legion.json")) as f:
@@ -155,11 +162,14 @@ class ClockWidget(QWidget):
                 if candidates:
                     name = candidates[-1][0]
                     self._src_lbl.setText(f"— {name[:40]}")
+                    self._src_lbl.setVisible(True)
             except Exception:
                 pass
         else:
             self._quote_lbl.setText("")
+            self._quote_lbl.setVisible(False)
             self._src_lbl.setText("")
+            self._src_lbl.setVisible(False)
 
 
 # ── Plugin entry points ────────────────────────────────────────────────────────
@@ -205,3 +215,5 @@ def build_page(parent, api):
 
 def refresh(page):
     pass
+
+

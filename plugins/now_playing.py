@@ -290,7 +290,7 @@ class NowPlayingWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(20)
         wrapper.addWidget(card)
-        wrapper.addStretch()
+        wrapper.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         # ── Left: album art ───────────────────────────────────────────────────
         self._art = _ArtWidget(size=140, parent=self)
@@ -577,3 +577,5 @@ def build_page(parent, api):
 
 def refresh(page):
     pass
+
+

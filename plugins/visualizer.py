@@ -41,13 +41,14 @@ def _load_settings() -> dict:
 
 def _save_settings(data: dict):
     try:
-        os.makedirs(os.path.dirname(_SETTINGS_FILE), exist_ok=True)
+        dir_path = os.path.dirname(_SETTINGS_FILE)
+        os.makedirs(dir_path, exist_ok=True)
         tmp = _SETTINGS_FILE + ".tmp"
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, _SETTINGS_FILE)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"visualizer: failed to save settings: {e}")
 
 # ── Palettes ───────────────────────────────────────────────────────────────────
 PALETTES = {
@@ -525,14 +526,17 @@ class VisualizerWidget(QWidget):
     def _cycle_pal(self):
         self._canvas.cycle_palette()
         self._pal_btn.setText(f"◐ {self._canvas.palette_name()}")
+        _save_settings({**_load_settings(), "palette": self._canvas.palette_name()})
 
     def _cycle_mode(self):
         self._canvas.cycle_mode()
         self._mode_btn.setText(f"▋ {self._canvas.mode_name()}")
+        _save_settings({**_load_settings(), "mode": self._canvas.mode_name()})
 
     def _toggle_mirror(self):
         self._canvas.toggle_mirror()
         self._mir_btn.setText("⇌ MIR" if self._canvas._mirror else "▶ SEQ")
+        _save_settings({**_load_settings(), "mirror": self._canvas._mirror})
 
     def _toggle_pause(self):
         paused = self._canvas.toggle_pause()
