@@ -989,7 +989,6 @@ class LegionPage(QWidget):
         save_json(LEGION_PROGRESS, ld)
         # Refresh both lists
         self.refresh()
-        self._populate_bookmarks()
         log.legion.info("Book moved to bookmarks", book=name, status=status)
 
     # ── Discovery — source / browse / search ───────────────────────────────────
