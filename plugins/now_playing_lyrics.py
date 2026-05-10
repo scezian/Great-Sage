@@ -7,7 +7,7 @@ Slot: dashboard_below_cards
 
 PLUGIN_NAME        = "Lyrics"
 PLUGIN_ICON        = "♪"
-PLUGIN_DESCRIPTION = "Synced lyrics with current line highlighted — sits under Now Playing"
+PLUGIN_DESCRIPTION = "Synced lyrics with current line highlighted — fetches from LRCLIB and Netease"
 PLUGIN_VERSION     = "1.0"
 PLUGIN_AUTHOR      = "Great Sage"
 PLUGIN_COLOR       = "#8B6FD4"
@@ -20,7 +20,30 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QScrollArea, QSizePolicy, QFrame,
                               QScrollBar)
 
-# ── playerctl helpers ─────────────────────────────────────────────────────────
+# ── Precompiled title-cleaning patterns ──────────────────────────────────────
+
+_CLEAN_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
+    r"\s*\(Official\s*(Audio|Video|Music\s*Video|Lyric\s*Video|HD|4K|Visualizer)[^)]*\)",
+    r"\s*\[Official\s*(Audio|Video|Music\s*Video)[^\]]*\]",
+    r"\s*\(Lyrics?\s*(Video)?\)",  r"\s*\[Lyrics?\s*(Video)?\]",
+    r"\s*\(Explicit\)",            r"\s*\[Explicit\]",
+    r"\s*\(feat\.?\s*[^)]+\)",     r"\s*\[feat\.?\s*[^\]]+\]",
+    r"\s*\(ft\.?\s*[^)]+\)",       r"\s*\(Prod\.?\s*[^)]+\)",
+    r"\s*\(Remastered[^)]*\)",     r"\s*\(Remix[^)]*\)",
+    r"\s*\(Live[^)]*\)",           r"\s*\(Acoustic[^)]*\)",
+    r"\s*\|\s*.+$",                r"\s*-\s*Topic\s*$",
+    r"\s*//\s*.+$",
+]]
+
+_CAMEL_RE    = re.compile(r"([a-z])([A-Z])")
+_VEVO_RE     = re.compile(r"VEVO$", re.IGNORECASE)
+_OFFICIAL_RE = re.compile(r"Official$", re.IGNORECASE)
+_MUSIC_RE    = re.compile(r"Music$", re.IGNORECASE)
+_FEAT_RE     = re.compile(r"\s*(feat|ft)\.?\s+[^(\[]+", re.IGNORECASE)
+
+# ── Thread safety ─────────────────────────────────────────────────────────────
+
+_cache_lock = threading.Lock()
 
 def _binary():
     b = shutil.which("playerctl")
@@ -130,6 +153,8 @@ def _get_track(last_player=""):
 # ── lrclib.net fetcher ────────────────────────────────────────────────────────
 
 _lyrics_cache: dict = {}   # key: "artist|||title" → parsed lines list or None
+_fetch_in_flight: set = set()  # keys currently being fetched
+_CACHE_MAX = 200           # evict oldest when exceeded
 
 # ── Wall-clock position tracker (Firefox/YouTube MPRIS position is broken) ────
 _wc_track_key:    str   = ""
@@ -169,46 +194,25 @@ def _clean_title(title, artist):
     Clean YouTube-style titles and channel names for lyrics lookup.
     Handles: "Lady Gaga - Bloody Mary (Official Audio)" played via LadyGagaVEVO
     """
-    import re
-
-    # Clean the title
+    # Clean the title using precompiled patterns
     clean = title
-    patterns = [
-        r"\s*\(Official\s*(Audio|Video|Music\s*Video|Lyric\s*Video|HD|4K|Visualizer)[^)]*\)",
-        r"\s*\[Official\s*(Audio|Video|Music\s*Video)[^\]]*\]",
-        r"\s*\(Lyrics?\s*(Video)?\)",  r"\s*\[Lyrics?\s*(Video)?\]",
-        r"\s*\(Explicit\)",            r"\s*\[Explicit\]",
-        r"\s*\(feat\.?\s*[^)]+\)",     r"\s*\[feat\.?\s*[^\]]+\]",
-        r"\s*\(ft\.?\s*[^)]+\)",       r"\s*\(Prod\.?\s*[^)]+\)",
-        r"\s*\(Remastered[^)]*\)",     r"\s*\(Remix[^)]*\)",
-        r"\s*\(Live[^)]*\)",           r"\s*\(Acoustic[^)]*\)",
-        r"\s*\|\s*.+$",                r"\s*-\s*Topic\s*$",
-        r"\s*//\s*.+$",
-    ]
-    for pat in patterns:
-        clean = re.sub(pat, "", clean, flags=re.IGNORECASE)
+    for pat in _CLEAN_PATTERNS:
+        clean = pat.sub("", clean)
     clean = clean.strip(" -–—|")
 
     # Clean the artist — YouTube channel names like "LadyGagaVEVO", "TaylorSwiftVEVO"
-    clean_artist = re.sub(r"VEVO$", "", artist, flags=re.IGNORECASE).strip()
-    clean_artist = re.sub(r"Official$", "", clean_artist, flags=re.IGNORECASE).strip()
-    clean_artist = re.sub(r"Music$", "", clean_artist, flags=re.IGNORECASE).strip()
-    # "TaylorSwift" -> "Taylor Swift" (insert space before uppercase in camelCase)
-    clean_artist = re.sub(r"([a-z])([A-Z])", r"\1 \2", clean_artist)
+    clean_artist = _VEVO_RE.sub("", artist).strip()
+    clean_artist = _OFFICIAL_RE.sub("", clean_artist).strip()
+    clean_artist = _MUSIC_RE.sub("", clean_artist).strip()
+    clean_artist = _CAMEL_RE.sub(r"\1 \2", clean_artist)
 
-    # If title contains " - ", split into artist/title
+    # If title contains " - ", split into artist/title (handles YouTube/label MPRIS)
     if " - " in clean:
         left, right = clean.split(" - ", 1)
-        left = left.strip()
+        left  = left.strip()
         right = right.strip()
-        if not clean_artist or clean_artist.lower() in ("unknown", ""):
-            return left, right
-        # Check if left part matches artist (fuzzy)
-        la = left.lower().replace(" ", "")
-        ca = clean_artist.lower().replace(" ", "")
-        if la == ca or la in ca or ca in la:
-            return clean_artist, right
-        return clean_artist, right  # always prefer split title
+        # Always use the split — the title part is more reliable than MPRIS artist
+        return left, right
 
     return clean_artist, clean.strip()
 
@@ -217,136 +221,28 @@ def _clean_title(title, artist):
 def _fetch_lyrics(artist: str, title: str) -> list | None:
     """
     Fetch synced lyrics with a provider fallback chain:
-      1. Musixmatch  — primary, best synced coverage
-      2. Netease     — great fallback, especially for Asian tracks
-      3. LRCLIB      — open-source fallback, no API key needed
+      1. LRCLIB  — open-source, reliable, no API key
+      2. Netease — fallback, good for tracks missing from LRCLIB
 
     Returns list of (timestamp_seconds, line_text) tuples, or [] for plain-only,
     or None on total network failure (not cached so next poll retries).
     """
     cache_key = f"{artist.lower()}|||{title.lower()}"
-    if cache_key in _lyrics_cache:
-        return _lyrics_cache[cache_key]
+    with _cache_lock:
+        if cache_key in _lyrics_cache:
+            return _lyrics_cache[cache_key]
+        if cache_key in _fetch_in_flight:
+            return None
+        _fetch_in_flight.add(cache_key)
 
-    # ── Provider 1: Musixmatch ────────────────────────────────────────────────
-
-    def _fetch_musixmatch(a: str, t: str) -> list | None:
-        """
-        Uses the Musixmatch token-free endpoint that Spicetify also uses.
-        Returns parsed lines, [] for plain-only, None on network error,
-        or the sentinel {"_not_found": True} when no match exists.
-        """
-        try:
-            params = urllib.parse.urlencode({
-                "q_track":  t,
-                "q_artist": a,
-                "app_id":   "web-desktop-app-v1.0",
-                "format":   "json",
-            })
-            url = f"https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?{params}"
-            req = urllib.request.Request(url, headers={
-                "User-Agent":   "Mozilla/5.0",
-                "Cookie":       "x-mxm-token-guid=",
-            })
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = json.loads(r.read())
-
-            # Dig through the nested Musixmatch response
-            macro = (data.get("message", {})
-                         .get("body", {})
-                         .get("macro_calls", {}))
-
-            # Synced (subtitle)
-            sub_body = (macro.get("track.subtitles.get", {})
-                             .get("message", {})
-                             .get("body", {}))
-            subtitles = sub_body.get("subtitle_list", [])
-            if subtitles:
-                raw = subtitles[0].get("subtitle", {}).get("subtitle_body", "")
-                if raw:
-                    lines = _parse_lrc(raw)
-                    if lines:
-                        return lines
-
-            # Plain lyrics fallback
-            lyr_body = (macro.get("track.lyrics.get", {})
-                             .get("message", {})
-                             .get("body", {}))
-            plain = lyr_body.get("lyrics", {}).get("lyrics_body", "").strip()
-            if plain:
-                return [(None, l) for l in plain.splitlines()]
-
-            return {"_not_found": True}
-
-        except urllib.error.URLError as e:
-            return {"_network_error": str(e)}
-        except Exception:
-            return {"_not_found": True}
-
-    # ── Provider 2: Netease Cloud Music ───────────────────────────────────────
-
-    def _fetch_netease(a: str, t: str) -> list | None:
-        """
-        Search Netease Cloud Music (music.163.com) and return synced LRC lyrics.
-        Returns parsed lines, [] for plain-only, None on network error,
-        or {"_not_found": True} when nothing matches.
-        """
-        try:
-            # Step 1: search for the track ID
-            params = urllib.parse.urlencode({
-                "s":     f"{a} {t}",
-                "type":  "1",   # 1 = songs
-                "limit": "5",
-            })
-            search_url = f"https://music.163.com/api/search/get?{params}"
-            req = urllib.request.Request(search_url, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Referer":    "https://music.163.com",
-            })
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = json.loads(r.read())
-
-            songs = (data.get("result", {}).get("songs") or [])
-            if not songs:
-                return {"_not_found": True}
-
-            song_id = songs[0]["id"]
-
-            # Step 2: fetch the LRC for that ID
-            lrc_url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1"
-            req2 = urllib.request.Request(lrc_url, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Referer":    "https://music.163.com",
-            })
-            with urllib.request.urlopen(req2, timeout=8) as r2:
-                ldata = json.loads(r2.read())
-
-            lrc_body = ldata.get("lrc", {}).get("lyric", "").strip()
-            if lrc_body:
-                lines = _parse_lrc(lrc_body)
-                if lines:
-                    return lines
-
-            return {"_not_found": True}
-
-        except urllib.error.URLError as e:
-            return {"_network_error": str(e)}
-        except Exception:
-            return {"_not_found": True}
-
-    # ── Provider 3: LRCLIB ────────────────────────────────────────────────────
+    # ── Provider 1: LRCLIB ───────────────────────────────────────────────────
 
     def _fetch_lrclib(a: str, t: str) -> list | None:
-        """
-        Fetch from lrclib.net — free, no API key, open source.
-        Returns parsed lines, [] for plain-only, None on network error,
-        or {"_not_found": True} when nothing matches.
-        """
         try:
             params = urllib.parse.urlencode({"artist_name": a, "track_name": t})
             url = f"https://lrclib.net/api/search?{params}"
             req = urllib.request.Request(url, headers={"User-Agent": "GreatSage/1.0"})
-            with urllib.request.urlopen(req, timeout=8) as r:
+            with urllib.request.urlopen(req, timeout=4) as r:
                 results = json.loads(r.read())
             if not results:
                 return {"_not_found": True}
@@ -364,44 +260,107 @@ def _fetch_lyrics(artist: str, title: str) -> list | None:
         except Exception:
             return {"_not_found": True}
 
+    # ── Provider 2: Netease Cloud Music ──────────────────────────────────────
+
+    def _fetch_netease(a: str, t: str) -> list | None:
+        try:
+            params = urllib.parse.urlencode({
+                "s": f"{a} {t}", "type": "1", "limit": "10",
+            })
+            req = urllib.request.Request(
+                f"https://music.163.com/api/search/get?{params}",
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                data = json.loads(r.read().decode("utf-8", errors="replace"))
+
+            songs = data.get("result", {}).get("songs") or []
+            if not songs:
+                return {"_not_found": True}
+
+            # Score each result — prefer exact title + artist match
+            def _score(s):
+                st = s.get("name", "").lower()
+                sa = " ".join(ar.get("name", "") for ar in s.get("artists", [])).lower()
+                tl, al = t.lower(), a.lower()
+                score = 0
+                if st == tl:             score += 10
+                elif tl in st:           score += 5
+                if al and al in sa:      score += 8
+                return score
+
+            songs.sort(key=_score, reverse=True)
+            best = songs[0]
+
+            # Reject if title doesn't match at all
+            if t.lower() not in best.get("name", "").lower():
+                return {"_not_found": True}
+
+            lrc_url = f"https://music.163.com/api/song/lyric?id={best['id']}&lv=1&kv=1&tv=-1"
+            req2 = urllib.request.Request(lrc_url,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://music.163.com"})
+            with urllib.request.urlopen(req2, timeout=4) as r2:
+                ldata = json.loads(r2.read().decode("utf-8", errors="replace"))
+
+            lrc_body = ldata.get("lrc", {}).get("lyric", "").strip()
+            if lrc_body:
+                lines = _parse_lrc(lrc_body)
+                # Strip Chinese metadata headers
+                lines = [(ts, tx) for ts, tx in lines
+                         if not any(c in tx for c in ("作词", "作曲", "编曲", "制作人", "混音"))]
+                if lines:
+                    return lines
+
+            return {"_not_found": True}
+        except urllib.error.URLError as e:
+            return {"_network_error": str(e)}
+        except Exception:
+            return {"_not_found": True}
+
     # ── Fallback chain ────────────────────────────────────────────────────────
 
     def _strip_feat(t: str) -> str:
         return re.sub(r"\s*(feat|ft)\.?\s+[^(\[]+", "", t, flags=re.IGNORECASE).strip()
 
-    providers = [_fetch_musixmatch, _fetch_netease, _fetch_lrclib]
-    queries   = [(artist, title)]
-
-    # Also queue a title-only and feat-stripped variant as extra attempts
+    # Only search with artist+title — no title-only query (causes wrong matches)
+    queries = [(artist, title)]
     t_stripped = _strip_feat(title)
     if t_stripped != title:
         queries.append((artist, t_stripped))
-    queries.append(("", title))   # title-only for channel-name mismatches
 
     any_network_error = False
 
-    for a_q, t_q in queries:
-        for provider in providers:
-            result = provider(a_q, t_q)
+    try:
+        for provider in [_fetch_lrclib, _fetch_netease]:
+            for a_q, t_q in queries:
+                result = provider(a_q, t_q)
 
-            if result is None or (isinstance(result, dict) and "_network_error" in result):
-                any_network_error = True
-                continue   # try next provider
+                if result is None or (isinstance(result, dict) and "_network_error" in result):
+                    any_network_error = True
+                    continue
 
-            if isinstance(result, dict) and "_not_found" in result:
-                continue   # try next provider / query
+                if isinstance(result, dict) and "_not_found" in result:
+                    continue
 
-            # Got real lyrics
-            _lyrics_cache[cache_key] = result
-            return result
+                with _cache_lock:
+                    if len(_lyrics_cache) >= _CACHE_MAX:
+                        # Evict oldest entry
+                        oldest = next(iter(_lyrics_cache))
+                        del _lyrics_cache[oldest]
+                    _lyrics_cache[cache_key] = result
+                return result
 
-    # All providers exhausted
-    if any_network_error:
-        # Don't cache — let next poll retry when network recovers
-        return None
+        if any_network_error:
+            return None
 
-    _lyrics_cache[cache_key] = []
-    return []
+        with _cache_lock:
+            if len(_lyrics_cache) >= _CACHE_MAX:
+                oldest = next(iter(_lyrics_cache))
+                del _lyrics_cache[oldest]
+            _lyrics_cache[cache_key] = []
+        return []
+    finally:
+        with _cache_lock:
+            _fetch_in_flight.discard(cache_key)
 
 
 def _parse_lrc(lrc: str) -> list:
@@ -421,6 +380,9 @@ def _parse_lrc(lrc: str) -> list:
             ts   = mins * 60 + secs + frac
             lines.append((ts, text))
     lines.sort(key=lambda x: x[0])
+    # Drop trailing empty lines
+    while lines and not lines[-1][1].strip():
+        lines.pop()
     return lines
 
 
@@ -441,6 +403,8 @@ def _current_line_index(lines: list, pos: float) -> int:
 
 class _Bridge(QObject):
     update_ready = pyqtSignal(object, object, float, str)  # track, lines, pos, status
+
+_REUSE_LINES = object()  # sentinel: means "reuse existing lines, don't touch cache"
 
 
 # ── Lyrics line widget ────────────────────────────────────────────────────────
@@ -488,8 +452,9 @@ class LyricsWidget(QWidget):
         self._last_player  = ""
         self._last_status  = ""
         self._first_load   = False
-        self._lines        = []        # list of (ts, text)
-        self._line_widgets = []        # list of _LyricLine
+        self._shown_empty  = False
+        self._lines        = []
+        self._line_widgets = []
         self._cur_idx      = -1
         self._is_synced    = False
         self._build()
@@ -561,6 +526,16 @@ class LyricsWidget(QWidget):
                 key = f"{track['artist']}|||{track['title']}"
                 cl_artist, cl_title = _clean_title(track["title"], track["artist"])
                 track["clean_title"] = cl_title
+                cache_key = f"{cl_artist.lower()}|||{cl_title.lower()}"
+
+                # If already cached, just emit position update — no network call
+                if cache_key in _lyrics_cache:
+                    lines = _lyrics_cache[cache_key]
+                    pos = (_wc_get_pos(key, track["status"])
+                           if track.get("pos_broken") else track["pos"])
+                    bridge.update_ready.emit(track, lines, pos, track["status"])
+                    return
+
                 lines = _fetch_lyrics(cl_artist, cl_title)
                 pos = (_wc_get_pos(key, track["status"])
                        if track.get("pos_broken") else track["pos"])
@@ -573,40 +548,57 @@ class LyricsWidget(QWidget):
         if track is None:
             self._show_status("♪  Play something to see lyrics")
             return
-        # lines=None means re-use existing lines (called from delayed highlight)
-        if lines is None:
-            lines = self._lines if self._lines else []
-            # Re-evaluate _is_synced from restored lines so highlighting fires
-            # on the delayed second fetch (key hasn't changed so the new-track
-            # branch won't run, meaning _is_synced would stay False otherwise)
-            self._is_synced = bool(lines and any(ts is not None for ts, _ in lines))
+
+        # Delayed highlight sentinel — reuse existing lines, just update position
+        if lines is _REUSE_LINES:
+            lines = self._lines if self._lines else None
+            if lines:
+                self._is_synced = bool(any(ts is not None for ts, _ in lines))
+            else:
+                return  # nothing to highlight yet
 
         key = f"{track['artist']}|||{track['title']}"
 
-        # Remember which player delivered this track
         if track.get("player"):
             self._last_player = track["player"]
         self._last_status = status
 
-        # New track — rebuild line widgets
+        # New track
         if key != self._cur_key:
-            self._cur_key    = key
-            self._cur_idx    = -1
-            self._lines      = lines or []
-            self._is_synced  = bool(lines and any(ts is not None for ts, _ in lines))
-            self._first_load = True
+            self._cur_key     = key
+            self._cur_idx     = -1
+            self._shown_empty = False
+            self._first_load  = True
+            if lines is not None:
+                # Fetch already complete — build immediately
+                self._lines     = lines
+                self._is_synced = bool(any(ts is not None for ts, _ in lines)) if lines else False
+                self._rebuild_lines()
+            else:
+                # Fetch still in progress — show nothing yet
+                self._lines     = []
+                self._is_synced = False
+            return
+
+        # Same track — fetch just completed with real lyrics
+        if lines is not None and not self._lines:
+            self._lines     = lines
+            self._is_synced = bool(any(ts is not None for ts, _ in lines)) if lines else False
+            self._shown_empty = False
+            self._first_load  = True
             self._rebuild_lines()
 
         if not self._lines:
-            if lines is None:
-                # None means network error (not cached) — don't say "not found"
-                self._show_status("♪  Could not reach lyrics providers")
-            else:
+            if not self._shown_empty:
+                self._shown_empty = True
                 self._show_status(
                     f"♪  No lyrics found for\n{track.get('clean_title') or track['title']}")
             return
 
+        self._shown_empty = False
+
         if not self._is_synced:
+            self._first_load = False
             return
 
         # On first load, delay highlight until widgets are painted & pos is fresh
@@ -625,7 +617,7 @@ class LyricsWidget(QWidget):
                         fst  = fresh.get("status", "")
                         fp   = (_wc_get_pos(fkey, fst)
                                 if fresh.get("pos_broken") else fresh.get("pos", 0))
-                        bridge.update_ready.emit(fresh, None, fp, fst)
+                        bridge.update_ready.emit(fresh, _REUSE_LINES, fp, fst)
                     except RuntimeError:
                         pass  # bridge deleted
                 threading.Thread(target=_fetch, daemon=True).start()
@@ -691,8 +683,10 @@ class LyricsWidget(QWidget):
         """Scroll to centre the active line in the view."""
         # Find the target widget
         lw = None
-        for i in range(idx, min(idx + 3, len(self._line_widgets))):
-            if i < len(self._line_widgets) and self._line_widgets[i] is not None:
+        from itertools import chain as _chain
+        for i in _chain(range(idx, min(idx + 3, len(self._line_widgets))),
+                        range(idx - 1, -1, -1)):
+            if 0 <= i < len(self._line_widgets) and self._line_widgets[i] is not None:
                 lw = self._line_widgets[i]
                 break
         if lw is None:
@@ -767,7 +761,7 @@ def build_page(parent, api):
 
     has = bool(_binary())
     st = QLabel(
-        "● Synced lyrics — Musixmatch · Netease · LRCLIB"
+        "● Synced lyrics — LRCLIB · Netease"
         if has else "⚠  playerctl not installed — sudo apt install playerctl")
     st.setStyleSheet(
         f"color:{colours['ACCENT2'] if has else '#E05A6A'};font-size:12px;")
@@ -776,14 +770,14 @@ def build_page(parent, api):
     desc = QLabel(
         "Displays synced lyrics below the Now Playing card.\n"
         "The current line scrolls and lights up as the song plays.\n"
-        "Fetches from Musixmatch, then Netease, then LRCLIB as fallback.")
+        "Fetches from LRCLIB first, then Netease as fallback.")
     desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:13px;")
     desc.setWordWrap(True)
     bv.addWidget(desc)
 
     note = QLabel(
-        "💡  Lyrics are fetched once per track and cached for the session. "
-        "Providers are tried in order: Musixmatch → Netease → LRCLIB. "
+        "💡  Lyrics are fetched once per track and cached for the session (up to 200 tracks). "
+        "Providers are tried in order: LRCLIB → Netease. "
         "If a song has no synced lyrics, plain lyrics are shown without highlighting.")
     note.setStyleSheet(
         f"background:{colours['BG2']};color:{colours['MUTED']};"
