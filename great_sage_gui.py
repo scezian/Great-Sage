@@ -6,7 +6,7 @@ Entry point and shell. Pure native PyQt6 — no HTML pages.
 Run:  python3 great_sage_gui.py
 """
 
-import os, sys, time, threading
+import os, sys, time, threading, urllib.request
 from pathlib import Path
 
 # Software rendering — avoids Mesa/EGL seg faults on stylesheet parse
@@ -148,7 +148,7 @@ from great_sage_core import (
 )
 
 # ── Qt ────────────────────────────────────────────────────────────────────────
-from PyQt6.QtCore    import Qt, QTimer, QSize, QCoreApplication
+from PyQt6.QtCore    import Qt, QTimer, QSize, QCoreApplication, pyqtSlot
 from PyQt6.QtGui     import (QColor, QPalette, QShortcut, QPainter,
                               QLinearGradient, QBrush, QPen, QKeySequence)
 from PyQt6.QtWidgets import (
@@ -490,6 +490,7 @@ class MainWindow(QMainWindow):
             pass
         self._sync_timer.start(sync_hours * 60 * 60 * 1000)
         QTimer.singleShot(800, self._activate_plugins)
+        QTimer.singleShot(3000, self._check_for_updates)
 
     def closeEvent(self, event):
         if hasattr(self, '_watchface') and self._watchface:
@@ -554,6 +555,28 @@ class MainWindow(QMainWindow):
         menu_btn.clicked.connect(self._open_menu)
         tv.addWidget(menu_btn)
         rv.addWidget(topbar)
+
+        # ── Update banner (hidden by default) ────────────────────────────────
+        self._update_banner = QWidget()
+        self._update_banner.setVisible(False)
+        self._update_banner.setFixedHeight(36)
+        self._update_banner.setStyleSheet(
+            f"background:#1a1a2e;border-bottom:1px solid {ACCENT};")
+        ub_layout = QHBoxLayout(self._update_banner)
+        ub_layout.setContentsMargins(20, 0, 12, 0)
+        ub_layout.setSpacing(10)
+        self._update_banner_lbl = QLabel("✦ A new version of Great Sage is available — run  git pull  to update.")
+        self._update_banner_lbl.setStyleSheet(
+            f"color:{ACCENT};font-size:11px;letter-spacing:0.5px;background:transparent;")
+        ub_dismiss = QPushButton("✕")
+        ub_dismiss.setFixedSize(20, 20)
+        ub_dismiss.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;color:{MUTED};font-size:11px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}")
+        ub_dismiss.clicked.connect(lambda: self._update_banner.setVisible(False))
+        ub_layout.addWidget(self._update_banner_lbl, 1)
+        ub_layout.addWidget(ub_dismiss)
+        rv.addWidget(self._update_banner)
 
         self._pages     = QStackedWidget()
         self._page_objs: dict[str, QWidget] = {}
@@ -708,6 +731,28 @@ class MainWindow(QMainWindow):
         self._auto_sync_worker.sync_done.connect(self._on_sync_done)
         self._auto_sync_worker.sync_clear.connect(lambda: None)
         self._auto_sync_worker.start()
+
+    def _check_for_updates(self):
+        def _fetch():
+            try:
+                version_file = Path(SCRIPT_DIR) / "VERSION"
+                local_version = version_file.read_text().strip() if version_file.exists() else None
+                url = "https://raw.githubusercontent.com/scezian/Great-Sage/main/VERSION"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    remote_version = resp.read().decode().strip()
+                if local_version and remote_version and local_version != remote_version:
+                    from PyQt6.QtCore import QMetaObject, Qt as _Qt
+                    QMetaObject.invokeMethod(
+                        self, "_show_update_banner",
+                        _Qt.ConnectionType.QueuedConnection,
+                    )
+            except Exception:
+                pass
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    @pyqtSlot()
+    def _show_update_banner(self):
+        self._update_banner.setVisible(True)
 
     def _on_sync_done(self, msg: str):
         legion_page = self._page_objs.get("legion")
