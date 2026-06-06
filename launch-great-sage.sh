@@ -14,4 +14,5 @@ cd "$SCRIPT_DIR"
 
 # Launch Great Sage GUI using venv python explicitly
 echo "Launching Great Sage..."
-"$SCRIPT_DIR/venv/bin/python" great_sage_gui.py
+nohup "$SCRIPT_DIR/venv/bin/python" great_sage_gui.py > /dev/null 2>&1 &
+echo "Great Sage launched. You can close this terminal."
