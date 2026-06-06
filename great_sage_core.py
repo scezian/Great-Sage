@@ -137,7 +137,7 @@ def load_json(path: str, default=None) -> dict:
             log.exc("Backup JSON also failed", e2, path=bak)
     except Exception as e:
         log.exc("Failed to load JSON", e, path=path)
-    return default or {}
+    return default if default is not None else {}
 
 _json_cache: dict[str, tuple[float, dict]] = {}
 
