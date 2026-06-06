@@ -277,14 +277,21 @@ def get_matrix_data() -> dict:
         data["_version"] = MATRIX_DATA_VERSION
         # Save immediately to disk so migration persists
         save_json(MATRIX_PROGRESS, data)
-        # Also update the cache
-        _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+        # Also update the cache — guard against missing file after save
+        try:
+            _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+        except OSError:
+            pass
         log.info("Matrix data migration complete", new_version=MATRIX_DATA_VERSION)
-    
-    # Ensure all sub-lists exist for new data or after migration, even if no migration happened
+
+    # Ensure watchlist is always a dict, never None or a list
+    if not isinstance(data.get("watchlist"), dict):
+        data["watchlist"] = {"planning": [], "watching": [], "dropped": [], "completed": []}
+
+    # Ensure all sub-lists exist
     for k in ("planning", "watching", "dropped", "completed"):
         data["watchlist"].setdefault(k, [])
-    
+
     return data
 
 def get_bookmarks_data() -> dict:
@@ -805,15 +812,32 @@ class SageWorker(QThread):
 
             if self.mode in ("novels", "shows", "similar", "mood_light", "mood_heavy", "quick", "whats_next"):
                 try:
-                    # Match full titles including colons (e.g. "Title: Subtitle")
-                    # Stops at " - " or " — " separator before description
-                    titles = re.findall(
-                        r'^\s*\d+[.)]\s+\*{0,2}([^*\n]{3,80}?)\*{0,2}\s*(?:\s[-\u2014]\s|$)',
+                    titles = []
+                    # Pattern 1: numbered list with dash/em-dash/colon separator
+                    titles += re.findall(
+                        r'^\s*\d+[.)]\s+\*{0,2}([^*\n]{3,80}?)\*{0,2}\s*(?:\s[-\u2014:]\s|$)',
                         full_resp, re.MULTILINE
                     )
-                    titles = [t.strip().strip('*').strip() for t in titles if t.strip()]
-                    if titles and hasattr(mod, "add_seen_recs"):
-                        mod.add_seen_recs(titles[:8])
+                    # Pattern 2: numbered list, title alone on its own line
+                    titles += re.findall(
+                        r'^\s*\d+[.)]\s+\*{0,2}([^*\n]{3,80}?)\*{0,2}\s*$',
+                        full_resp, re.MULTILINE
+                    )
+                    # Pattern 3: bold title on a numbered line
+                    titles += re.findall(
+                        r'^\s*\d+[.)]\s+\*\*([^*\n]{3,80}?)\*\*',
+                        full_resp, re.MULTILINE
+                    )
+                    # Deduplicate preserving order, strip markdown artifacts
+                    seen_set = set()
+                    clean_titles = []
+                    for t in titles:
+                        t = t.strip().strip('*').strip(' :')
+                        if t and t.lower() not in seen_set:
+                            seen_set.add(t.lower())
+                            clean_titles.append(t)
+                    if clean_titles and hasattr(mod, "add_seen_recs"):
+                        mod.add_seen_recs(clean_titles[:8])
                 except Exception as e:
                     log.sage.warning("Failed to update seen recs", error=str(e))
 
