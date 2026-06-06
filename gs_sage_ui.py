@@ -732,9 +732,12 @@ class SettingsPage(QWidget):
         super().__init__(); self._build()
 
     def _build(self):
+        # ── Outer layout ─────────────────────────────────────────────────────
         root = QVBoxLayout(self)
-        root.setContentsMargins(0,0,0,0)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # ── Header bar ───────────────────────────────────────────────────────
         header_w = QWidget()
         header_w.setFixedHeight(52)
         import types as _ht
@@ -752,7 +755,7 @@ class SettingsPage(QWidget):
             p.setPen(_hPen(_hB(sep), 1)); p.drawLine(0, H - 1, W, H - 1); p.end()
         header_w.paintEvent = _ht.MethodType(_hdr_paint, header_w)
         hv = QHBoxLayout(header_w)
-        hv.setContentsMargins(28,0,28,0)
+        hv.setContentsMargins(28, 0, 28, 0)
         back_b3 = QPushButton("← HOME")
         back_b3.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
@@ -764,82 +767,260 @@ class SettingsPage(QWidget):
             f"color:{ACCENT};letter-spacing:4px;margin-left:14px;")
         hv.addWidget(back_b3); hv.addWidget(tl); hv.addStretch()
         root.addWidget(header_w)
-        inner = QWidget()
-        iv = QVBoxLayout(inner)
-        iv.setContentsMargins(32,28,32,24); iv.setSpacing(16)
-        root.addWidget(inner, 1)
-        root = iv  # redirect all following widgets into inner
 
-        gg = QGroupBox("Groq API  (used by Sage)")
-        gf = QFormLayout(gg)
-        self.key_edit   = QLineEdit(); self.key_edit.setPlaceholderText("gsk_...")
+        # ── Body: vertical nav + content panels ──────────────────────────────
+        body = QWidget()
+        body.setStyleSheet(f"background:{BG};")
+        body_h = QHBoxLayout(body)
+        body_h.setContentsMargins(0, 0, 0, 0)
+        body_h.setSpacing(0)
+        root.addWidget(body, 1)
+
+        # Left nav rail
+        nav_rail = QWidget()
+        nav_rail.setFixedWidth(168)
+        nav_rail.setStyleSheet(
+            f"background:#08080f; border-right:1px solid #1a1a28;")
+        nav_v = QVBoxLayout(nav_rail)
+        nav_v.setContentsMargins(0, 20, 0, 20)
+        nav_v.setSpacing(2)
+        body_h.addWidget(nav_rail)
+
+        # Right stacked panels
+        self._settings_stack = QStackedWidget()
+        self._settings_stack.setStyleSheet(f"background:{BG};")
+        body_h.addWidget(self._settings_stack, 1)
+
+        # Nav button style helpers
+        _nav_btn_base = (
+            f"QPushButton{{background:transparent;border:none;"
+            f"border-left:2px solid transparent;"
+            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"color:#505068;text-align:left;padding:10px 20px;}}"
+            f"QPushButton:hover{{background:#0f0f18;color:#9898b8;"
+            f"border-left:2px solid #303048;}}"
+        )
+        _nav_btn_active = (
+            f"QPushButton{{background:#0f0f18;border:none;"
+            f"border-left:2px solid {ACCENT};"
+            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"color:{ACCENT};text-align:left;padding:10px 20px;}}"
+        )
+        self._nav_buttons = {}
+        self._nav_btn_base_ss   = _nav_btn_base
+        self._nav_btn_active_ss = _nav_btn_active
+
+        def _make_nav_btn(label, index):
+            b = QPushButton(label)
+            b.setStyleSheet(_nav_btn_base if index != 0 else _nav_btn_active)
+            b.clicked.connect(lambda _, i=index: self._switch_settings_panel(i))
+            nav_v.addWidget(b)
+            self._nav_buttons[index] = b
+
+        _make_nav_btn("API KEYS",  0)
+        _make_nav_btn("PATHS",     1)
+        _make_nav_btn("VOICE",     2)
+        _make_nav_btn("COMPANION", 3)
+        nav_v.addStretch()
+
+        # Shared field/label style helpers
+        def _section_lbl(text):
+            l = QLabel(text)
+            l.setStyleSheet(
+                f"color:#505068;font-size:9px;letter-spacing:3px;"
+                f"font-family:{FONT_UI};background:transparent;")
+            return l
+
+        def _divider():
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.HLine)
+            line.setStyleSheet(f"color:#1a1a28;background:#1a1a28;max-height:1px;")
+            return line
+
+        def _field_label(text):
+            l = QLabel(text)
+            l.setStyleSheet(
+                f"color:#6868a0;font-size:9px;letter-spacing:1px;"
+                f"font-family:{FONT_UI};background:transparent;")
+            return l
+
+        def _hint(text):
+            l = QLabel(text)
+            l.setStyleSheet(f"color:#404058;font-size:10px;background:transparent;")
+            l.setWordWrap(True)
+            return l
+
+        def _panel_scroll():
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setStyleSheet(
+                f"QScrollArea{{background:{BG};border:none;}}"
+                f"QScrollBar:vertical{{background:#0d0d14;width:6px;border-radius:3px;}}"
+                f"QScrollBar::handle:vertical{{background:#2a2a3a;border-radius:3px;}}"
+                f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}")
+            inner = QWidget()
+            inner.setStyleSheet(f"background:{BG};")
+            iv = QVBoxLayout(inner)
+            iv.setContentsMargins(36, 28, 36, 28)
+            iv.setSpacing(14)
+            scroll.setWidget(inner)
+            return scroll, iv
+
+        def _save_btn():
+            b = QPushButton("SAVE SETTINGS")
+            b.setStyleSheet(
+                f"QPushButton{{background:{ACCENT};color:#0d0d14;border:none;"
+                f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+                f"letter-spacing:2px;font-weight:bold;padding:9px 28px;}}"
+                f"QPushButton:hover{{background:#dbb85c;}}")
+            b.clicked.connect(self._save)
+            return b
+
+        # ── Panel 0: API Keys ─────────────────────────────────────────────────
+        p0_scroll, p0 = _panel_scroll()
+        p0.addWidget(_section_lbl("GROQ API  —  USED BY SAGE"))
+        gf0 = QFormLayout()
+        gf0.setSpacing(10)
+        gf0.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.key_edit = QLineEdit()
+        self.key_edit.setPlaceholderText("gsk_...")
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.model_edit = QLineEdit(); self.model_edit.setPlaceholderText("llama-3.3-70b-versatile")
-        gf.addRow("API Key:", self.key_edit); gf.addRow("Model:", self.model_edit)
-        root.addWidget(gg)
-
-        tg = QGroupBox("TMDB API  (used for show/movie metadata)")
-        tf = QFormLayout(tg)
-        self.tmdb_key_edit = QLineEdit(); self.tmdb_key_edit.setPlaceholderText("Get free key at themoviedb.org/settings/api")
+        self.model_edit = QLineEdit()
+        self.model_edit.setPlaceholderText("llama-3.3-70b-versatile")
+        for field in (self.key_edit, self.model_edit):
+            field.setStyleSheet(
+                f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
+                f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+                f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
+        gf0.addRow(_field_label("API KEY"), self.key_edit)
+        gf0.addRow(_field_label("MODEL"),   self.model_edit)
+        p0.addLayout(gf0)
+        p0.addWidget(_divider())
+        p0.addWidget(_section_lbl("TMDB API  —  SHOW & MOVIE METADATA"))
+        gf1 = QFormLayout()
+        gf1.setSpacing(10)
+        gf1.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.tmdb_key_edit = QLineEdit()
+        self.tmdb_key_edit.setPlaceholderText("Get free key at themoviedb.org/settings/api")
         self.tmdb_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        tf.addRow("API Key:", self.tmdb_key_edit)
-        tmdb_hint = QLabel("Free tier is sufficient. Without a key, metadata fallback is disabled.")
-        tmdb_hint.setStyleSheet(f"color:{MUTED}; font-size:10px;")
-        tf.addRow("", tmdb_hint)
-        root.addWidget(tg)
+        self.tmdb_key_edit.setStyleSheet(
+            f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
+            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
+        gf1.addRow(_field_label("API KEY"), self.tmdb_key_edit)
+        p0.addLayout(gf1)
+        p0.addWidget(_hint("Free tier is sufficient. Without a key, metadata fallback is disabled."))
+        p0.addSpacing(8)
+        p0.addWidget(_save_btn())
+        p0.addStretch()
+        self._settings_stack.addWidget(p0_scroll)
 
-        pg = QGroupBox("Paths")
-        pf = QFormLayout(pg)
+        # ── Panel 1: Paths ────────────────────────────────────────────────────
+        p1_scroll, p1 = _panel_scroll()
+        p1.addWidget(_section_lbl("DIRECTORIES"))
+        dl_row = QHBoxLayout()
         self.dl_edit = QLineEdit(os.path.expanduser("~/Videos"))
-        row = QHBoxLayout()
-        row.addWidget(self.dl_edit,1)
-        row.addWidget(btn("Browse", cb=lambda: self.dl_edit.setText(
-            QFileDialog.getExistingDirectory(self,"Download Dir") or self.dl_edit.text())))
-        pf.addRow("Video Download Dir:", row); root.addWidget(pg)
+        self.dl_edit.setStyleSheet(
+            f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
+            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
+        browse_b = QPushButton("BROWSE")
+        browse_b.setStyleSheet(
+            f"QPushButton{{background:#1a1a28;border:1px solid #2a2a3a;"
+            f"border-radius:4px;color:#6868a0;font-family:{FONT_UI};"
+            f"font-size:9px;letter-spacing:1px;padding:7px 14px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}44;color:{ACCENT};}}")
+        browse_b.clicked.connect(lambda: self.dl_edit.setText(
+            QFileDialog.getExistingDirectory(self, "Download Dir") or self.dl_edit.text()))
+        dl_row.addWidget(self.dl_edit, 1)
+        dl_row.addWidget(browse_b)
+        gf2 = QFormLayout()
+        gf2.setSpacing(10)
+        gf2.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        gf2.addRow(_field_label("VIDEO DOWNLOAD DIR"), dl_row)
+        p1.addLayout(gf2)
+        p1.addWidget(_divider())
+        p1.addWidget(_section_lbl("DATA FILE LOCATIONS  —  READ ONLY"))
+        for lab, path in [
+            ("Legion progress",  LEGION_PROGRESS),
+            ("Matrix progress",  MATRIX_PROGRESS),
+            ("Legion bookmarks", LEGION_BOOKMARKS),
+            ("Sage memory",      SAGE_MEMORY_PATH),
+        ]:
+            row_w = QWidget(); row_w.setStyleSheet("background:transparent;")
+            row_v = QVBoxLayout(row_w); row_v.setContentsMargins(0,4,0,4); row_v.setSpacing(2)
+            lbl_top = QLabel(lab)
+            lbl_top.setStyleSheet(f"color:#6868a0;font-size:9px;letter-spacing:1px;background:transparent;")
+            lbl_path = QLabel(path)
+            lbl_path.setStyleSheet(f"color:#7878a8;font-size:11px;background:transparent;")
+            lbl_path.setWordWrap(True)
+            row_v.addWidget(lbl_top); row_v.addWidget(lbl_path)
+            p1.addWidget(row_w)
+        p1.addSpacing(8)
+        p1.addWidget(_save_btn())
+        p1.addStretch()
+        self._settings_stack.addWidget(p1_scroll)
 
-        dg = QGroupBox("Data File Locations  (read-only info)")
-        dv = QVBoxLayout(dg)
-        for lab, path in [("Legion progress", LEGION_PROGRESS),
-                           ("Matrix progress", MATRIX_PROGRESS),
-                           ("Legion bookmarks", LEGION_BOOKMARKS),
-                           ("Sage memory", SAGE_MEMORY_PATH)]:
-            l = QLabel(f"<b>{lab}:</b>  {path}")
-            l.setStyleSheet(f"color:{TEXT2};font-size:12px;"); l.setWordWrap(True); dv.addWidget(l)
-        root.addWidget(dg)
-
-        vg = QGroupBox("Sage Voice  (Piper TTS)")
-        vf = QFormLayout(vg)
+        # ── Panel 2: Voice ────────────────────────────────────────────────────
+        p2_scroll, p2 = _panel_scroll()
+        p2.addWidget(_section_lbl("SAGE VOICE  —  PIPER TTS"))
         self.voice_chk = QCheckBox("Enable Sage Voice — read responses aloud")
-        self.voice_chk.setStyleSheet(f"color:{TEXT}; font-size:12px;")
+        self.voice_chk.setStyleSheet(
+            f"QCheckBox{{color:{TEXT};font-size:12px;background:transparent;}}"
+            f"QCheckBox::indicator{{width:14px;height:14px;}}")
+        p2.addWidget(self.voice_chk)
+        gf3 = QFormLayout()
+        gf3.setSpacing(10)
+        gf3.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.piper_edit = QLineEdit()
         self.piper_edit.setPlaceholderText("Path to piper binary  (e.g. /usr/local/bin/piper)")
         self.model_voice_edit = QLineEdit()
         self.model_voice_edit.setPlaceholderText("Path to .onnx voice model  (e.g. ~/piper/en_US-amy-medium.onnx)")
-        vf.addRow("", self.voice_chk)
-        vf.addRow("Piper binary:", self.piper_edit)
-        vf.addRow("Voice model:", self.model_voice_edit)
-        hint_l = QLabel("Install: pip install piper-tts  or  https://github.com/rhasspy/piper")
-        hint_l.setStyleSheet(f"color:{MUTED}; font-size:10px;")
-        vf.addRow("", hint_l)
-        root.addWidget(vg)
+        for field in (self.piper_edit, self.model_voice_edit):
+            field.setStyleSheet(
+                f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
+                f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+                f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
+        gf3.addRow(_field_label("PIPER BINARY"), self.piper_edit)
+        gf3.addRow(_field_label("VOICE MODEL"),  self.model_voice_edit)
+        p2.addLayout(gf3)
+        p2.addWidget(_hint("Install: pip install piper-tts  or  https://github.com/rhasspy/piper"))
+        p2.addSpacing(8)
+        p2.addWidget(_save_btn())
+        p2.addStretch()
+        self._settings_stack.addWidget(p2_scroll)
 
-        mg = QGroupBox("Mobile Companion")
-        mv = QVBoxLayout(mg)
+        # ── Panel 3: Companion ────────────────────────────────────────────────
+        p3_scroll, p3 = _panel_scroll()
+        p3.addWidget(_section_lbl("MOBILE COMPANION"))
         import socket as _sock
         try:
             s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80)); local_ip = s.getsockname()[0]; s.close()
-        except Exception: local_ip = "localhost"
+        except Exception:
+            local_ip = "localhost"
         url = f"http://{local_ip}:{_mobile_server_port}"
-        ml = QLabel(f"Open on your phone: <b style='color:{NEON};'>{url}</b>")
-        ml.setStyleSheet(f"color:{TEXT2};font-size:13px;"); ml.setWordWrap(True)
-        ml.setTextFormat(Qt.TextFormat.RichText); mv.addWidget(ml)
-        ml2 = QLabel("Make sure your phone is on the same Wi-Fi network.")
-        ml2.setStyleSheet(f"color:{MUTED};font-size:11px;"); mv.addWidget(ml2)
-        root.addWidget(mg)
+        open_lbl = QLabel("Open on your phone:")
+        open_lbl.setStyleSheet(f"color:{TEXT2};font-size:12px;background:transparent;")
+        url_lbl = QLabel(f"<b style='color:{NEON};'>{url}</b>")
+        url_lbl.setStyleSheet(f"font-size:14px;background:transparent;")
+        url_lbl.setTextFormat(Qt.TextFormat.RichText)
+        wifi_lbl = QLabel("Make sure your phone is on the same Wi-Fi network.")
+        wifi_lbl.setStyleSheet(f"color:{MUTED};font-size:11px;background:transparent;")
+        p3.addWidget(open_lbl)
+        p3.addWidget(url_lbl)
+        p3.addWidget(wifi_lbl)
+        p3.addStretch()
+        self._settings_stack.addWidget(p3_scroll)
 
-        root.addWidget(btn("Save Settings","accent",self._save))
-        root.addStretch(); self._load()
+        self._load()
+
+    def _switch_settings_panel(self, index: int):
+        self._settings_stack.setCurrentIndex(index)
+        for i, b in self._nav_buttons.items():
+            b.setStyleSheet(
+                self._nav_btn_active_ss if i == index else self._nav_btn_base_ss)
 
     def _load(self):
         md       = matrix_data()
