@@ -1254,9 +1254,13 @@ class MatrixPage(QWidget):
                             watching = md.get("watching", {})
                             # Match on the CURRENT file (not _next) — the entry still
                             # has the old file_path at this point in time.
+                            # Case-insensitive title match, then file_path match
                             target_key = show if show in watching else next(
-                                (k for k, v in watching.items()
-                                 if isinstance(v, dict) and v.get("file_path") == current), None)
+                                (k for k in watching if k.lower() == show.lower()), None)
+                            if target_key is None:
+                                target_key = next(
+                                    (k for k, v in watching.items()
+                                     if isinstance(v, dict) and v.get("file_path") == current), None)
                             if target_key:
                                 watching[target_key]["position"]     = 0
                                 watching[target_key]["file_path"]    = _next
@@ -1296,8 +1300,13 @@ class MatrixPage(QWidget):
                 # capturing a stale position from the previous episode
                 if _file_switching:
                     fn_resp = _ipc({"command": ["get_property", "filename"]})
-                    if fn_resp and fn_resp.get("data") == _expected_file:
+                    reported = fn_resp.get("data", "") if fn_resp else ""
+                    # Match on basename in case mpv returns full path
+                    if reported and os.path.basename(reported) == _expected_file:
                         _file_switching = False  # new file confirmed, resume normal tracking
+                    elif reported and reported != os.path.basename(current):
+                        # mpv is already on a different file — unblock regardless
+                        _file_switching = False
                 else:
                     resp = _ipc({"command": ["get_property", "time-pos"]})
                     if resp and resp.get("error") == "success" and resp.get("data") is not None:

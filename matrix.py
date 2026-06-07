@@ -1065,16 +1065,15 @@ class MediaPlayer:
                 if ep == next_ep:
                     return os.path.join(directory, f)
 
-            # If no regex match for next_ep, also try sorted-position fallback:
-            # find current file in sorted list and return the one after it
+            # If no regex match for next_ep, fall back to sorted position.
+            # Accept the next file as long as its episode number isn't LESS
+            # than current (avoids going backwards; allows same/unknown numbers).
             if filename in all_files:
                 idx = all_files.index(filename)
                 if idx + 1 < len(all_files):
                     candidate = all_files[idx + 1]
-                    # Only use positional fallback if the candidate's ep number
-                    # is greater than current (avoids jumping across seasons)
                     cand_ep = MediaPlayer._extract_episode_number(candidate)
-                    if cand_ep is None or cand_ep > current_ep:
+                    if cand_ep is None or cand_ep >= current_ep:
                         return os.path.join(directory, candidate)
 
         # ── Strategy 2: sorted-position only (no numbers found at all) ─────
