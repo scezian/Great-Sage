@@ -97,6 +97,7 @@ class NavRail(QFrame):
         ("sage",      "✦", "SAGE"),
         ("editor",    "✎", "EDITOR"),
         ("plugins",   "⬡", "PLUGINS"),
+        ("bugreport", "⚑", "REPORT"),
     ]
 
     def __init__(self, parent=None):

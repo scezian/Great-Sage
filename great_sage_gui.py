@@ -104,6 +104,7 @@ from gs_widgets import (
 from gs_legion_ui import LegionPage, HighlightsDialog, CalendarDialog, WrappedDialog
 from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
+from gs_bugreport_ui import BugReportPage
 try:
     from artemis import EditorPage
 except ImportError as _artemis_err:
@@ -553,6 +554,16 @@ class MainWindow(QMainWindow):
             f"QPushButton:hover{{background:{PANEL};border-color:{ACCENT};color:{ACCENT};}}"
             f"QPushButton:pressed{{background:{BG};}}")
         menu_btn.clicked.connect(self._open_menu)
+        bug_btn = QPushButton("⚑ BUG")
+        bug_btn.setFixedHeight(30)
+        bug_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3};border:1px solid {BORDER2};"
+            f"color:{MUTED};font-size:8px;letter-spacing:1.5px;"
+            f"border-radius:6px;padding:0 10px;margin-right:6px;}}"
+            f"QPushButton:hover{{background:{PANEL};border-color:#e05555;color:#e05555;}}"
+            f"QPushButton:pressed{{background:{BG};}}")
+        bug_btn.clicked.connect(self._open_bug_report)
+        tv.addWidget(bug_btn)
         tv.addWidget(menu_btn)
         rv.addWidget(topbar)
 
@@ -588,6 +599,7 @@ class MainWindow(QMainWindow):
             ("sage",      SagePage()),
             ("editor",    EditorPage()),
             ("settings",  SettingsPage()),
+            ("bugreport", BugReportPage()),
         ]
         for key, page in pages:
             self._pages.addWidget(page)
@@ -731,6 +743,61 @@ class MainWindow(QMainWindow):
         self._auto_sync_worker.sync_done.connect(self._on_sync_done)
         self._auto_sync_worker.sync_clear.connect(lambda: None)
         self._auto_sync_worker.start()
+
+    def _open_bug_report(self):
+        import urllib.parse, subprocess, platform
+        from pathlib import Path
+
+        # Collect debug info
+        version = "unknown"
+        try:
+            vf = Path(__file__).parent / "VERSION"
+            if vf.exists():
+                version = vf.read_text().strip()
+        except Exception:
+            pass
+
+        os_info = platform.platform()
+
+        # Last 30 lines of the most recent log file
+        log_snippet = "No logs found."
+        try:
+            log_dir = Path(__file__).parent / "logs"
+            if log_dir.exists():
+                logs = sorted(log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if logs:
+                    lines = logs[0].read_text(errors="replace").splitlines()
+                    log_snippet = "\n".join(lines[-30:])
+        except Exception as e:
+            log_snippet = f"Could not read logs: {e}"
+
+        current_module = getattr(self, "_current_page", "unknown")
+
+        body = (
+            f"## Bug Report\n\n"
+            f"**Great Sage version:** {version}\n"
+            f"**OS:** {os_info}\n"
+            f"**Module:** {current_module}\n\n"
+            f"## What happened?\n"
+            f"_Describe what you did and what went wrong._\n\n"
+            f"## Expected behaviour\n"
+            f"_What did you expect to happen?_\n\n"
+            f"## Log snippet (last 30 lines)\n"
+            f"```\n{log_snippet}\n```\n"
+        )
+
+        url = (
+            "https://github.com/scezian/Great-Sage/issues/new"
+            f"?title={urllib.parse.quote('[Bug] ')}"
+            f"&body={urllib.parse.quote(body)}"
+            f"&labels={urllib.parse.quote('bug')}"
+        )
+
+        try:
+            subprocess.Popen(["xdg-open", url])
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Bug Report", f"Open this URL to report:\n{url}")
 
     def _check_for_updates(self):
         def _fetch():
