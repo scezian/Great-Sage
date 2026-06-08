@@ -169,6 +169,22 @@ def save_json(path: str, data: dict) -> bool:
         original_file_exists_at_start = os.path.exists(abs_path)
         backup_created = False
 
+        # Safety guard: refuse to overwrite a non-empty file with a near-empty payload.
+        # This catches race conditions where a thread reads the default {} during an
+        # atomic rename and then saves it back, wiping real data.
+        if original_file_exists_at_start:
+            try:
+                existing_size = os.path.getsize(abs_path)
+                new_size = len(json.dumps(data).encode())
+                if existing_size > 500 and new_size < 200:
+                    log.error(
+                        "save_json REFUSED: would overwrite non-empty file with near-empty data",
+                        path=abs_path, existing_bytes=existing_size, new_bytes=new_size
+                    )
+                    return False
+            except Exception:
+                pass
+
         try:
             log.info(f"Attempting to save JSON to {abs_path}")
 
@@ -625,14 +641,9 @@ class FetchChapterWorker(QThread):
             self.error.emit(f"Cannot load legion.py: {err}")
             return
         try:
-            def _timeout_handler(s, f):
-                raise TimeoutError("Fetch timed out after 30s")
-            signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(30)
-            try:
-                title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
-            finally:
-                signal.alarm(0)
+            # Note: SIGALRM cannot be used from worker threads (Python 3.12+).
+            # requests already enforces its own timeout per call, so no wrapper needed.
+            title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
             if error:
                 log.legion.warning("Chapter fetch returned error", url=self.url, error=error)
                 self.error.emit(error)
@@ -1065,93 +1076,6 @@ class _MetaRefreshWorker(QThread):
             self.done.emit({}, str(e)[:120])
 
 
-class _DiscoveryWorker(QThread):
-    done  = pyqtSignal(list)
-    error = pyqtSignal(str)
-
-    def __init__(self, query: str):
-        super().__init__()
-        self.query = query
-
-    def run(self):
-        results = []
-        mod, _ = legion_mod()
-        if mod and hasattr(mod, "plugin_registry"):
-            import requests
-            session = requests.Session()
-            session.headers.update({"User-Agent": "Mozilla/5.0"})
-            for plugin in mod.plugin_registry.all_plugins():
-                if plugin.supports_search:
-                    try:
-                        hits = plugin.search(self.query, session)
-                        for h in hits[:4]:   # max 4 per source
-                            results.append({
-                                "title": h.title,
-                                "url":   h.url,
-                                "desc":  h.description,
-                                "source": plugin.name,
-                            })
-                    except Exception as e:
-                        log.error("Discovery search failed", plugin=plugin.id, error=str(e))
-        # Fallback to Groq if no results
-        if not results:
-            results = self._groq_fallback()
-        self.done.emit(results[:15])
-
-    def _groq_fallback(self) -> list:
-        try:
-            mod, err = sage_mod()
-            if not mod:
-                return []
-
-            # Apply settings-override API key (same pattern as SageWorker)
-            settings = get_matrix_data().get("settings", {})
-            if settings.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
-                mod.GROQ_API_KEY = settings["groq_api_key"]
-
-            prompt = (
-                f"You are a web novel expert. A user wants novel recommendations.\n\n"
-                f"User's request: \"{self.query}\"\n\n"
-                f"Rules:\n"
-                f"- Treat every requirement as a HARD filter\n"
-                f"- Only recommend novels that exist on novelbin.com or webnovel.com\n"
-                f"- Return EXACTLY 15 titles, one per line\n"
-                f"- Format: Title | one sentence description\n"
-                f"- No numbering, no bullet points\n\n"
-                f"Return 15 novels matching: \"{self.query}\""
-            )
-            response, error = mod.groq_chat(prompt)
-            if error:
-                return []
-
-            results = []
-            for line in (response or "").splitlines():
-                line = line.strip().strip("*-•0123456789. ")
-                if not line or len(line) < 3:
-                    continue
-                if "|" in line:
-                    parts = line.split("|", 1)
-                    title = parts[0].strip()
-                    desc  = parts[1].strip()
-                else:
-                    title = line
-                    desc  = ""
-                if not title:
-                    continue
-                slug = "".join(c for c in title.lower().replace(" ", "-") if c.isalnum() or c == "-")
-                results.append({
-                    "title": title, 
-                    "url": f"https://novelbin.com/b/{slug}", 
-                    "desc": desc,
-                    "source": "Groq AI"
-                })
-                if len(results) >= 15:
-                    break
-            return results
-        except Exception:
-            return []
-
-
 class AutoSyncWorker(QThread):
     status_update = pyqtSignal(str)
     sync_done     = pyqtSignal(str)
@@ -1196,6 +1120,27 @@ class AutoSyncWorker(QThread):
                 save_json(LEGION_PROGRESS, legion_data)
                 legion_data = get_legion_data()
                 books = legion_data.get("books", {})
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── Fix 1b: Library validation ───────────────────────────────────────
+        # Scan all book files for corrupt content (nav-menu garbage, bot-challenge
+        # pages, near-empty files). Deletes corrupt files and resets download_state
+        # so the fresh-filter below re-queues a clean download automatically.
+        try:
+            import importlib.util as _ilu, os as _os
+            _val_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "library_validator.py")
+            _spec = _ilu.spec_from_file_location("library_validator", _val_path)
+            _val_mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_val_mod)
+            _lib_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "library")
+            legion_data, _cleaned = _val_mod.validate_library(legion_data, _lib_dir, log=log.sync)
+            if _cleaned:
+                log.sync.warning("Library validator cleaned corrupt books", books=_cleaned)
+                save_json(LEGION_PROGRESS, legion_data)
+                legion_data = get_legion_data()
+                books = legion_data.get("books", {})
+        except Exception as _ve:
+            log.sync.error("Library validator failed", error=str(_ve))
         # ─────────────────────────────────────────────────────────────────────
 
         # ── Fix 2: Widened fresh filter ───────────────────────────────────────

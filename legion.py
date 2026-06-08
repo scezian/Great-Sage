@@ -186,14 +186,39 @@ plugin_registry = SourcePluginRegistry()
 # Add project dir to sys.path to ensure sources can be imported
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Built-in plugins
+# Built-in plugins — one per source; each registers its own can_handle domain check
 try:
-    from sources.novelbin_plugin import plugin as novelbin_plugin
-    from sources.royalroad_plugin import plugin as royalroad_plugin
-    plugin_registry.register(novelbin_plugin)
-    plugin_registry.register(royalroad_plugin)
-except ImportError as e:
-    log.error("Failed to load built-in plugins", error=str(e))
+    from sources.novelbin_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="novelbin_plugin", error=str(_e))
+try:
+    from sources.royalroad_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="royalroad_plugin", error=str(_e))
+try:
+    from sources.novelfire_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="novelfire_plugin", error=str(_e))
+try:
+    from sources.lightnovelpub_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="lightnovelpub_plugin", error=str(_e))
+try:
+    from sources.scribblehub_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="scribblehub_plugin", error=str(_e))
+try:
+    from sources.novelpub_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="novelpub_plugin", error=str(_e))
+try:
+    from sources.novelcool_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="novelcool_plugin", error=str(_e))
+try:
+    from sources.wuxiaworld_plugin import plugin as _p; plugin_registry.register(_p)
+except Exception as _e:
+    log.error("Failed to load built-in plugin", module="wuxiaworld_plugin", error=str(_e))
 
 # User plugins from ~/.config/great-sage/sources/
 _user_plugin_dir = os.path.expanduser("~/.config/great-sage/sources")
@@ -1034,6 +1059,110 @@ def _generic_get_with_retry(url: str) -> tuple[requests.Response | None, str]:
     return None, original_url # Return None and original URL on final failure
 
 
+
+# ── Content validation ─────────────────────────────────────────────────────────
+
+_JS_CHALLENGE_PATTERNS = [
+    r"window\.location\.replace\s*\(",
+    r"<title>\s*Loading\.\.\.\s*</title>",
+    r"Checking your browser",
+    r"DDoS protection by",
+    r"Please wait while we verify",
+]
+
+_NAV_GARBAGE_STRINGS = [
+    "Novel Bin", "Novel List", "Latest Release", "Hot Novel",
+    "Completed Novel", "Most Popular", "Light gray", "Light blue",
+    "Light yellow", "Wood grain", "Palatino Linotype", "Bookerly",
+    "Font family", "Font size", "Line height", "Full frame",
+    "Login/Signup",
+]
+
+def _is_js_challenge(html: str) -> bool:
+    if len(html) < 2000:
+        for pat in _JS_CHALLENGE_PATTERNS:
+            if re.search(pat, html, re.I):
+                return True
+    return False
+
+def _is_nav_garbage(paragraphs: list) -> bool:
+    if not paragraphs:
+        return False
+    sample = " ".join(paragraphs[:20])
+    hits = sum(1 for s in _NAV_GARBAGE_STRINGS if s in sample)
+    return hits >= 4
+
+def _delete_book_library(book_name: str):
+    try:
+        safe = re.sub(r'[^\w\-_\. ]', '_', book_name)
+        book_dir = os.path.join(LIBRARY_DIR, safe)
+        if os.path.exists(book_dir):
+            import shutil as _shutil
+            _shutil.rmtree(book_dir)
+            log.warning("Deleted corrupt library folder", book=book_name, path=book_dir)
+    except Exception as e:
+        log.error("Failed to delete corrupt library folder", book=book_name, error=str(e))
+
+# ── Source mirror finder ───────────────────────────────────────────────────────
+
+_MIRROR_SEARCH_SOURCES = [
+    "novelfire",
+    "lightnovelpub",
+    "novelpub",
+    "scribblehub",
+    "novelcool",
+]
+
+def _find_mirror_source(book_name: str, current_url: str):
+    """
+    When the primary source is blocking scrapers, search other sources for
+    the same book. Returns a working chapter-1 URL or None.
+    """
+    import difflib
+    title_query = book_name.strip()
+    log.info("Searching for mirror source", book=book_name, trying=_MIRROR_SEARCH_SOURCES)
+
+    for src_id in _MIRROR_SEARCH_SOURCES:
+        if src_id in current_url:
+            continue
+        plugin = None
+        for p in plugin_registry.all_plugins():
+            if p.id == src_id:
+                plugin = p
+                break
+        if not plugin or not getattr(plugin, "supports_search", False):
+            continue
+        try:
+            results = plugin.search(title_query, SESSION)
+            if not results:
+                continue
+            best = max(results, key=lambda r: difflib.SequenceMatcher(
+                None, r.title.lower(), title_query.lower()).ratio())
+            ratio = difflib.SequenceMatcher(
+                None, best.title.lower(), title_query.lower()).ratio()
+            if ratio < 0.6:
+                log.debug("Mirror search: weak match", source=src_id,
+                          matched=best.title, ratio=round(ratio, 2))
+                continue
+            log.info("Mirror candidate found", source=src_id,
+                     matched=best.title, ratio=round(ratio, 2), url=best.url)
+            ch1_url = best.url.rstrip('/') + '/chapter-1'
+            try:
+                test_result = fetch_chapter(ch1_url)
+                t_paras = test_result[1]
+                if t_paras and not _is_nav_garbage(t_paras) and len(t_paras) > 3:
+                    log.info("Mirror source verified", source=src_id,
+                             chapter_url=ch1_url, paragraphs=len(t_paras))
+                    return ch1_url
+            except Exception as e:
+                log.debug("Mirror chapter fetch failed", source=src_id, error=str(e))
+        except Exception as e:
+            log.warning("Mirror search failed", source=src_id, error=str(e))
+
+    log.warning("No working mirror source found", book=book_name)
+    return None
+
+
 def _fetch_chapter_generic(url: str):
     # Hardcoded mirrors for the generic fallback (original NovelBin mirrors)
     GENERIC_MIRRORS = ["novelbin.com"]
@@ -1101,19 +1230,37 @@ def _fetch_chapter_generic(url: str):
         log.error("_fetch_chapter_generic failed", url=url, error=str(e))
         return None, [], None, None, str(e), None
 
+    if _is_js_challenge(resp.text):
+        return "Chapter", [], None, None, "Site returned a bot-challenge page — cannot scrape without a browser.", None
+
     soup = BeautifulSoup(resp.text, "html.parser")
     title = "Chapter"
-    for tag_name, attrs in [("span", {"class": "chr-text"}), ("h2", {"class": "chr-title"}), ("h1", {})]:
+    for tag_name, attrs in [
+        ("span", {"class": "chr-text"}),
+        ("h2",   {"class": "chr-title"}),
+        ("h1",   {"class": "chapter-title"}),
+        ("h4",   {"class": "panel-title"}),   # wuxiaworld
+        ("h1",   {}),
+        ("h2",   {}),
+    ]:
         tag = soup.find(tag_name, attrs)
         if tag:
             title = tag.get_text(strip=True)
             break
 
     content_div = None
-    for selector in ["chr-content", "chapter-content", "content"]:
-        content_div = soup.find("div", id=selector)
+    # Try by id first (exact matches for known sources)
+    for id_sel in ["chr-content", "chapter-content", "chp_raw", "chapter_content", "content"]:
+        content_div = soup.find("div", id=id_sel)
         if content_div:
             break
+    # Try by class (novelfire, novelpub, wuxiaworld all use div.chapter-content)
+    if not content_div:
+        for cls_sel in ["chapter-content", "chapter-inner", "reading-content", "text-left"]:
+            content_div = soup.find("div", class_=cls_sel)
+            if content_div:
+                break
+    # Last resort: largest div by paragraph count
     if not content_div:
         divs = soup.find_all("div")
         content_div = max(divs, key=lambda d: len(d.find_all("p")), default=None)
@@ -1141,9 +1288,16 @@ def _fetch_chapter_generic(url: str):
     if m_url:
         url_ch_num = int(m_url.group(1))
 
-    if not prev_url and url_ch_num is not None and url_ch_num > 1:
+    # Arithmetic fallback for sites that render nav via JS (e.g. NovelBin).
+    # If _extract_nav returned None but we know the chapter number from the URL,
+    # construct next/prev by incrementing/decrementing the slug.
+    if url_ch_num is not None:
         ch_prefix = actual_url[:actual_url.index(m_url.group(0))]
-        prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
+        if not next_url:
+            candidate = f"{ch_prefix}/chapter-{url_ch_num + 1}"
+            next_url = candidate  # optimistic — download loop will 404 and stop naturally
+        if not prev_url and url_ch_num > 1:
+            prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
 
     return title, paragraphs, next_url, prev_url, None, url_ch_num
 
@@ -1455,6 +1609,78 @@ def fetch_book_metadata(chapter_url: str) -> dict:
         return {}
 
 
+def _resolve_novelbin_first_chapter(book_page_url: str) -> str | None:
+    """
+    NovelBin loads its chapter list via JavaScript (AJAX).
+    The server-side endpoint is POST /ajax/chapter-archive with the novel ID
+    embedded in a data-novel-id attribute on the book landing page.
+    Falls back to constructing /b/{slug}/chapter-1 if the AJAX call fails.
+    """
+    try:
+        resp, actual_url = _generic_get_with_retry(book_page_url)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        parsed = urlparse(actual_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Try to find the novel ID for the AJAX endpoint
+        novel_id = None
+        # Common selectors where NovelBin embeds the novel ID
+        for sel in [
+            "[data-novel-id]",
+            "#rating[data-novel-id]",
+            ".rating[data-novel-id]",
+            "#chapter-list-page[data-novel-id]",
+            "div[data-novel-id]",
+        ]:
+            el = soup.select_one(sel)
+            if el and el.get("data-novel-id"):
+                novel_id = el["data-novel-id"]
+                break
+
+        if novel_id:
+            ajax_url = f"{base}/ajax/chapter-archive"
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": actual_url,
+                }
+                r = SESSION.post(ajax_url, data={"novel_id": novel_id}, headers=headers, timeout=15)
+                if r.ok:
+                    archive_soup = BeautifulSoup(r.text, "html.parser")
+                    # Chapter links are in <a href="/b/slug/chapter-N"> — get sorted list
+                    links = archive_soup.find_all("a", href=re.compile(r"/chapter-\d+", re.I))
+                    if links:
+                        def _ch_num(a):
+                            m = re.search(r"chapter-(\d+)", a["href"], re.I)
+                            return int(m.group(1)) if m else 999999
+                        first = min(links, key=_ch_num)
+                        href = first["href"]
+                        return href if href.startswith("http") else base + href
+            except Exception as e:
+                log.warning("NovelBin AJAX chapter-archive failed", novel_id=novel_id, error=str(e))
+
+        # Fallback: construct chapter-1 URL from the slug
+        # novelbin.com/b/book-slug → novelbin.com/b/book-slug/chapter-1
+        m = re.search(r"/b/([^/?#]+)", actual_url)
+        if m:
+            slug = m.group(1)
+            # Strip any trailing chapter segment already in the URL
+            slug = re.sub(r"/chapter-\d+.*$", "", slug)
+            candidate = f"{base}/b/{slug}/chapter-1"
+            try:
+                test_resp, _ = _generic_get_with_retry(candidate)
+                if test_resp.status_code < 400:
+                    return candidate
+            except Exception:
+                pass
+
+        return None
+    except Exception as e:
+        log.warning("_resolve_novelbin_first_chapter failed", url=book_page_url, error=str(e))
+        return None
+
+
 def resolve_first_chapter_url(book_page_url: str) -> str | None:
     """
     Given a book landing page URL, resolve the first chapter URL.
@@ -1469,6 +1695,13 @@ def resolve_first_chapter_url(book_page_url: str) -> str | None:
                 return plugin.resolve_first_chapter(book_page_url, SESSION)
             except Exception as e:
                 log.warning("Plugin resolve_first_chapter failed", url=book_page_url, error=str(e))
+
+        # NovelBin-specific: chapter list is AJAX-loaded, use the chapter-archive endpoint
+        if re.search(r"novelbin\.(com|net|me)", book_page_url, re.I):
+            first = _resolve_novelbin_first_chapter(book_page_url)
+            if first:
+                return first
+            # Fall through to generic if AJAX endpoint fails
 
         # Generic fallback: scrape the book page for first chapter link
         resp, actual_url = _generic_get_with_retry(book_page_url)
@@ -2025,15 +2258,91 @@ class DownloadManager:
                         log.error("Chapter fetch failed during download", book=book_name, url=url, reason=reason)
                         book['download_state']['failed_chapters'].append(url)
                         book['download_state']['last_error'] = reason
-                        save_progress(progress)
-                        # Stop — chapter missing means we've hit the end of released chapters
-                        break
+
+                        # Consecutive failure tracking — don't kill the download on first error.
+                        # Only flip to failed / attempt source swap after 3 back-to-back failures.
+                        _consec = book['download_state'].get('_consecutive_failures', 0) + 1
+                        book['download_state']['_consecutive_failures'] = _consec
+                        log.warning("Consecutive chapter failures", book=book_name,
+                                    count=_consec, url=url, reason=reason)
+
+                        if _consec < 3:
+                            # Not yet at threshold — skip this chapter and continue
+                            url = next_url or url   # best-effort advance; may be None
+                            save_progress(progress)
+                            import random as _random
+                            time.sleep(_random.uniform(2.0, 4.0))  # longer back-off on error
+                            continue
+
+                        # 3+ consecutive failures — attempt source swap before giving up
+                        log.warning("Failure threshold reached — attempting source swap",
+                                    book=book_name, consecutive=_consec)
+                        _current_url = book.get("current_url", url)
+                        _mirror_ch1  = _find_mirror_source(book_name, _current_url)
+                        if _mirror_ch1:
+                            log.info("Source swap triggered by consecutive failures",
+                                     book=book_name, mirror=_mirror_ch1)
+                            _delete_book_library(book_name)
+                            _mirror_book_url = re.sub(r'/chapter-\d+.*$', '', _mirror_ch1)
+                            book["current_url"]  = _mirror_book_url
+                            book["download_state"]["status"]                     = "idle"
+                            book["download_state"]["total_chapters_downloaded"]  = 0
+                            book["download_state"]["last_downloaded_chapter"]    = None
+                            book["download_state"]["last_downloaded_chapter_num"] = None
+                            book["download_state"]["last_error"]                 = None
+                            book["download_state"]["failed_chapters"]            = []
+                            book["download_state"]["_consecutive_failures"]      = 0
+                            book["download_state"]["active_source"]              = _mirror_book_url
+                            save_progress(progress)
+                            url = _mirror_ch1
+                            chapter_num = 1
+                            seen.clear()
+                            continue
+                        else:
+                            # No mirror found — surface a source_swap_needed flag so the UI
+                            # can show the user a "Change Source" button instead of a dead error.
+                            reason_final = f"Source blocked after {_consec} consecutive failures and no mirror found. Open the book and change source manually."
+                            book["download_state"]["last_error"]       = reason_final
+                            book["download_state"]["status"]           = "source_swap_needed"
+                            book["download_state"]["_consecutive_failures"] = 0
+                            save_progress(progress)
+                            break
+                    elif _is_nav_garbage(paragraphs):
+                        log.error("Nav garbage detected — trying mirror source", book=book_name, url=url)
+                        _delete_book_library(book_name)
+                        _current_url = book.get("current_url", url)
+                        _mirror_ch1 = _find_mirror_source(book_name, _current_url)
+                        if _mirror_ch1:
+                            log.info("Switching to mirror source", book=book_name, mirror=_mirror_ch1)
+                            _mirror_book_url = re.sub(r'/chapter-\d+.*$', '', _mirror_ch1)
+                            book["current_url"] = _mirror_book_url
+                            book["download_state"]["status"] = "idle"
+                            book["download_state"]["total_chapters_downloaded"] = 0
+                            book["download_state"]["last_downloaded_chapter"] = None
+                            book["download_state"]["last_downloaded_chapter_num"] = None
+                            book["download_state"]["last_error"] = None
+                            book["download_state"]["failed_chapters"] = []
+                            save_progress(progress)
+                            url = _mirror_ch1
+                            chapter_num = 1
+                            seen.clear()
+                            continue
+                        else:
+                            reason = "Source is blocking scrapers and no mirror found. Try re-adding from a different source."
+                            book["download_state"]["last_error"] = reason
+                            book["download_state"]["status"] = "failed"
+                            book["download_state"]["total_chapters_downloaded"] = 0
+                            book["download_state"]["last_downloaded_chapter"] = None
+                            book["download_state"]["last_downloaded_chapter_num"] = None
+                            save_progress(progress)
+                            break
                     else:
                         # Extract real chapter number from title for accurate tracking
                         import re as _re2 # Using alias to avoid conflict if re is imported differently
                         _m = _re2.search(r'chapter[\s\-_]*(\d+)', title, _re2.IGNORECASE)
                         real_ch_num = int(_m.group(1)) if _m else chapter_num
                         append_chapter_to_file(book_name, real_ch_num, title, paragraphs)
+                        book['download_state']['_consecutive_failures'] = 0   # reset on success
                         book['download_state']['last_downloaded_chapter'] = url
                         book['download_state']['last_downloaded_chapter_num'] = real_ch_num
                         book['download_state']['total_chapters_downloaded'] =                         book['download_state'].get('total_chapters_downloaded', 0) + 1
@@ -2041,6 +2350,11 @@ class DownloadManager:
                         chapter_num += 1
                         url = next_url
                         save_progress(progress)  # save every chapter so UI stays current
+                        # Human-speed throttle — prevents IP bans from rapid-fire requests
+                        import random as _random
+                        _delay = _random.uniform(1.5, 3.5)
+                        log.debug("Chapter delay", book=book_name, delay_s=round(_delay, 2))
+                        time.sleep(_delay)
                 except Exception as exc:
                     log.error("Exception during chapter download", book=book_name, url=url, error=str(exc))
                     book['download_state']['failed_chapters'].append(url)
