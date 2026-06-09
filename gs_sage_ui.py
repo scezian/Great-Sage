@@ -817,10 +817,11 @@ class SettingsPage(QWidget):
             nav_v.addWidget(b)
             self._nav_buttons[index] = b
 
-        _make_nav_btn("API KEYS",  0)
-        _make_nav_btn("PATHS",     1)
-        _make_nav_btn("VOICE",     2)
-        _make_nav_btn("COMPANION", 3)
+        _make_nav_btn("API KEYS",   0)
+        _make_nav_btn("PATHS",      1)
+        _make_nav_btn("VOICE",      2)
+        _make_nav_btn("COMPANION",  3)
+        _make_nav_btn("CLOUD SYNC", 4)
         nav_v.addStretch()
 
         # Shared field/label style helpers
@@ -1014,7 +1015,138 @@ class SettingsPage(QWidget):
         p3.addStretch()
         self._settings_stack.addWidget(p3_scroll)
 
+        # ── Panel 4: Cloud Sync ───────────────────────────────────────────────
+        p4_scroll, p4 = _panel_scroll()
+
+        # Status banner
+        self._sync_status_lbl = QLabel("NOT SIGNED IN")
+        self._sync_status_lbl.setStyleSheet(
+            f"color:#505068;font-size:9px;letter-spacing:3px;"
+            f"font-family:{FONT_UI};background:transparent;")
+        self._sync_user_lbl = QLabel("")
+        self._sync_user_lbl.setStyleSheet(
+            f"color:{ACCENT};font-size:12px;background:transparent;")
+
+        p4.addWidget(_section_lbl("GREAT SAGE CLOUD  —  BACKUP & SYNC"))
+        p4.addWidget(self._sync_status_lbl)
+        p4.addWidget(self._sync_user_lbl)
+        p4.addWidget(_divider())
+
+        # Login form
+        self._sync_login_widget = QWidget()
+        self._sync_login_widget.setStyleSheet("background:transparent;")
+        lv = QVBoxLayout(self._sync_login_widget)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(10)
+
+        lv.addWidget(_section_lbl("SIGN IN TO YOUR ACCOUNT"))
+        gf_sync = QFormLayout()
+        gf_sync.setSpacing(10)
+        gf_sync.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        _field_ss = (
+            f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
+            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"QLineEdit:focus{{border-color:{ACCENT}44;}}"
+        )
+        self._sync_email_edit = QLineEdit()
+        self._sync_email_edit.setPlaceholderText("your@email.com")
+        self._sync_email_edit.setStyleSheet(_field_ss)
+
+        self._sync_pass_edit = QLineEdit()
+        self._sync_pass_edit.setPlaceholderText("Password")
+        self._sync_pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._sync_pass_edit.setStyleSheet(_field_ss)
+
+        gf_sync.addRow(_field_label("EMAIL"),    self._sync_email_edit)
+        gf_sync.addRow(_field_label("PASSWORD"), self._sync_pass_edit)
+        lv.addLayout(gf_sync)
+
+        self._sync_msg_lbl = QLabel("")
+        self._sync_msg_lbl.setStyleSheet(
+            f"color:#e06c6c;font-size:11px;background:transparent;")
+        self._sync_msg_lbl.setWordWrap(True)
+        lv.addWidget(self._sync_msg_lbl)
+
+        _btn_ss = (
+            f"QPushButton{{background:{ACCENT};color:#0d0d14;border:none;"
+            f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+            f"letter-spacing:2px;font-weight:bold;padding:9px 28px;}}"
+            f"QPushButton:hover{{background:#dbb85c;}}"
+            f"QPushButton:disabled{{background:#2a2a3a;color:#505068;}}"
+        )
+        _btn_ghost_ss = (
+            f"QPushButton{{background:transparent;border:1px solid #2a2a3a;"
+            f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+            f"letter-spacing:2px;color:#6868a0;padding:9px 28px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}44;color:{ACCENT};}}"
+        )
+
+        login_btn = QPushButton("SIGN IN")
+        login_btn.setStyleSheet(_btn_ss)
+        login_btn.clicked.connect(self._sync_login)
+
+        lv.addWidget(login_btn)
+        lv.addWidget(_hint(
+            "Sign in to backup your watchlist and reading progress to the cloud. "
+            "On a fresh install, sign in here and hit Restore to get everything back."
+        ))
+        lv.addWidget(_divider())
+        lv.addWidget(_section_lbl("NO ACCOUNT YET?"))
+        signup_link = QLabel(
+            "<a href='https://entertainment-app-we-7xnp.bolt.host' "
+            f"style='color:{ACCENT};'>Create your account on TrackFlix</a>"
+            " — then come back here to sign in."
+        )
+        signup_link.setStyleSheet(f"color:#404058;font-size:10px;background:transparent;")
+        signup_link.setWordWrap(True)
+        signup_link.setOpenExternalLinks(True)
+        signup_link.setTextFormat(Qt.TextFormat.RichText)
+        lv.addWidget(signup_link)
+        p4.addWidget(self._sync_login_widget)
+
+        # Logged-in actions widget (hidden until signed in)
+        self._sync_actions_widget = QWidget()
+        self._sync_actions_widget.setStyleSheet("background:transparent;")
+        av = QVBoxLayout(self._sync_actions_widget)
+        av.setContentsMargins(0, 0, 0, 0)
+        av.setSpacing(12)
+
+        av.addWidget(_section_lbl("SYNC ACTIONS"))
+
+        push_btn = QPushButton("⬆  BACKUP TO CLOUD")
+        push_btn.setStyleSheet(_btn_ss)
+        push_btn.setToolTip("Push your current watchlist and progress to the cloud")
+        push_btn.clicked.connect(self._sync_push)
+
+        pull_btn = QPushButton("⬇  RESTORE FROM CLOUD")
+        pull_btn.setStyleSheet(_btn_ghost_ss)
+        pull_btn.setToolTip("Overwrite local data with cloud backup (use after fresh install)")
+        pull_btn.clicked.connect(self._sync_pull)
+
+        logout_btn = QPushButton("SIGN OUT")
+        logout_btn.setStyleSheet(_btn_ghost_ss)
+        logout_btn.clicked.connect(self._sync_logout)
+
+        self._sync_action_msg = QLabel("")
+        self._sync_action_msg.setStyleSheet(
+            f"color:#6ca86c;font-size:11px;background:transparent;")
+        self._sync_action_msg.setWordWrap(True)
+
+        av.addWidget(push_btn)
+        av.addWidget(pull_btn)
+        av.addWidget(self._sync_action_msg)
+        av.addWidget(_divider())
+        av.addWidget(logout_btn)
+
+        p4.addWidget(self._sync_actions_widget)
+        self._sync_actions_widget.hide()
+
+        p4.addStretch()
+        self._settings_stack.addWidget(p4_scroll)
+
         self._load()
+        self._sync_refresh_ui()
 
     def _switch_settings_panel(self, index: int):
         self._settings_stack.setCurrentIndex(index)
@@ -1077,6 +1209,145 @@ class SettingsPage(QWidget):
             except Exception: pass  # Ignored
         from great_sage_core import reload_module as _rm; _rm("sage")
         QMessageBox.information(self, "Saved", "Settings saved.")
+
+    # ── Cloud Sync helpers ────────────────────────────────────────────────────
+
+    def _get_sync(self):
+        """Lazy-import GreatSageSync — returns None if gs_sync not available."""
+        try:
+            from gs_sync import GreatSageSync
+            if not hasattr(self, "_sync_client"):
+                self._sync_client = GreatSageSync()
+            return self._sync_client
+        except ImportError:
+            return None
+
+    def _sync_refresh_ui(self):
+        sync = self._get_sync()
+        if sync and sync.is_logged_in():
+            profile = sync._get_profile()
+            name = ""
+            if profile:
+                name = profile.get("display_name") or profile.get("username", "")
+            self._sync_status_lbl.setText("SIGNED IN")
+            self._sync_status_lbl.setStyleSheet(
+                f"color:#6ca86c;font-size:9px;letter-spacing:3px;"
+                f"font-family:{FONT_UI};background:transparent;")
+            self._sync_user_lbl.setText(f"@{name}" if name else "")
+            self._sync_login_widget.hide()
+            self._sync_actions_widget.show()
+            # Auto-push on every app launch + start periodic timer
+            self._sync_push(silent=True)
+            self._start_autosync_timer()
+        else:
+            self._sync_status_lbl.setText("NOT SIGNED IN")
+            self._sync_status_lbl.setStyleSheet(
+                f"color:#505068;font-size:9px;letter-spacing:3px;"
+                f"font-family:{FONT_UI};background:transparent;")
+            self._sync_user_lbl.setText("")
+            self._sync_login_widget.show()
+            self._sync_actions_widget.hide()
+
+    def _sync_login(self):
+        sync = self._get_sync()
+        if not sync:
+            self._sync_msg_lbl.setText("gs_sync.py not found in project directory.")
+            return
+        email    = self._sync_email_edit.text().strip()
+        password = self._sync_pass_edit.text()
+        if not email or not password:
+            self._sync_msg_lbl.setText("Email and password are required.")
+            return
+        self._sync_msg_lbl.setText("Signing in…")
+        QApplication.processEvents()
+        try:
+            sync.login(email, password)
+            self._sync_msg_lbl.setText("")
+            self._sync_pass_edit.clear()
+            self._sync_refresh_ui()
+            # Auto-push immediately after login
+            self._sync_push(silent=True)
+            # Start auto-sync timer (every 10 minutes)
+            self._start_autosync_timer()
+        except Exception as e:
+            err = str(e)
+            if "Invalid login" in err or "400" in err:
+                self._sync_msg_lbl.setText("Invalid email or password.")
+            else:
+                self._sync_msg_lbl.setText(f"Login failed: {err[:80]}")
+
+    def _sync_push(self, silent=False):
+        sync = self._get_sync()
+        if not sync:
+            return
+        if not silent:
+            self._sync_action_msg.setStyleSheet(
+                f"color:#6868a0;font-size:11px;background:transparent;")
+            self._sync_action_msg.setText("Backing up…")
+            QApplication.processEvents()
+        try:
+            ok = sync.push()
+            if not silent:
+                if ok:
+                    self._sync_action_msg.setStyleSheet(
+                        f"color:#6ca86c;font-size:11px;background:transparent;")
+                    self._sync_action_msg.setText("✓ Backup complete.")
+                else:
+                    self._sync_action_msg.setStyleSheet(
+                        f"color:#e06c6c;font-size:11px;background:transparent;")
+                    self._sync_action_msg.setText("Backup failed — check logs.")
+        except Exception as e:
+            if not silent:
+                self._sync_action_msg.setStyleSheet(
+                    f"color:#e06c6c;font-size:11px;background:transparent;")
+                self._sync_action_msg.setText(f"Error: {str(e)[:80]}")
+
+    def _start_autosync_timer(self):
+        """Auto-backup every 10 minutes while signed in."""
+        if not hasattr(self, "_autosync_timer"):
+            self._autosync_timer = QTimer(self)
+            self._autosync_timer.timeout.connect(lambda: self._sync_push(silent=True))
+        self._autosync_timer.start(10 * 60 * 1000)  # 10 minutes
+
+    def _sync_pull(self):
+        sync = self._get_sync()
+        if not sync:
+            return
+        reply = QMessageBox.question(
+            self, "Restore from Cloud",
+            "This will overwrite your local watchlist with the cloud backup.\n"
+            "Your local watching progress will be preserved.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._sync_action_msg.setStyleSheet(
+            f"color:#6868a0;font-size:11px;background:transparent;")
+        self._sync_action_msg.setText("Restoring…")
+        QApplication.processEvents()
+        try:
+            ok = sync.restore_to_disk()
+            if ok:
+                self._sync_action_msg.setStyleSheet(
+                    f"color:#6ca86c;font-size:11px;background:transparent;")
+                self._sync_action_msg.setText(
+                    "✓ Restored. Restart Great Sage to see changes.")
+            else:
+                self._sync_action_msg.setStyleSheet(
+                    f"color:#e06c6c;font-size:11px;background:transparent;")
+                self._sync_action_msg.setText("Restore failed — check logs.")
+        except Exception as e:
+            self._sync_action_msg.setStyleSheet(
+                f"color:#e06c6c;font-size:11px;background:transparent;")
+            self._sync_action_msg.setText(f"Error: {str(e)[:80]}")
+
+    def _sync_logout(self):
+        sync = self._get_sync()
+        if sync:
+            sync.logout()
+        if hasattr(self, "_autosync_timer"):
+            self._autosync_timer.stop()
+        self._sync_refresh_ui()
 
     def refresh(self): self._load()
 
