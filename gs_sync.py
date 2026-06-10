@@ -82,22 +82,37 @@ PROGRESS_PATH    = Path.home() / ".config" / "matrix" / "progress.json"
 TOKEN_CACHE_PATH = Path.home() / ".config" / "matrix" / "gs_sync_token.json"
 
 # Map Great Sage bucket names → Supabase status values
+# Map Great Sage bucket names → Supabase status values (website schema)
+# Website statuses: watching, reading, completed, on_hold, dropped, plan_to_watch, plan_to_read
 GS_TO_SUPA_STATUS = {
-    "Planning":  "planning",
     "Watching":  "watching",
     "Dropped":   "dropped",
     "Completed": "completed",
+    "Planning":  "plan_to_watch",
 }
-SUPA_TO_GS_STATUS = {v: k for k, v in GS_TO_SUPA_STATUS.items()}
+SUPA_TO_GS_STATUS = {
+    "watching":      "Watching",
+    "reading":       "Watching",
+    "completed":     "Completed",
+    "on_hold":       "Watching",
+    "dropped":       "Dropped",
+    "plan_to_watch": "Planning",
+    "plan_to_read":  "Planning",
+}
 
-# Map Great Sage type strings → Supabase type values
+# Map Great Sage type strings → Supabase type values (website schema)
+# Website types: show, webnovel
 GS_TO_SUPA_TYPE = {
-    "Anime":  "anime",
-    "Novel":  "novel",
-    "Show":   "show",
-    "Movie":  "movie",
+    "Anime":    "show",
+    "Show":     "show",
+    "Movie":    "show",
+    "Novel":    "webnovel",
+    "Webnovel": "webnovel",
 }
-SUPA_TO_GS_TYPE = {v: k for k, v in GS_TO_SUPA_TYPE.items()}
+SUPA_TO_GS_TYPE = {
+    "show":    "Anime",
+    "webnovel":"Novel",
+}
 
 
 # ── Sync client ───────────────────────────────────────────────────────────────
@@ -255,26 +270,40 @@ class GreatSageSync:
         watching  = watching  or local.get("watching", {})
 
         rows = []
-        for gs_status, items in watchlist.items():
-            supa_status = GS_TO_SUPA_STATUS.get(gs_status, "planning")
+        for gs_status_raw, items in watchlist.items():
+            gs_status = gs_status_raw.capitalize()
             for item in items:
                 title    = item.get("title", "").strip()
                 if not title:
                     continue
-                gs_type  = item.get("type", "Anime")
+                gs_type   = item.get("type", "Anime")
+                supa_type = GS_TO_SUPA_TYPE.get(gs_type, "show")
+                is_novel  = supa_type == "webnovel"
+
+                # Resolve status with type awareness
+                if gs_status == "Watching":
+                    supa_status = "reading" if is_novel else "watching"
+                elif gs_status == "Planning":
+                    supa_status = "plan_to_read" if is_novel else "plan_to_watch"
+                else:
+                    supa_status = GS_TO_SUPA_STATUS.get(gs_status, "plan_to_watch")
+
                 progress = 0
                 if gs_status == "Watching" and title in watching:
-                    progress = watching[title].get("episode", 0)
+                    prog_info = watching[title]
+                    progress = prog_info.get("current_episode") or prog_info.get("episode") or 0
 
+                from datetime import datetime, timezone as _tz
                 rows.append({
-                    "user_id":   self._user_id,
-                    "title":     title,
-                    "type":      GS_TO_SUPA_TYPE.get(gs_type, "anime"),
-                    "status":    supa_status,
-                    "notes":     item.get("notes", ""),
-                    "rating":    item.get("rating", 0),
-                    "progress":  progress,
-                    "cover_url": item.get("cover_url", ""),
+                    "user_id":    self._user_id,
+                    "title":      title,
+                    "type":       supa_type,
+                    "status":     supa_status,
+                    "notes":      item.get("notes", ""),
+                    "rating":     item.get("rating") or None,
+                    "progress":   progress,
+                    "cover_url":  item.get("cover_url", ""),
+                    "updated_at": datetime.now(_tz.utc).isoformat(),
                 })
 
         if not rows:
@@ -301,7 +330,7 @@ class GreatSageSync:
                 "type":      GS_TO_SUPA_TYPE.get(media_type, "anime"),
                 "status":    GS_TO_SUPA_STATUS.get(status, "watching"),
                 "notes":     notes,
-                "rating":    rating,
+                "rating":    rating or None,
                 "progress":  episode,
                 "cover_url": cover_url,
             }], on_conflict="user_id,title")
@@ -504,13 +533,33 @@ class GreatSageSync:
         return resp.json()
 
     def _upsert(self, table: str, rows: list, on_conflict: str = "") -> list:
-        headers = self._auth_headers()
-        if on_conflict:
-            headers["Prefer"] = f"resolution=merge-duplicates,return=representation"
+        """
+        Reliable upsert: delete existing rows for this user then re-insert.
+        Supabase's merge-duplicates doesn't reliably overwrite all columns,
+        so we use delete+insert to guarantee fresh data.
+        """
+        if not rows:
+            return []
+
+        # Delete all existing rows for this user in the table
+        del_headers = self._auth_headers()
+        del_headers["Prefer"] = "return=minimal"
+        del_resp = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=del_headers,
+            params={"user_id": f"eq.{self._user_id}"},
+            timeout=10,
+        )
+        # 404 is fine (no rows yet), anything else raise
+        if del_resp.status_code not in (200, 204, 404):
+            del_resp.raise_for_status()
+
+        # Insert fresh
+        ins_headers = self._auth_headers()
+        ins_headers["Prefer"] = "return=minimal"
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
-            headers=headers,
-            params={"on_conflict": on_conflict} if on_conflict else {},
+            headers=ins_headers,
             json=rows,
             timeout=15,
         )

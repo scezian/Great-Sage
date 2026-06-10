@@ -19,7 +19,7 @@ from gs_theme import *
 from gs_widgets import lbl, btn, hline, vline, tag, NavRail, EyeBreakToast, SyncToast, _mobile_server_port
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject
+    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject,
 )
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -28,7 +28,8 @@ except ImportError:
     WEBENGINE_OK = False
 from PyQt6.QtGui import (
     QColor, QFont, QPalette, QTextCursor, QTextOption, QKeySequence, QShortcut,
-    QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath
+    QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath,
+    QDesktopServices
 )
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -1133,9 +1134,17 @@ class SettingsPage(QWidget):
             f"color:#6ca86c;font-size:11px;background:transparent;")
         self._sync_action_msg.setWordWrap(True)
 
+        trackflix_btn = QPushButton("🌐  OPEN TRACKFLIX")
+        trackflix_btn.setStyleSheet(_btn_ghost_ss)
+        trackflix_btn.setToolTip("Open TrackFlix in your browser")
+        trackflix_btn.clicked.connect(lambda: QDesktopServices.openUrl(
+            QUrl("https://entertainment-app-we-7xnp.bolt.host")))
+
         av.addWidget(push_btn)
         av.addWidget(pull_btn)
         av.addWidget(self._sync_action_msg)
+        av.addWidget(_divider())
+        av.addWidget(trackflix_btn)
         av.addWidget(_divider())
         av.addWidget(logout_btn)
 

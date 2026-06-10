@@ -18,7 +18,7 @@ class NovelBinPlugin(SourcePlugin):
     supports_search = True
     supports_cloudflare = True
 
-    MIRRORS = ["novelbin.com"]
+    MIRRORS = ["novelbin.com", "novelbin.net", "novelbin.me"]
 
     WATERMARK_PATTERNS = [
         r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
@@ -131,9 +131,14 @@ class NovelBinPlugin(SourcePlugin):
         if m_url:
             url_ch_num = int(m_url.group(1))
 
-        if not prev_url and url_ch_num is not None and url_ch_num > 1:
+        # NovelBin renders nav via JS — href is often absent in static HTML.
+        # Fall back to arithmetic construction from chapter number in URL.
+        if url_ch_num is not None:
             ch_prefix = actual_url[:actual_url.index(m_url.group(0))]
-            prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
+            if not next_url:
+                next_url = f"{ch_prefix}/chapter-{url_ch_num + 1}"
+            if not prev_url and url_ch_num > 1:
+                prev_url = f"{ch_prefix}/chapter-{url_ch_num - 1}"
 
         return ChapterResult(
             title=title,

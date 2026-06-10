@@ -373,6 +373,34 @@ class MatrixPage(QWidget):
         self._play_thread  = None
         self._build()
         self.refresh()
+        # Pull from cloud on launch (delayed so token refresh has time to complete)
+        QTimer.singleShot(3000, self._cloud_pull_on_launch)
+
+    def _cloud_pull_on_launch(self):
+        """Pull latest watchlist from Supabase on app launch (background thread)."""
+        def _do():
+            try:
+                from gs_sync import GreatSageSync
+                s = GreatSageSync()
+                if s.is_logged_in():
+                    s.restore()
+                    log.sync.info("[cloud] Pull on launch complete")
+            except Exception as e:
+                log.sync.warning("[cloud] Pull on launch failed", error=str(e))
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _cloud_push(self):
+        """Push current progress to Supabase in the background."""
+        def _do():
+            try:
+                from gs_sync import GreatSageSync
+                s = GreatSageSync()
+                if s.is_logged_in():
+                    s.push()
+                    log.sync.info("[cloud] Push complete")
+            except Exception as e:
+                log.sync.warning("[cloud] Push failed", error=str(e))
+        threading.Thread(target=_do, daemon=True).start()
 
     def _build(self):
         import types as _mt
@@ -1025,13 +1053,27 @@ class MatrixPage(QWidget):
 
         # Extract season/episode from filename
         season, episode = 0, 0
-        if mod and hasattr(mod, "MediaPlayer"):
-            try: season, episode = mod.MediaPlayer._extract_season_episode(filename)
-            except Exception as e:
-                log.warning("Operation failed", error=str(e), location="_launch_mpv")
-        else:
-            m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', filename)
-            if m: season, episode = int(m.group(1)), int(m.group(2))
+        try:
+            from gs_episode_tracker import get_episode_number as _get_ep
+            episode = _get_ep(path)
+        except Exception:
+            pass
+        if episode == 0:
+            if mod and hasattr(mod, "MediaPlayer"):
+                try: season, episode = mod.MediaPlayer._extract_season_episode(filename)
+                except Exception as e:
+                    log.warning("Operation failed", error=str(e), location="_launch_mpv")
+            else:
+                m = re.search(r'[Ss](\d{1,2})[Ee](\d{1,4})', filename)
+                if m: season, episode = int(m.group(1)), int(m.group(2))
+        # Also try to get season from existing method if episode was found by tracker
+        if episode > 0 and season == 0:
+            if mod and hasattr(mod, "MediaPlayer"):
+                try: season, _ = mod.MediaPlayer._extract_season_episode(filename)
+                except Exception: season = 1
+            else:
+                m = re.search(r'[Ss](\d{1,2})[Ee]', filename)
+                season = int(m.group(1)) if m else 1
 
         # Count total episodes in folder and find this file's position
         total_eps  = 0
@@ -1043,18 +1085,14 @@ class MatrixPage(QWidget):
         else:
             try:
                 exts = ('.mp4','.mkv','.avi','.mov','.wmv','.flv','.webm','.m4v')
-                immediate   = os.path.dirname(path)
-                parent      = os.path.dirname(immediate)
-                folder_name = os.path.basename(immediate).lower()
-                root = parent if any(k in folder_name for k in ("season","series","s01","s02","s03","s04","s05")) else immediate
+                immediate = os.path.dirname(path)
                 all_files = sorted(
-                    os.path.join(dp, f)
-                    for dp, _, files in os.walk(root)
-                    for f in files if f.lower().endswith(exts)
+                    f for f in os.listdir(immediate)
+                    if os.path.splitext(f)[1].lower() in set(exts)
                 )
-                total_eps  = len(all_files)
-                # 1-based position of this file in the sorted list
-                try:    file_index = all_files.index(path) + 1
+                total_eps = len(all_files)
+                filename  = os.path.basename(path)
+                try:    file_index = all_files.index(filename) + 1
                 except ValueError: file_index = 0
             except Exception as e:
                 log.warning("Operation failed", error=str(e), location="_launch_mpv")
@@ -1082,6 +1120,7 @@ class MatrixPage(QWidget):
         md.setdefault("watching", {})[show] = entry
         save_json(MATRIX_PROGRESS, md)
         self.refresh()  # show in list right away
+        self._cloud_push()  # sync progress to cloud
 
         log.mpv.info("Launching mpv", show=show, file=os.path.basename(path),
                      season=season, episode=episode, start=start)
@@ -1295,6 +1334,19 @@ class MatrixPage(QWidget):
                         
                         genre = _detect_show_genre(show)
                         track_event("episode_finished", {"show": show, "genre": genre})
+
+                        # Update episode number in progress.json when advancing
+                        try:
+                            from gs_episode_tracker import get_episode_number as _get_ep
+                            new_ep = _get_ep(current)
+                            if new_ep > 0:
+                                _md = matrix_data()
+                                _w  = _md.get("watching", {})
+                                if show in _w:
+                                    _w[show]["current_episode"] = new_ep
+                                    save_json(MATRIX_PROGRESS, _md)
+                        except Exception:
+                            pass
 
                 # Get position — skip reads while mpv is switching files to avoid
                 # capturing a stale position from the previous episode
@@ -1533,6 +1585,7 @@ class MatrixPage(QWidget):
             QTimer.singleShot(0, self.refresh)
             QTimer.singleShot(0, lambda: self.now_lbl.setText(
                 f"✅ '{show}' moved to Completed"))
+            QTimer.singleShot(0, self._cloud_push)
         except Exception as e:
             log.warning("auto_complete error", error=str(e))
 
@@ -2236,8 +2289,8 @@ class MatrixPage(QWidget):
             _is_movie = (tot == 1)  # single file in folder = movie, suppress S/E badge
             if ep > 0 and not _is_movie:
                 ep_badge = f"   ·   S{seas:02d}E{ep:02d}"
-                if fidx > 0 and tot > 0:
-                    ep_badge += f"  ({fidx}/{tot})"
+                if tot > 0:
+                    ep_badge += f"  ({ep}/{tot})"
 
             time_line = ""
             if pos > 0:
