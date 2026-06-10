@@ -1095,7 +1095,7 @@ class SettingsPage(QWidget):
         lv.addWidget(_divider())
         lv.addWidget(_section_lbl("NO ACCOUNT YET?"))
         signup_link = QLabel(
-            "<a href='https://entertainment-app-we-7xnp.bolt.host' "
+            "<a href='https://greatsage.bolt.host' "
             f"style='color:{ACCENT};'>Create your account on TrackFlix</a>"
             " — then come back here to sign in."
         )
@@ -1138,7 +1138,7 @@ class SettingsPage(QWidget):
         trackflix_btn.setStyleSheet(_btn_ghost_ss)
         trackflix_btn.setToolTip("Open TrackFlix in your browser")
         trackflix_btn.clicked.connect(lambda: QDesktopServices.openUrl(
-            QUrl("https://entertainment-app-we-7xnp.bolt.host")))
+            QUrl("https://greatsage.bolt.host")))
 
         av.addWidget(push_btn)
         av.addWidget(pull_btn)
