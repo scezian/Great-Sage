@@ -55,6 +55,7 @@ progress.json structure (Great Sage local)
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -91,13 +92,13 @@ GS_TO_SUPA_STATUS = {
     "Planning":  "plan_to_watch",
 }
 SUPA_TO_GS_STATUS = {
-    "watching":      "Watching",
-    "reading":       "Watching",
-    "completed":     "Completed",
-    "on_hold":       "Watching",
-    "dropped":       "Dropped",
-    "plan_to_watch": "Planning",
-    "plan_to_read":  "Planning",
+    "watching":      "watching",
+    "reading":       "watching",
+    "completed":     "completed",
+    "on_hold":       "watching",
+    "dropped":       "dropped",
+    "plan_to_watch": "planning",
+    "plan_to_read":  "planning",
 }
 
 # Map Great Sage type strings → Supabase type values (website schema)
@@ -149,7 +150,7 @@ class GreatSageSync:
 
         self._token   = data["access_token"]
         self._user_id = data["user"]["id"]
-        self._cache_token(data)
+        self._cache_token(data, email=email, password=password)
 
         # Fetch username from profiles
         profile = self._get_profile()
@@ -171,8 +172,12 @@ class GreatSageSync:
         return self._token is not None and self._user_id is not None
 
     def _get_profile(self) -> Optional[dict]:
-        rows = self._get("profiles", f"id=eq.{self._user_id}", select="id,username,display_name")
-        return rows[0] if rows else None
+        try:
+            rows = self._get("profiles", f"id=eq.{self._user_id}", select="id,username,display_name")
+            return rows[0] if rows else None
+        except Exception as e:
+            logger.warning(f"[gs_sync] _get_profile failed: {e}")
+            return None
 
     # ── Pull (restore) ────────────────────────────────────────────────────────
 
@@ -191,13 +196,17 @@ class GreatSageSync:
             order="created_at.desc",
         )
 
+        # Keys must be lowercase — great_sage_core.get_matrix_data() only
+        # recognises lowercase bucket names ("planning", "watching", etc.).
+        # Using capitalised keys here caused a silent empty-watchlist bug for
+        # all users after a pull/restore.
         watchlist: dict[str, list] = {
-            "Planning": [], "Watching": [], "Dropped": [], "Completed": []
+            "planning": [], "watching": [], "dropped": [], "completed": []
         }
         watching: dict[str, dict] = {}
 
         for row in rows:
-            gs_status = SUPA_TO_GS_STATUS.get(row.get("status", ""), "Planning")
+            gs_status = SUPA_TO_GS_STATUS.get(row.get("status", ""), "planning")
             gs_type   = SUPA_TO_GS_TYPE.get(row.get("type", ""), "Anime")
             title     = row.get("title", "")
 
@@ -228,7 +237,11 @@ class GreatSageSync:
     def restore_to_disk(self) -> bool:
         """
         Pull from cloud and write directly to progress.json.
-        Backs up existing file first.
+        Safe for all users:
+        - Will not overwrite a non-empty local file with empty cloud data
+          (guards against wiped Supabase table nuking local progress).
+        - Merges: cloud watchlist wins when cloud has data; local watching
+          progress is preserved if not present in cloud.
         Returns True on success.
         """
         try:
@@ -237,17 +250,33 @@ class GreatSageSync:
             logger.error(f"[gs_sync] Pull failed: {e}")
             return False
 
-        # Load existing progress.json to merge (don't overwrite local-only keys)
-        existing = self._load_progress()
+        cloud_count = sum(len(v) for v in data.get("watchlist", {}).values())
 
-        # Merge: cloud watchlist wins, local watching progress wins if newer
+        # Load existing progress.json
+        existing = self._load_progress()
+        local_count = sum(
+            len(v) for v in existing.get("watchlist", {}).values()
+            if isinstance(v, list)
+        )
+
+        # Safety guard: if cloud returned nothing but local has data, do NOT
+        # overwrite. This protects users whose Supabase table was wiped or who
+        # haven't pushed yet. Log and return so caller can decide what to do.
+        if cloud_count == 0 and local_count > 0:
+            logger.warning(
+                f"[gs_sync] restore_to_disk aborted: cloud has 0 items but local has "
+                f"{local_count} — refusing to overwrite local data with empty cloud state"
+            )
+            return False
+
+        # Merge: cloud watchlist wins, local watching progress wins if not in cloud
         existing["watchlist"] = data["watchlist"]
         for title, prog in data["watching"].items():
             if title not in existing.get("watching", {}):
                 existing.setdefault("watching", {})[title] = prog
 
         self._save_progress(existing)
-        logger.info("[gs_sync] Restored to disk")
+        logger.info(f"[gs_sync] Restored to disk ({cloud_count} items from cloud)")
         return True
 
     # ── Push (backup) ─────────────────────────────────────────────────────────
@@ -271,7 +300,9 @@ class GreatSageSync:
 
         rows = []
         for gs_status_raw, items in watchlist.items():
-            gs_status = gs_status_raw.capitalize()
+            # Normalise to lowercase so push works regardless of whether the
+            # user's progress.json has capitalised or lowercase bucket names.
+            gs_status = gs_status_raw.lower().capitalize()  # "planning" → "Planning", "Planning" → "Planning"
             for item in items:
                 title    = item.get("title", "").strip()
                 if not title:
@@ -423,7 +454,7 @@ class GreatSageSync:
 
         # Add to local progress.json
         local = self._load_progress()
-        planning = local.setdefault("watchlist", {}).setdefault("Planning", [])
+        planning = local.setdefault("watchlist", {}).setdefault("planning", [])
         if not any(i.get("title") == title for i in planning):
             planning.append({
                 "title": title,
@@ -463,8 +494,10 @@ class GreatSageSync:
         """
         Poll recommendations inbox every `interval` seconds.
         Calls callback(recs: list) when new recommendations arrive.
+        Fires an immediate first check so pending recs surface on launch
+        rather than waiting the full interval.
         """
-        if callback:
+        if callback and callback not in self._rec_callbacks:
             self._rec_callbacks.append(callback)
         if self._poll_thread and self._poll_thread.is_alive():
             return
@@ -480,7 +513,8 @@ class GreatSageSync:
 
     def _poll_loop(self, interval: int):
         last_seen: set[str] = set()
-        while not self._stop_poll.wait(timeout=interval):
+
+        def _check():
             try:
                 recs = self.get_recommendations()
                 new_ids = {r["id"] for r in recs}
@@ -491,9 +525,17 @@ class GreatSageSync:
                             cb(new_recs)
                         except Exception as e:
                             logger.error(f"[gs_sync] Callback error: {e}")
-                last_seen = new_ids
+                last_seen.clear()
+                last_seen.update(new_ids)
             except Exception as e:
                 logger.error(f"[gs_sync] Poll error: {e}")
+
+        # Immediate first check — don't make the user wait a full interval
+        # before pending recommendations surface.
+        _check()
+
+        while not self._stop_poll.wait(timeout=interval):
+            _check()
 
     def _stop_polling(self):
         self._stop_poll.set()
@@ -534,32 +576,27 @@ class GreatSageSync:
 
     def _upsert(self, table: str, rows: list, on_conflict: str = "") -> list:
         """
-        Reliable upsert: delete existing rows for this user then re-insert.
-        Supabase's merge-duplicates doesn't reliably overwrite all columns,
-        so we use delete+insert to guarantee fresh data.
+        Upsert rows using PostgREST's native merge-duplicates resolution.
+
+        Previously this did a DELETE then INSERT which was destructive: if the
+        INSERT failed (e.g. 409 conflict, network drop) the table was left empty.
+        Now we use a single POST with Prefer: resolution=merge-duplicates so the
+        operation is atomic and safe to retry.
         """
         if not rows:
             return []
 
-        # Delete all existing rows for this user in the table
-        del_headers = self._auth_headers()
-        del_headers["Prefer"] = "return=minimal"
-        del_resp = requests.delete(
-            f"{SUPABASE_URL}/rest/v1/{table}",
-            headers=del_headers,
-            params={"user_id": f"eq.{self._user_id}"},
-            timeout=10,
-        )
-        # 404 is fine (no rows yet), anything else raise
-        if del_resp.status_code not in (200, 204, 404):
-            del_resp.raise_for_status()
+        headers = self._auth_headers()
+        headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
 
-        # Insert fresh
-        ins_headers = self._auth_headers()
-        ins_headers["Prefer"] = "return=minimal"
+        params = {}
+        if on_conflict:
+            params["on_conflict"] = on_conflict
+
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
-            headers=ins_headers,
+            headers=headers,
+            params=params,
             json=rows,
             timeout=15,
         )
@@ -568,13 +605,23 @@ class GreatSageSync:
 
     # ── Token cache ───────────────────────────────────────────────────────────
 
-    def _cache_token(self, data: dict):
+    def _cache_token(self, data: dict, email: str = "", password: str = ""):
         TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if TOKEN_CACHE_PATH.exists():
+            try:
+                existing = json.loads(TOKEN_CACHE_PATH.read_text())
+            except Exception:
+                pass
         cache = {
             "access_token":  data["access_token"],
             "refresh_token": data.get("refresh_token", ""),
             "user_id":       data["user"]["id"],
             "expires_at":    data.get("expires_at", 0),
+            # Preserve stored credentials if not provided
+            "email":         email or existing.get("email", ""),
+            "password":      base64.b64encode(password.encode()).decode() if password
+                             else existing.get("password", ""),
         }
         TOKEN_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
@@ -583,18 +630,31 @@ class GreatSageSync:
             return
         try:
             cache = json.loads(TOKEN_CACHE_PATH.read_text())
-            expires_at = cache.get("expires_at", 0)
-            # Refresh if within 1 hour of expiry
-            if expires_at and time.time() > expires_at - 3600:
-                self._refresh_token(cache.get("refresh_token", ""))
-                return
+            # Always load cached token first so user is never silently logged out
             self._token   = cache.get("access_token")
             self._user_id = cache.get("user_id")
-            logger.info("[gs_sync] Loaded cached token")
+            expires_at = cache.get("expires_at", 0)
+            # Try to refresh if expired or within 5 minutes of expiry
+            if expires_at and time.time() > expires_at - 300:
+                self._refresh_token(cache.get("refresh_token", ""))
+            else:
+                logger.info("[gs_sync] Loaded cached token")
         except Exception as e:
             logger.warning(f"[gs_sync] Failed to load cached token: {e}")
 
     def _refresh_token(self, refresh_token: str):
+        # Pre-load stored credentials before anything else so they're always
+        # available in both the success and failure branches below.
+        email = ""
+        password = ""
+        try:
+            cache = json.loads(TOKEN_CACHE_PATH.read_text())
+            email    = cache.get("email", "")
+            raw_pw   = cache.get("password", "")
+            password = base64.b64decode(raw_pw).decode() if raw_pw else ""
+        except Exception:
+            pass
+
         try:
             resp = requests.post(
                 f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
@@ -606,12 +666,25 @@ class GreatSageSync:
             data = resp.json()
             self._token   = data["access_token"]
             self._user_id = data["user"]["id"]
-            self._cache_token(data)
+            self._cache_token(data, email=email, password=password)
             logger.info("[gs_sync] Token refreshed")
         except Exception as e:
             logger.warning(f"[gs_sync] Token refresh failed: {e}")
+            # Try silent re-login with stored credentials
+            if email and password:
+                try:
+                    self.login(email, password)
+                    logger.info("[gs_sync] Re-logged in silently with stored credentials")
+                    return
+                except Exception as re_err:
+                    logger.warning(f"[gs_sync] Silent re-login failed: {re_err}")
+            # Give up — clear cache and require manual sign-in
             self._token   = None
             self._user_id = None
+            try:
+                TOKEN_CACHE_PATH.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # ── Local file helpers ────────────────────────────────────────────────────
 

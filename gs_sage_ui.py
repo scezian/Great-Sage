@@ -728,9 +728,98 @@ class SagePage(QWidget):
             self._chat_history = self._chat_history[-20:]
 
 
+
+
+class RecNotificationDialog(QDialog):
+    """Popup shown when a new recommendation arrives from a friend."""
+
+    def __init__(self, rec: dict, parent=None):
+        super().__init__(parent)
+        self._rec    = rec
+        self._result = None
+        self.setWindowTitle("New Recommendation")
+        self.setMinimumWidth(380)
+        self.setStyleSheet(f"background:{BG};color:{TEXT};font-family:{FONT_UI};")
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(14)
+        lay.setContentsMargins(24, 24, 24, 20)
+
+        # Header
+        from_lbl = QLabel(f"<b>{rec.get('sender', 'Someone')}</b> recommends:")
+        from_lbl.setStyleSheet(f"font-size:12px;color:{TEXT2};background:transparent;")
+        lay.addWidget(from_lbl)
+
+        # Title
+        title_lbl = QLabel(rec.get("title", ""))
+        title_lbl.setStyleSheet(
+            f"font-size:18px;font-weight:bold;color:{TEXT};background:transparent;")
+        title_lbl.setWordWrap(True)
+        lay.addWidget(title_lbl)
+
+        # Type badge
+        type_lbl = QLabel(rec.get("type", "Anime").upper())
+        type_lbl.setStyleSheet(
+            f"font-size:9px;letter-spacing:2px;color:{ACCENT};background:transparent;")
+        lay.addWidget(type_lbl)
+
+        # Message
+        msg = rec.get("message", "").strip()
+        if msg:
+            msg_lbl = QLabel(f'"{msg}"')
+            msg_lbl.setStyleSheet(
+                f"font-size:12px;color:{TEXT2};font-style:italic;"
+                f"background:transparent;")
+            msg_lbl.setWordWrap(True)
+            lay.addWidget(msg_lbl)
+
+        lay.addSpacing(6)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        add_btn = QPushButton("Add to Watchlist")
+        add_btn.setStyleSheet(
+            f"background:{ACCENT};color:#fff;border:none;border-radius:6px;"
+            f"padding:8px 18px;font-size:12px;font-family:{FONT_UI};")
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_btn.clicked.connect(self._on_add)
+
+        dismiss_btn = QPushButton("Dismiss")
+        dismiss_btn.setStyleSheet(
+            f"background:transparent;color:{TEXT2};border:1px solid #444;"
+            f"border-radius:6px;padding:8px 18px;font-size:12px;font-family:{FONT_UI};")
+        dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        dismiss_btn.clicked.connect(self._on_dismiss)
+
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(dismiss_btn)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+    def _on_add(self):
+        self._result = "add"
+        self.accept()
+
+    def _on_dismiss(self):
+        self._result = "dismiss"
+        self.reject()
+
+    @property
+    def result_action(self):
+        return self._result
+
+
 class SettingsPage(QWidget):
+    # Emitted from the poll thread to show a rec dialog on the main thread.
+    # QTimer.singleShot is not thread-safe in PyQt6; signals are.
+    rec_received = pyqtSignal(dict)
+
     def __init__(self):
-        super().__init__(); self._build()
+        super().__init__()
+        self.rec_received.connect(self._show_rec_notification)
+        self._build()
 
     def _build(self):
         # ── Outer layout ─────────────────────────────────────────────────────
@@ -1321,6 +1410,61 @@ class SettingsPage(QWidget):
             self._autosync_timer = QTimer(self)
             self._autosync_timer.timeout.connect(lambda: self._sync_push(silent=True))
         self._autosync_timer.start(10 * 60 * 1000)  # 10 minutes
+        # Delay rec polling by 5s so the main window is fully visible before
+        # any notification dialog tries to attach to it as a parent.
+        QTimer.singleShot(5000, self._start_rec_polling)
+
+
+    def _start_rec_polling(self):
+        """Poll recommendations inbox every 2 minutes while signed in."""
+        # Guard: only register once per app session regardless of how many
+        # times _sync_refresh_ui or _start_autosync_timer is called.
+        if getattr(self, "_rec_polling_started", False):
+            return
+        self._rec_polling_started = True
+
+        import logging as _logging
+        _log = _logging.getLogger("great_sage.sync")
+        sync = self._get_sync()
+        if not sync:
+            self._rec_polling_started = False  # allow retry if sync not ready
+            return
+
+        def _on_recs(recs):
+            for rec in recs:
+                _log.info(f"[cloud] New recommendation: {rec.get('title')} from {rec.get('sender')}")
+                # Emit signal — thread-safe cross-thread call to main thread.
+                # QTimer.singleShot is not safe to call from a non-main thread.
+                self.rec_received.emit(rec)
+
+        sync.start_polling(interval=120, callback=_on_recs)
+
+    def _show_rec_notification(self, rec: dict):
+        """Show a notification dialog for an incoming recommendation."""
+        import logging as _logging
+        from PyQt6.QtWidgets import QApplication as _QApp
+        _log = _logging.getLogger("great_sage.sync")
+        sync = self._get_sync()
+        if not sync:
+            return
+        # Prefer the top-level window this widget belongs to, but fall back to
+        # QApplication.activeWindow() so the dialog always has a valid parent
+        # even if this widget isn't yet fully shown (e.g. on launch).
+        parent = self.window()
+        if parent is None or not parent.isVisible():
+            parent = _QApp.activeWindow() or self
+        dlg = RecNotificationDialog(rec, parent=parent)
+        dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        dlg.raise_()
+        dlg.activateWindow()
+        dlg.exec()
+        if dlg.result_action == "add":
+            ok = sync.accept_recommendation(rec["id"], rec["title"], rec["type"])
+            if ok:
+                _log.info(f"[cloud] Accepted recommendation: {rec['title']}")
+        elif dlg.result_action == "dismiss":
+            sync.dismiss_recommendation(rec["id"])
+            _log.info(f"[cloud] Dismissed recommendation: {rec['title']}")
 
     def _sync_pull(self):
         sync = self._get_sync()
@@ -1357,7 +1501,7 @@ class SettingsPage(QWidget):
     def _sync_logout(self):
         sync = self._get_sync()
         if sync:
-            sync.logout()
+            sync.logout()  # also stops polling internally
         if hasattr(self, "_autosync_timer"):
             self._autosync_timer.stop()
         self._sync_refresh_ui()
