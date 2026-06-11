@@ -1286,6 +1286,8 @@ class SettingsPage(QWidget):
                 self._sync_msg_lbl.setText(f"Login failed: {err[:80]}")
 
     def _sync_push(self, silent=False):
+        import logging as _logging, threading as _threading
+        _log = _logging.getLogger("great_sage.sync")
         sync = self._get_sync()
         if not sync:
             return
@@ -1294,22 +1296,24 @@ class SettingsPage(QWidget):
                 f"color:#6868a0;font-size:11px;background:transparent;")
             self._sync_action_msg.setText("Backing up…")
             QApplication.processEvents()
-        try:
-            ok = sync.push()
-            if not silent:
+
+        def _do():
+            try:
+                ok = sync.push()
                 if ok:
-                    self._sync_action_msg.setStyleSheet(
-                        f"color:#6ca86c;font-size:11px;background:transparent;")
-                    self._sync_action_msg.setText("✓ Backup complete.")
+                    _log.info("[cloud] Push complete")
                 else:
-                    self._sync_action_msg.setStyleSheet(
-                        f"color:#e06c6c;font-size:11px;background:transparent;")
-                    self._sync_action_msg.setText("Backup failed — check logs.")
-        except Exception as e:
-            if not silent:
-                self._sync_action_msg.setStyleSheet(
-                    f"color:#e06c6c;font-size:11px;background:transparent;")
-                self._sync_action_msg.setText(f"Error: {str(e)[:80]}")
+                    _log.warning("[cloud] Push returned False")
+                if not silent:
+                    msg = "✓ Backup complete." if ok else "Backup failed — check logs."
+                    QTimer.singleShot(0, lambda: self._sync_action_msg.setText(msg))
+            except Exception as e:
+                _log.error(f"[cloud] Push error: {e}")
+                if not silent:
+                    QTimer.singleShot(0, lambda: self._sync_action_msg.setText(
+                        f"Error: {str(e)[:80]}"))
+
+        _threading.Thread(target=_do, daemon=True).start()
 
     def _start_autosync_timer(self):
         """Auto-backup every 10 minutes while signed in."""
