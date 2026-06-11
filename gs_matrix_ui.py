@@ -383,7 +383,7 @@ class MatrixPage(QWidget):
                 from gs_sync import GreatSageSync
                 s = GreatSageSync()
                 if s.is_logged_in():
-                    s.restore()
+                    s.restore_to_disk()
                     log.sync.info("[cloud] Pull on launch complete")
             except Exception as e:
                 log.sync.warning("[cloud] Pull on launch failed", error=str(e))
