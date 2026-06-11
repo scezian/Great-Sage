@@ -1405,14 +1405,39 @@ class SettingsPage(QWidget):
         _threading.Thread(target=_do, daemon=True).start()
 
     def _start_autosync_timer(self):
-        """Auto-backup every 10 minutes while signed in."""
+        """Sync cycle every 10 minutes: pull first (merge cloud changes) then push."""
         if not hasattr(self, "_autosync_timer"):
             self._autosync_timer = QTimer(self)
-            self._autosync_timer.timeout.connect(lambda: self._sync_push(silent=True))
+            self._autosync_timer.timeout.connect(self._sync_cycle)
         self._autosync_timer.start(10 * 60 * 1000)  # 10 minutes
         # Delay rec polling by 5s so the main window is fully visible before
         # any notification dialog tries to attach to it as a parent.
         QTimer.singleShot(5000, self._start_rec_polling)
+
+    def _sync_cycle(self):
+        """Pull cloud changes (last-write-wins merge) then push local state."""
+        import logging as _logging, threading as _threading
+        _log = _logging.getLogger("great_sage.sync")
+        sync = self._get_sync()
+        if not sync:
+            return
+
+        def _do():
+            try:
+                # Pull first — picks up anything added/changed on the website
+                sync.restore_to_disk()
+            except Exception as e:
+                _log.warning(f"[cloud] Sync-cycle pull error: {e}")
+            try:
+                ok = sync.push()
+                if ok:
+                    _log.info("[cloud] Sync-cycle push complete")
+                else:
+                    _log.warning("[cloud] Sync-cycle push returned False")
+            except Exception as e:
+                _log.error(f"[cloud] Sync-cycle push error: {e}")
+
+        _threading.Thread(target=_do, daemon=True, name="gs_sync_cycle").start()
 
 
     def _start_rec_polling(self):

@@ -49,7 +49,7 @@ from great_sage_core import (
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
     FetchChapterWorker, SageWorker, MetadataWorker, AutoSyncWorker,
     _SageCompanionWorker, _NewChaptersWorker, _MetaRefreshWorker,
-    start_mobile_server,
+    start_mobile_server, _wl_now,
 )
 
 # MPV_SOCKET_PATH is defined in gs_theme.py (imported via 'from gs_theme import *' above).
@@ -594,7 +594,7 @@ class MatrixPage(QWidget):
                 wl[k] = [e for e in wl[k]
                     if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
             wl[lst].append({"title":title,"is_anime":anime,"added":time.time(),
-                            "watched":False,"notes":"Added via GUI"})
+                            "watched":False,"notes":"Added via GUI","updated_at":_wl_now()})
             save_json(MATRIX_PROGRESS, md)
             self.wl_input.clear()
             self.refresh()
@@ -626,6 +626,7 @@ class MatrixPage(QWidget):
             wl[k] = [e for e in wl[k]
                 if (e.get("title", "") if isinstance(e, dict) else str(e)).lower() != title.lower()]
         e = entry if isinstance(entry, dict) else {"title": title, "watched": False, "added": time.time()}
+        e["updated_at"] = _wl_now()  # stamp on every status change
 
         # ── Scoring prompt when moving to Completed ──────────────────────────
         if to_list == "completed":
@@ -1178,7 +1179,8 @@ class MatrixPage(QWidget):
                 wl["watching"].append({
                     "title": show_name, "is_anime": False,
                     "added": time.time(), "watched": False,
-                    "notes": "Auto-added when playback started"
+                    "notes": "Auto-added when playback started",
+                    "updated_at": _wl_now()
                 })
                 save_json(MATRIX_PROGRESS, md)
                 QTimer.singleShot(0, self.refresh)
@@ -2060,7 +2062,7 @@ class MatrixPage(QWidget):
         wl.setdefault("planning", []).append({
             "title": title, "is_anime": True,
             "added": int(time.time()), "watched": False,
-            "notes": "Added from STREAM tab"
+            "notes": "Added from STREAM tab", "updated_at": _wl_now()
         })
         save_json(MATRIX_PROGRESS, md)
         self.refresh()
@@ -2376,7 +2378,7 @@ class AddToWLDialog(QDialog):
             exists = any((e.get("title","") if isinstance(e,dict) else str(e)).lower() == title.lower()
                          for l in wl.values() for e in l)
             if not exists:
-                wl[lst].append({"title":title,"watched":False,"added":time.time(),"notes":"Added from Sage"})
+                wl[lst].append({"title":title,"watched":False,"added":time.time(),"notes":"Added from Sage","updated_at":_wl_now()})
                 added += 1
         save_json(MATRIX_PROGRESS, md)
         QMessageBox.information(self,"Done",f"Added {added} title(s) to {lst.capitalize()}.")

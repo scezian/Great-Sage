@@ -184,7 +184,7 @@ class GreatSageSync:
     def pull(self) -> dict:
         """
         Pull full cloud state and return as a dict matching progress.json structure.
-        Call this on fresh install to restore everything.
+        Includes updated_at per entry so restore_to_disk can do last-write-wins merging.
         """
         if not self.is_logged_in():
             raise RuntimeError("Not logged in")
@@ -192,14 +192,12 @@ class GreatSageSync:
         rows = self._get(
             "watchlist",
             f"user_id=eq.{self._user_id}",
-            select="title,type,status,notes,rating,progress,cover_url",
+            select="title,type,status,notes,rating,progress,cover_url,updated_at",
             order="created_at.desc",
         )
 
         # Keys must be lowercase — great_sage_core.get_matrix_data() only
         # recognises lowercase bucket names ("planning", "watching", etc.).
-        # Using capitalised keys here caused a silent empty-watchlist bug for
-        # all users after a pull/restore.
         watchlist: dict[str, list] = {
             "planning": [], "watching": [], "dropped": [], "completed": []
         }
@@ -211,16 +209,17 @@ class GreatSageSync:
             title     = row.get("title", "")
 
             entry = {
-                "title":     title,
-                "type":      gs_type,
-                "notes":     row.get("notes", ""),
-                "rating":    row.get("rating", 0),
-                "cover_url": row.get("cover_url", ""),
+                "title":      title,
+                "type":       gs_type,
+                "notes":      row.get("notes", ""),
+                "rating":     row.get("rating", 0),
+                "cover_url":  row.get("cover_url", ""),
+                "updated_at": row.get("updated_at", ""),
             }
             watchlist[gs_status].append(entry)
 
             # Restore progress for actively watching items
-            if gs_status == "Watching" and row.get("progress", 0):
+            if gs_status == "watching" and row.get("progress", 0):
                 watching[title] = {
                     "episode":  row.get("progress", 0),
                     "season":   1,
@@ -236,12 +235,15 @@ class GreatSageSync:
 
     def restore_to_disk(self) -> bool:
         """
-        Pull from cloud and write directly to progress.json.
-        Safe for all users:
-        - Will not overwrite a non-empty local file with empty cloud data
-          (guards against wiped Supabase table nuking local progress).
-        - Merges: cloud watchlist wins when cloud has data; local watching
-          progress is preserved if not present in cloud.
+        Merge cloud state into local progress.json using last-write-wins per title.
+
+        For each title, whichever side has the more recent updated_at timestamp
+        wins — both the bucket (status) and the entry data. Titles that only
+        exist on one side are always included. This means:
+        - Items added on the website appear in the app on the next sync cycle.
+        - Items moved to a different status on the website update in the app.
+        - Local changes are never silently discarded if they're newer.
+
         Returns True on success.
         """
         try:
@@ -250,33 +252,82 @@ class GreatSageSync:
             logger.error(f"[gs_sync] Pull failed: {e}")
             return False
 
-        cloud_count = sum(len(v) for v in data.get("watchlist", {}).values())
-
-        # Load existing progress.json
         existing = self._load_progress()
-        local_count = sum(
-            len(v) for v in existing.get("watchlist", {}).values()
-            if isinstance(v, list)
-        )
+        local_wl  = existing.get("watchlist", {})
 
-        # Safety guard: if cloud returned nothing but local has data, do NOT
-        # overwrite. This protects users whose Supabase table was wiped or who
-        # haven't pushed yet. Log and return so caller can decide what to do.
-        if cloud_count == 0 and local_count > 0:
-            logger.warning(
-                f"[gs_sync] restore_to_disk aborted: cloud has 0 items but local has "
-                f"{local_count} — refusing to overwrite local data with empty cloud state"
-            )
-            return False
+        # Build a flat index of local entries: title.lower() → (bucket, entry)
+        local_index: dict[str, tuple[str, dict]] = {}
+        for bucket, items in local_wl.items():
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                t = item.get("title", "").strip().lower()
+                if t:
+                    local_index[t] = (bucket, item)
 
-        # Merge: cloud watchlist wins, local watching progress wins if not in cloud
-        existing["watchlist"] = data["watchlist"]
-        for title, prog in data["watching"].items():
+        # Build a flat index of cloud entries: title.lower() → (bucket, entry)
+        cloud_wl = data.get("watchlist", {})
+        cloud_index: dict[str, tuple[str, dict]] = {}
+        for bucket, items in cloud_wl.items():
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                t = item.get("title", "").strip().lower()
+                if t:
+                    cloud_index[t] = (bucket, item)
+
+        # Last-write-wins merge
+        merged: dict[str, list] = {
+            "planning": [], "watching": [], "dropped": [], "completed": []
+        }
+        all_titles = set(local_index) | set(cloud_index)
+
+        for title_key in all_titles:
+            in_local = title_key in local_index
+            in_cloud = title_key in cloud_index
+
+            if in_local and not in_cloud:
+                # Local only — always keep
+                bucket, entry = local_index[title_key]
+                merged.setdefault(bucket, []).append(entry)
+
+            elif in_cloud and not in_local:
+                # Cloud only — always add (this is the website-add case)
+                bucket, entry = cloud_index[title_key]
+                merged.setdefault(bucket, []).append(entry)
+
+            else:
+                # Both sides have it — last-write-wins by updated_at
+                local_bucket, local_entry = local_index[title_key]
+                cloud_bucket, cloud_entry = cloud_index[title_key]
+                local_ts = local_entry.get("updated_at", "")
+                cloud_ts = cloud_entry.get("updated_at", "")
+
+                if cloud_ts and cloud_ts > local_ts:
+                    # Cloud is newer — use cloud bucket and data, but preserve
+                    # local-only fields (file_path, is_anime, added timestamp)
+                    merged_entry = {**local_entry, **cloud_entry}
+                    merged.setdefault(cloud_bucket, []).append(merged_entry)
+                else:
+                    # Local is newer or equal — keep local
+                    merged.setdefault(local_bucket, []).append(local_entry)
+
+        existing["watchlist"] = merged
+
+        # Merge watching progress: local wins (has position/duration), cloud fills gaps
+        for title, prog in data.get("watching", {}).items():
             if title not in existing.get("watching", {}):
                 existing.setdefault("watching", {})[title] = prog
 
         self._save_progress(existing)
-        logger.info(f"[gs_sync] Restored to disk ({cloud_count} items from cloud)")
+        added   = len(set(cloud_index) - set(local_index))
+        updated = sum(
+            1 for t in set(cloud_index) & set(local_index)
+            if cloud_index[t][1].get("updated_at", "") > local_index[t][1].get("updated_at", "")
+        )
+        logger.info(
+            f"[gs_sync] Sync complete — {added} new from cloud, {updated} updated from cloud"
+        )
         return True
 
     # ── Push (backup) ─────────────────────────────────────────────────────────
@@ -457,11 +508,12 @@ class GreatSageSync:
         planning = local.setdefault("watchlist", {}).setdefault("planning", [])
         if not any(i.get("title") == title for i in planning):
             planning.append({
-                "title": title,
-                "type":  media_type,
-                "notes": "",
-                "rating": 0,
-                "cover_url": "",
+                "title":      title,
+                "type":       media_type,
+                "notes":      "",
+                "rating":     0,
+                "cover_url":  "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             })
             self._save_progress(local)
 

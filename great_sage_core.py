@@ -65,6 +65,11 @@ BEHAVIOUR_LOG    = os.path.expanduser("~/.great_sage_behaviour.json")
 # --- Data Versioning ---
 MATRIX_DATA_VERSION = 2
 
+def _wl_now() -> str:
+    """Return current UTC time as an ISO 8601 string for watchlist updated_at stamps."""
+    from datetime import timezone as _tz
+    return datetime.now(_tz.utc).isoformat()
+
 # ── Module loader ──────────────────────────────────────────────────────────────
 _modules: dict = {}
 
