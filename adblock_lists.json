@@ -1,0 +1,49 @@
+{
+  "_comment": "Ad/tracker domains and URL patterns blocked by AnimeInterceptor in gs_matrix_ui.py. Edit freely — domains are matched exactly or as subdomains (host == domain or host.endswith('.'+domain)). url_patterns are matched as substrings against the full request URL for non-main-frame requests only.",
+
+  "domains": {
+    "google_standard": [
+      "doubleclick.net", "googlesyndication.com", "adservice.google.com",
+      "pagead2.googlesyndication.com", "adnxs.com", "rubiconproject.com",
+      "openx.net", "pubmatic.com", "casalemedia.com", "2mdn.net",
+      "scorecardresearch.com", "quantserve.com", "advertising.com",
+      "moatads.com", "amazon-adsystem.com", "adsafeprotected.com",
+      "cdn.viglink.com", "outbrain.com", "taboola.com", "criteo.com"
+    ],
+    "anime_site_specific": [
+      "trafficjunky.net", "exoclick.com", "juicyads.com", "plugrush.com",
+      "propellerads.com", "popcash.net", "popads.net", "hilltopads.net",
+      "adsterra.com", "valueimpression.com", "bidgear.com", "clickaine.com",
+      "realsrv.com", "dtcn.com", "sublimemedia.net", "tsyndicate.com",
+      "justadsbro.com", "content.ad", "mgid.com", "adskeeper.co.uk",
+      "moonads.pro", "cpmstar.com", "media.net", "vidazoo.com",
+      "connatix.com", "undertone.com", "33across.com", "sharethrough.com",
+      "anistream.xyz", "gogocdn.net", "cdn77.app", "redirect.disqus.com",
+      "rayanbordel.com"
+    ],
+    "malware_phishing": [
+      "1movies.bz", "fullxxxmovies.net", "watchseries.gy",
+      "clickadu.com", "adtelligent.com", "trckng.net", "trkbc.com",
+      "moonmgr.com", "phncdn.com", "ero-advertising.com"
+    ],
+    "animetsu_specific": [
+      "animetsu.net.cdn.cloudflare.net", "stream.cloudflare.com",
+      "pagead.l.doubleclick.net", "securepubads.g.doubleclick.net",
+      "fundingchoicesmessages.google.com", "imasdk.googleapis.com",
+      "static.ads-twitter.com", "ads.twitter.com",
+      "connect.facebook.net", "www.facebook.com",
+      "bat.bing.com", "analytics.tiktok.com",
+      "px.ads.linkedin.com", "snap.licdn.com",
+      "mc.yandex.ru", "counter.yadro.ru",
+      "hotjar.com", "mouseflow.com", "fullstory.com",
+      "cdn.segment.com", "api.segment.io"
+    ]
+  },
+
+  "url_patterns": [
+    "redirect", "popup", "popunder", "clickunder", "/pop/", "track.",
+    "/ad/", "/ads/", "/click/", "afu.php", "out.php", "go.php",
+    "?aff=", "&aff=", "?ref=ad", "clicktracking", "ad-click",
+    "surveywall", "push-notification", "subscribe-push"
+  ]
+}

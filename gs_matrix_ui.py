@@ -259,35 +259,53 @@ class TrailerDialog(QDialog):
 # ══════════════════════════════════════════════════════════════════════════════
 # AD / POPUP INTERCEPTOR  (blocks redirect scripts on anime sites)
 # ══════════════════════════════════════════════════════════════════════════════
-AD_BLOCK_DOMAINS = {
-    # Google / standard ad networks
-    "doubleclick.net","googlesyndication.com","adservice.google.com",
-    "pagead2.googlesyndication.com","adnxs.com","rubiconproject.com",
-    "openx.net","pubmatic.com","casalemedia.com","2mdn.net",
-    "scorecardresearch.com","quantserve.com","advertising.com",
-    "moatads.com","amazon-adsystem.com","adsafeprotected.com",
-    "cdn.viglink.com","outbrain.com","taboola.com","criteo.com",
-    # Anime-site specific ad/tracker networks
-    "trafficjunky.net","exoclick.com","juicyads.com","plugrush.com",
-    "propellerads.com","popcash.net","popads.net","hilltopads.net",
-    "adsterra.com","valueimpression.com","bidgear.com","clickaine.com",
-    "realsrv.com","dtcn.com","sublimemedia.net","tsyndicate.com",
-    "justadsbro.com","content.ad","mgid.com","adskeeper.co.uk",
-    "moonads.pro","cpmstar.com","media.net","vidazoo.com",
-    "connatix.com","undertone.com","33across.com","sharethrough.com",
-    "anistream.xyz","gogocdn.net","cdn77.app","redirect.disqus.com",
-    # Malware / phishing redirect patterns common on anime sites
-    "1movies.bz","fullxxxmovies.net","watchseries.gy",
-    "clickadu.com","adtelligent.com","trckng.net","trkbc.com",
-    "moonmgr.com","phncdn.com","ero-advertising.com",
-}
 
-POPUP_URL_PATTERNS = [
+# Hardcoded fallback — used only if adblock_lists.json is missing or invalid,
+# so the interceptor still has *something* to work with. The JSON file is the
+# source of truth for normal use; edit it (or drop in updates) without
+# touching this code.
+_FALLBACK_AD_BLOCK_DOMAINS = {
+    "doubleclick.net","googlesyndication.com","adservice.google.com",
+    "pagead2.googlesyndication.com","adsterra.com","propellerads.com",
+    "popads.net","rayanbordel.com",
+}
+_FALLBACK_POPUP_URL_PATTERNS = [
     "redirect","popup","popunder","clickunder","/pop/","track.",
-    "/ad/","/ads/","/click/","afu.php","out.php","go.php",
-    "?aff=","&aff=","?ref=ad","clicktracking","ad-click",
-    "surveywall","push-notification","subscribe-push",
+    "/ad/","/ads/","/click/",
 ]
+
+
+def _load_adblock_lists():
+    """Load AD_BLOCK_DOMAINS / POPUP_URL_PATTERNS from adblock_lists.json,
+    sitting next to this file. Falls back to a small built-in set if the
+    JSON is missing/corrupt, so a bad edit can't break the whole app."""
+    import json as _json
+    path = SCRIPT_DIR / "adblock_lists.json"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        domains = set()
+        for group in data.get("domains", {}).values():
+            domains.update(group)
+        patterns = list(data.get("url_patterns", []))
+        if domains and patterns:
+            return domains, patterns
+    except Exception as e:
+        log.warning("Failed to load adblock_lists.json — using fallback list",
+                     error=str(e), path=str(path))
+    return set(_FALLBACK_AD_BLOCK_DOMAINS), list(_FALLBACK_POPUP_URL_PATTERNS)
+
+
+AD_BLOCK_DOMAINS, POPUP_URL_PATTERNS = _load_adblock_lists()
+
+
+# Adsterra "Social Bar" / push-notification ad loaders constantly rotate
+# their domain (e.g. cf.rayanbordel.com) to dodge static blocklists, but the
+# shape of the request stays the same: a "cf."-prefixed host serving a script
+# at /<random-alnum-hash>/<digits>. This regex catches new rotations even
+# when the exact domain isn't in AD_BLOCK_DOMAINS yet.
+_SOCIAL_BAR_RE = re.compile(r'^cf\.[a-z0-9-]+\.[a-z]{2,}$')
+_SOCIAL_BAR_PATH_RE = re.compile(r'^/[A-Za-z0-9]{8,}/\d+/?$')
 
 if WEBENGINE_OK:
     from PyQt6.QtWebEngineCore import (
@@ -299,6 +317,28 @@ if WEBENGINE_OK:
         def interceptRequest(self, info: QWebEngineUrlRequestInfo):
             url = info.requestUrl().toString()
             host = info.requestUrl().host().lower()
+            path = info.requestUrl().path()
+            # Strip a literal leading "www." (NOT str.lstrip, which strips
+            # individual characters in the given set and can mangle hosts
+            # like "wmedia.net" -> "media.net")
+            if host.startswith("www."):
+                host = host[4:]
+
+            # Block known ad domains FIRST — this must run before the
+            # YouTube/Google allowlist below, otherwise ad/consent domains
+            # like adservice.google.com or fundingchoicesmessages.google.com
+            # (which DO contain "google.com") get whitelisted and skipped.
+            for domain in AD_BLOCK_DOMAINS:
+                if host == domain or host.endswith("." + domain):
+                    info.block(True); return
+
+            # Block rotated Social Bar / push-ad loader domains (see regex
+            # comment above) — but don't catch legit Cloudflare "cf." hosts
+            # like cf.cloudflare.com / cf-assets.* by also requiring the
+            # tell-tale random-hash path shape.
+            if (_SOCIAL_BAR_RE.match(host) and "cloudflare" not in host
+                    and _SOCIAL_BAR_PATH_RE.match(path)):
+                info.block(True); return
 
             # Skip blocking for YouTube and Google-owned domains needed for player init
             # and video playback (googlevideo.com is the primary stream source).
@@ -309,12 +349,7 @@ if WEBENGINE_OK:
             ]):
                 return
 
-            # Strip leading www.
-            host = host.lstrip("www.")
-            # Block known ad domains
-            for domain in AD_BLOCK_DOMAINS:
-                if host == domain or host.endswith("." + domain):
-                    info.block(True); return
+
             # Block popup/redirect URL patterns (only for non-main frame requests)
             if info.resourceType() not in (
                 QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMainFrame,
@@ -951,7 +986,7 @@ class MatrixPage(QWidget):
             if ep and WEBENGINE_OK and hasattr(self, "_stream_view"):
                 import urllib.parse
                 q = urllib.parse.quote(f"{title} episode {ep}")
-                self._stream_view.load(QUrl(f"https://animekai.to/search?q={q}"))
+                self._stream_view.load(QUrl(f"https://animetsu.net/search?keyword={q}"))
             return
 
         # Local file entry
@@ -1594,8 +1629,8 @@ class MatrixPage(QWidget):
             log.warning("auto_complete error", error=str(e))
 
     def _build_stream(self):
-        """STREAM tab — embedded AnimeKai browser with ad blocking, persistent login,
-           real-time episode tracking and full Matrix/Sage integration."""
+        """STREAM tab — Animetsu + YouTube browser with landing page, ad blocking,
+           persistent login, real-time episode tracking and full Matrix integration."""
         w = QWidget()
         wv = QVBoxLayout(w)
         wv.setContentsMargins(0,0,0,0)
@@ -1627,6 +1662,33 @@ class MatrixPage(QWidget):
         # ── Ad / popup interceptor ─────────────────────────────────────────────
         self._interceptor = AnimeInterceptor()
         self._stream_profile.setUrlRequestInterceptor(self._interceptor)
+
+        # ── Cosmetic filtering: inject CSS before page scripts run ─────────────
+        # Runs at DocumentCreation (earlier than our post-load JS popup killer),
+        # so common ad/overlay containers are hidden via CSS the instant they
+        # appear, before they can render or grab focus.
+        from PyQt6.QtWebEngineCore import QWebEngineScript
+        cosmetic_css = r"""
+[class*="ad-"], [class*="-ad"], [class*="ads-"], [class*="-ads"],
+[id*="ad-"], [id*="-ad"], [id*="ads-"], [id*="-ads"],
+[class*="banner-ad"], [class*="sponsor"], [id*="sponsor"],
+amp-ad, ins.adsbygoogle, iframe[src*="doubleclick"],
+iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
+    display: none !important; visibility: hidden !important;
+    height: 0 !important; width: 0 !important;
+}
+"""
+        cosmetic_js = (
+            "(function(){var s=document.createElement('style');"
+            "s.textContent=" + repr(cosmetic_css) + ";"
+            "document.documentElement.appendChild(s);})();"
+        )
+        cosmetic_script = QWebEngineScript()
+        cosmetic_script.setSourceCode(cosmetic_js)
+        cosmetic_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        cosmetic_script.setRunsOnSubFrames(True)
+        cosmetic_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        self._stream_profile.scripts().insert(cosmetic_script)
 
         # ── Web view ───────────────────────────────────────────────────────────
         self._stream_view = QWebEngineView()
@@ -1664,55 +1726,38 @@ class MatrixPage(QWidget):
         self._stream_back   = _nav_btn("←", "Back")
         self._stream_fwd    = _nav_btn("→", "Forward")
         self._stream_reload = _nav_btn("↻", "Reload")
-        self._stream_home_btn = _nav_btn("⌂", "Go to AnimeKai")
+        self._stream_home_btn = _nav_btn("⌂", "Home")
 
         self._stream_back.clicked.connect(self._stream_view.back)
         self._stream_fwd.clicked.connect(self._stream_view.forward)
         self._stream_reload.clicked.connect(self._stream_view.reload)
         self._stream_home_btn.clicked.connect(
-            lambda: self._stream_view.load(QUrl("https://animekai.to")))
+            lambda: self._stream_show_landing())
 
         self._stream_url_bar = QLineEdit()
-        self._stream_url_bar.setPlaceholderText("https://animekai.to")
+        self._stream_url_bar.setPlaceholderText("https://animetsu.net")
         self._stream_url_bar.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; color:{TEXT};"
             f"font-size:12px; padding:4px 12px; border-radius:3px;")
         self._stream_url_bar.returnPressed.connect(self._stream_navigate)
 
         # Login status — shown as a small dot indicator on the home button
-        self._stream_login_lbl = QPushButton("⌂")
-        self._stream_login_lbl.setFixedSize(32, 30)
-        self._stream_login_lbl.setToolTip("Not logged in — log into AnimeKai to enable sync")
-        self._stream_login_lbl.setStyleSheet(
+        self._stream_landing_btn = QPushButton("⌂  HOME")
+        self._stream_landing_btn.setFixedHeight(30)
+        self._stream_landing_btn.setToolTip("Return to StreamGate landing page")
+        self._stream_landing_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:14px; border-radius:3px; padding:2px 4px;")
-        self._stream_login_lbl.clicked.connect(
-            lambda: self._stream_view.load(QUrl("https://animekai.to")))
+            f"font-size:9px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
+        self._stream_landing_btn.clicked.connect(
+            lambda: self._stream_show_landing())
 
-        self._stream_sync_btn = QPushButton("⟳  SYNC HISTORY")
-        self._stream_sync_btn.setStyleSheet(
-            f"background:transparent; border:1px solid {ACCENT2}; color:{ACCENT2};"
-            f"font-size:9px; letter-spacing:1px; padding:5px 12px; border-radius:3px;")
-        self._stream_sync_btn.setToolTip(
-            "Pull your full AnimeKai watch history into Matrix")
-        self._stream_sync_btn.clicked.connect(self._animekai_sync)
-
-        self._stream_yt_btn = QPushButton("▶ YT")
-        self._stream_yt_btn.setFixedSize(46, 30)
-        self._stream_yt_btn.setToolTip("Open YouTube")
-        self._stream_yt_btn.setStyleSheet(
-            f"background:#FF0000; border:none; color:white;"
-            f"font-size:9px; font-weight:bold; letter-spacing:1px; border-radius:3px;")
-        self._stream_yt_btn.clicked.connect(
-            lambda: self._stream_view.load(QUrl("https://www.youtube.com")))
+        # YT button removed — use landing page instead
 
         nv.addWidget(self._stream_back)
         nv.addWidget(self._stream_fwd)
         nv.addWidget(self._stream_reload)
         nv.addWidget(self._stream_url_bar, 1)
-        nv.addWidget(self._stream_yt_btn)
-        nv.addWidget(self._stream_login_lbl)
-        nv.addWidget(self._stream_sync_btn)
+        nv.addWidget(self._stream_landing_btn)
         wv.addWidget(nav_bar)
 
         # ── Loading progress bar (thin, below nav) ─────────────────────────────
@@ -1784,9 +1829,294 @@ class MatrixPage(QWidget):
         self._stream_last_tracked = ("", 0)
         self._stream_logged_in    = False
 
-        # Load AnimeKai
-        self._stream_view.load(QUrl("https://animekai.to"))
+        # ── Landing page ───────────────────────────────────────────────────────
+        self._stream_show_landing()
         return w
+
+    def _stream_show_landing(self):
+        """Show the StreamGate landing page in the web view."""
+        html = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Inter', sans-serif;
+    background: #13111a;
+    color: #e8e0f0;
+    min-height: 100vh;
+  }
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    height: 52px;
+    background: #1a1825;
+    border-bottom: 1px solid #2e2a3a;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0ecff;
+    letter-spacing: -0.01em;
+  }
+  .logo-dot {
+    width: 24px; height: 24px;
+    background: linear-gradient(135deg, #7c6af0, #e0407b);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .hero {
+    padding: 64px 36px 56px;
+    background: #13111a;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 75% 40%, rgba(124,106,240,0.13) 0%, transparent 55%),
+      radial-gradient(ellipse at 25% 85%, rgba(224,64,123,0.09) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-title {
+    font-size: 46px; font-weight: 700;
+    line-height: 1.12; letter-spacing: -0.025em;
+    color: #f0ecff; max-width: 580px;
+    margin-bottom: 18px; position: relative;
+  }
+  .accent-purple { color: #9d8ff5; }
+  .accent-pink { color: #e06090; }
+  .hero-sub {
+    font-size: 14px; color: #8a82a0;
+    max-width: 460px; line-height: 1.65;
+    position: relative;
+  }
+  .section {
+    padding: 44px 36px;
+    border-top: 1px solid #2e2a3a;
+  }
+  .eyebrow {
+    font-size: 10px; letter-spacing: 0.14em;
+    color: #6a6282; margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .section-title {
+    font-size: 26px; font-weight: 700;
+    color: #f0ecff; letter-spacing: -0.015em;
+    margin-bottom: 28px;
+  }
+  .platform-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .platform-card {
+    background: #1a1825;
+    border: 1px solid #2e2a3a;
+    border-radius: 14px; padding: 24px;
+    transition: border-color 0.15s;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .platform-card:hover { border-color: #5a5278; }
+  .p-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; margin-bottom: 16px;
+  }
+  .p-icon-a { background: rgba(124,106,240,0.18); }
+  .p-icon-y { background: rgba(224,37,27,0.16); }
+  .p-name {
+    font-size: 17px; font-weight: 600;
+    color: #f0ecff; margin-bottom: 10px;
+  }
+  .p-desc {
+    font-size: 12px; color: #8a82a0;
+    line-height: 1.65; margin-bottom: 16px;
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .tag {
+    font-size: 10px; padding: 3px 9px;
+    border-radius: 10px; background: #2a2638;
+    color: #9e96b8; border: 1px solid #3a3450;
+    letter-spacing: 0.03em;
+  }
+  .p-link {
+    font-size: 12px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 5px;
+    text-decoration: none; cursor: pointer;
+    background: none; border: none;
+  }
+  .p-link-a { color: #9d8ff5; }
+  .p-link-y { color: #f08080; }
+  .trending-header {
+    display: flex; align-items: flex-end;
+    justify-content: space-between; margin-bottom: 22px;
+  }
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .card {
+    background: #1a1825;
+    border: 1px solid #2e2a3a;
+    border-radius: 12px; overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+    text-decoration: none;
+  }
+  .card:hover { border-color: #5a5278; transform: translateY(-3px); }
+  .card-thumb {
+    width: 100%; height: 100px;
+    display: flex; align-items: center;
+    justify-content: center; font-size: 32px;
+    position: relative;
+  }
+  .badge {
+    position: absolute; top: 8px; left: 8px;
+    font-size: 9px; padding: 3px 8px;
+    border-radius: 8px; font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .src-tag {
+    position: absolute; top: 8px; right: 8px;
+    font-size: 9px; padding: 3px 8px;
+    border-radius: 8px; letter-spacing: 0.04em;
+  }
+  .badge-trending { background: #7c6af0; color: #fff; }
+  .badge-viral { background: #e0251b; color: #fff; }
+  .badge-new { background: #1a7a4a; color: #a0f0c0; }
+  .src-a { background: rgba(124,106,240,0.28); color: #b5aaff; }
+  .src-y { background: rgba(224,37,27,0.25); color: #ff9898; }
+  .card-body { padding: 12px 14px; }
+  .card-title { font-size: 12px; font-weight: 500; color: #e8e0f0; margin-bottom: 5px; }
+  .card-meta { display: flex; justify-content: space-between; align-items: center; }
+  .card-type { font-size: 10px; color: #6a6282; }
+  .card-rating { font-size: 10px; color: #e0a020; }
+</style>
+</head>
+<body>
+<div class="nav">
+  <div class="nav-logo">
+    <div class="logo-dot"></div>
+    StreamGate
+  </div>
+
+</div>
+
+<div class="hero">
+  <div class="hero-title">
+    One place for<br>
+    <span class="accent-purple">everything you</span><br>
+    <span class="accent-pink">watch.</span>
+  </div>
+  <p class="hero-sub">
+    Thousands of anime titles on Animetsu. Billions of videos on YouTube.
+    Two of the internet's best streaming destinations — right here.
+  </p>
+</div>
+
+<div class="section">
+  <div class="eyebrow">The Platforms</div>
+  <div class="section-title">Two giants. One gateway.</div>
+  <div class="platform-grid">
+    <div class="platform-card" onclick="window.location='https://animetsu.net'">
+      <div class="p-icon p-icon-a">📺</div>
+      <div class="p-name">Animetsu</div>
+      <p class="p-desc">A dedicated anime streaming platform with 12,000+ series — from classic shonen to the latest seasonal drops. Subbed and dubbed. No filler.</p>
+      <div class="tags">
+        <span class="tag">12,000+ titles</span>
+        <span class="tag">Sub &amp; Dub</span>
+        <span class="tag">Daily updates</span>
+        <span class="tag">HD quality</span>
+      </div>
+      <button class="p-link p-link-a">Visit Animetsu ↗</button>
+    </div>
+    <div class="platform-card" onclick="window.location='https://www.youtube.com'">
+      <div class="p-icon p-icon-y">▶️</div>
+      <div class="p-name">YouTube</div>
+      <p class="p-desc">The world's largest video platform. Creators, live streams, podcasts, tutorials, music, documentaries — if it's been filmed, it's on YouTube.</p>
+      <div class="tags">
+        <span class="tag">800M+ videos</span>
+        <span class="tag">Live streaming</span>
+        <span class="tag">YouTube Music</span>
+        <span class="tag">Free to watch</span>
+      </div>
+      <button class="p-link p-link-y">Visit YouTube ↗</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="trending-header">
+    <div>
+      <div class="eyebrow">What's on</div>
+      <div class="section-title" style="margin-bottom:0">Trending Across Both</div>
+    </div>
+  </div>
+  <div class="cards-grid">
+    <div class="card" onclick="window.location='https://animetsu.net/anime/solo-leveling'">
+      <div class="card-thumb" style="background:#1f1630">
+        <span>⚔️</span>
+        <span class="badge badge-trending">Trending</span>
+        <span class="src-tag src-a">Animetsu</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">Solo Leveling</div>
+        <div class="card-meta">
+          <span class="card-type">Anime Series</span>
+          <span class="card-rating">★ 9.3</span>
+        </div>
+      </div>
+    </div>
+    <div class="card" onclick="window.location='https://www.youtube.com/results?search_query=MrBeast'">
+      <div class="card-thumb" style="background:#1a1520">
+        <span>🎬</span>
+        <span class="badge badge-viral">Viral</span>
+        <span class="src-tag src-y">YouTube</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">MrBeast: $1M Island</div>
+        <div class="card-meta">
+          <span class="card-type">YouTube Original</span>
+          <span class="card-rating">★ 9.1</span>
+        </div>
+      </div>
+    </div>
+    <div class="card" onclick="window.location='https://animetsu.net/anime/jujutsu-kaisen'">
+      <div class="card-thumb" style="background:#1a1228">
+        <span>🥋</span>
+        <span class="badge badge-new">New</span>
+        <span class="src-tag src-a">Animetsu</span>
+      </div>
+      <div class="card-body">
+        <div class="card-title">Jujutsu Kaisen S3</div>
+        <div class="card-meta">
+          <span class="card-type">Anime Series</span>
+          <span class="card-rating">★ 9.4</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
+"""
+        self._stream_view.setHtml(html, QUrl("https://animetsu.net"))
 
     # ── Stream navigation ──────────────────────────────────────────────────────
     def _stream_navigate(self):
@@ -1807,7 +2137,7 @@ class MatrixPage(QWidget):
         self._stream_url_bar.setText(url_str)
         self._parse_animekai_url(url_str)
         # Instant login detection from URL alone
-        if "animekai" in url_str.lower():
+        if "animetsu" in url_str.lower():
             url_lower = url_str.lower()
             if any(p in url_lower for p in ("/home", "/user/", "/profile", "/watchlist", "/history", "/bookmarks")):
                 self._on_login_check(True)
@@ -1819,19 +2149,127 @@ class MatrixPage(QWidget):
         self._stream_progress.hide()
         self._stream_back.setEnabled(self._stream_view.history().canGoBack())
         self._stream_fwd.setEnabled(self._stream_view.history().canGoForward())
-        # URL-based login hint: animekai.to/home is the logged-in landing page
+        # Inject popup/overlay killer
+        self._stream_page.runJavaScript(self._popup_killer_js())
+        # URL-based login hint
         url = self._stream_view.url().toString().lower()
-        if "animekai" in url:
+        if "animetsu" in url:
             if "/home" in url or "/user/" in url or "/profile" in url or "/watchlist" in url:
-                # These pages only exist when logged in
                 self._on_login_check(True)
             else:
                 self._check_login_status()
 
+    def _popup_killer_js(self) -> str:
+        return """
+(function() {
+    // Kill modal overlays and age-gate popups
+    var killSelectors = [
+        '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]',
+        '[class*="dialog"]', '[class*="alert"]', '[class*="consent"]',
+        '[class*="gdpr"]', '[class*="cookie"]', '[class*="age"]',
+        '[class*="verify"]', '[class*="gate"]', '[class*="wall"]',
+        '[id*="modal"]', '[id*="popup"]', '[id*="overlay"]',
+        '[id*="consent"]', '[id*="cookie"]', '[id*="age"]',
+        '[id*="gdpr"]', '[id*="adblock"]', '[id*="gate"]',
+    ];
+
+    function isAdOverlay(el) {
+        var r = el.getBoundingClientRect();
+        var cs = getComputedStyle(el);
+        var z = parseInt(cs.zIndex || '0', 10) || 0;
+        return (cs.position === 'fixed' || cs.position === 'absolute') &&
+               r.width > 150 && r.height > 80 && z >= 999;
+    }
+
+    // Looser check used only for text-pattern matches below: many ad/age-gate
+    // overlays don't set an explicit z-index at all (rely on DOM order), so
+    // requiring z>=999 misses them. Fixed/absolute + reasonable size is
+    // specific enough once combined with the literal "over 18" style text.
+    function isFixedBox(el) {
+        var r = el.getBoundingClientRect();
+        var cs = getComputedStyle(el);
+        return (cs.position === 'fixed' || cs.position === 'absolute') &&
+               r.width > 150 && r.height > 80;
+    }
+
+    function killPopups() {
+        killSelectors.forEach(function(sel) {
+            document.querySelectorAll(sel).forEach(function(el) {
+                if (isAdOverlay(el)) el.remove();
+            });
+        });
+
+        // Text-based detection: catch ad-injected fake age-gates / consent
+        // dialogs that don't use recognizable class/id names (common with
+        // obfuscated ad injectors).
+        var TEXT_PATTERNS = [
+            'over 18', 'over18', 'are you 18', 'age verification',
+            'confirm your age', 'this site contains', 'adult content',
+            'enter age', 'i am 18', "i'm 18"
+        ];
+        document.querySelectorAll('div, section, aside').forEach(function(el) {
+            if (!el.isConnected) return;
+            var txt = (el.textContent || '').toLowerCase();
+            if (txt.length > 0 && txt.length < 500 &&
+                TEXT_PATTERNS.some(function(p) { return txt.includes(p); })) {
+                var node = el;
+                var target = null;
+                for (var i = 0; i < 6 && node; i++) {
+                    if (isFixedBox(node)) { target = node; break; }
+                    node = node.parentElement;
+                }
+                (target || el).remove();
+            }
+        });
+
+        // Restore scroll if body was locked by a modal
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+
+        // Auto-click deny/close buttons, but only inside elements we'd
+        // already consider ad overlays — avoids clicking real site nav
+        // links/buttons that happen to contain words like "close".
+        var closePatterns = [
+            'close', 'dismiss', 'deny', 'cancel', 'no thanks',
+            'not now', 'disagree', 'reject'
+        ];
+        document.querySelectorAll('button, [role="button"]').forEach(function(btn) {
+            var txt = (btn.textContent || btn.innerText || '').toLowerCase().trim();
+            if (!closePatterns.some(function(p) { return txt.includes(p); })) return;
+            var node = btn;
+            for (var i = 0; i < 6 && node; i++) {
+                if (isAdOverlay(node)) { btn.click(); break; }
+                node = node.parentElement;
+            }
+        });
+    }
+
+    // Run immediately
+    killPopups();
+
+    // Watch for dynamically injected popups
+    var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+            if (m.addedNodes.length) killPopups();
+        });
+    });
+    observer.observe(document.body || document.documentElement, {
+        childList: true, subtree: true
+    });
+
+    // Also run after short delays for late-loading overlays
+    setTimeout(killPopups, 800);
+    setTimeout(killPopups, 2000);
+    setTimeout(killPopups, 4000);
+    setTimeout(killPopups, 7000);
+    setTimeout(killPopups, 12000);
+})();
+"""
+
     def _check_login_status(self):
         """Detect if user is logged into AnimeKai by checking page content."""
         url = self._stream_view.url().toString()
-        if "animekai" not in url.lower(): return
+        if "animetsu" not in url.lower(): return
         js = """
         (function() {
             // AnimeKai shows a profile image/avatar when logged in
@@ -1881,15 +2319,9 @@ class MatrixPage(QWidget):
 
     def _on_login_check(self, logged_in):
         if bool(logged_in):
-            self._stream_login_lbl.setStyleSheet(
-                f"background:transparent; border:1px solid {ACCENT2}; color:{ACCENT2};"
-                f"font-size:14px; border-radius:3px; padding:2px 4px;")
-            self._stream_login_lbl.setToolTip("● Logged in — AnimeKai session active")
+            pass  # login indicator removed
         else:
-            self._stream_login_lbl.setStyleSheet(
-                f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-                f"font-size:14px; border-radius:3px; padding:2px 4px;")
-            self._stream_login_lbl.setToolTip("○ Not logged in — click to go to AnimeKai")
+            pass  # login indicator removed
 
     # ── Episode detection ──────────────────────────────────────────────────────
     def _parse_animekai_url(self, url: str):
@@ -1922,7 +2354,7 @@ class MatrixPage(QWidget):
         if not title: return
         t_lower = title.lower()
         # Must be an AnimeKai page or watch page
-        if not any(k in t_lower for k in ('animekai', 'watch', 'episode', ' ep ')):
+        if not any(k in t_lower for k in ('animetsu', 'watch', 'episode', ' ep ')):
             return
         # Block generic site page titles that are not real shows
         _JUNK_TITLES = (
@@ -1943,7 +2375,7 @@ class MatrixPage(QWidget):
             if m:
                 show = m.group(1).strip()
                 # Strip site name suffixes
-                show = re.sub(r'\s*[-|]\s*(AnimeKai|Watch Online|HD|Sub|Dub).*$',
+                show = re.sub(r'\s*[-|]\s*(Animetsu|Watch Online|HD|Sub|Dub).*$',
                                '', show, flags=re.IGNORECASE).strip()
                 ep = int(m.group(2))
                 if show and ep > 0:
@@ -2016,7 +2448,7 @@ class MatrixPage(QWidget):
                     watching[key]["current_episode"] = max(ep, old_ep)
                     watching[key]["title"]           = title
                     watching[key]["last_watched"]    = now
-                    watching[key]["source"]          = watching[key].get("source", "animekai")
+                    watching[key]["source"]          = watching[key].get("source", "animetsu")
                     # Track episode list
                     eps_watched = watching[key].setdefault("episodes_watched", [])
                     if ep not in eps_watched:
@@ -2027,7 +2459,7 @@ class MatrixPage(QWidget):
                         "title":            title,
                         "current_episode":  ep,
                         "episodes_watched": [ep],
-                        "source":           "animekai",
+                        "source":           "animetsu",
                         "is_anime":         True,
                         "started":          now,
                         "last_watched":     now,
@@ -2075,8 +2507,8 @@ class MatrixPage(QWidget):
     def _animekai_sync(self):
         """Sync AnimeKai watch history from browser localStorage into Matrix."""
         if not WEBENGINE_OK or not hasattr(self, "_stream_page"): return
-        self._stream_sync_btn.setText("⟳  SYNCING...")
-        self._stream_sync_btn.setEnabled(False)
+        pass  # sync btn removed
+        
 
         # AnimeKai stores watch progress in localStorage, not a server endpoint.
         # We read it directly from the embedded browser's storage.
@@ -2162,14 +2594,14 @@ class MatrixPage(QWidget):
 
     def _on_sync_result(self, result):
         import json as _json
-        self._stream_sync_btn.setEnabled(True)
+        
         try:
             items = _json.loads(result or "[]")
             if not items:
-                self._stream_sync_btn.setText("⟳  SYNC HISTORY")
+                
                 QMessageBox.information(self, "Sync",
                     "No watch history found in browser storage.\n\n"
-                    "Watch some episodes on AnimeKai first — progress is\n"
+                    "Watch some episodes on Animetsu first — progress is\n"
                     "saved locally as you watch and will sync automatically.")
                 return
 
@@ -2204,7 +2636,7 @@ class MatrixPage(QWidget):
                     ):
                         wl_w.append({"title": title, "is_anime": True,
                                      "added": now, "watched": False,
-                                     "notes": "Synced from AnimeKai history"})
+                                     "notes": "Synced from Animetsu history"})
 
                 if isinstance(watching.get(key), dict):
                     old_ep = watching[key].get("current_episode", 0)
@@ -2231,15 +2663,13 @@ class MatrixPage(QWidget):
 
             summary = f"✓  {synced} updated"
             if new_shows > 0: summary += f" · {new_shows} new"
-            self._stream_sync_btn.setText(summary)
-            QTimer.singleShot(4000, lambda: self._stream_sync_btn.setText("⟳  SYNC HISTORY"))
+            # Sync complete — no UI button to update
 
             # No return URL stored; simply stay on current page
             pass
 
         except Exception as e:
-            self._stream_sync_btn.setText("⟳  SYNC HISTORY")
-
+            log.warning("Sync failed", error=str(e), location="_animekai_sync")
 
     def refresh(self):
         md = matrix_data(); wl = md.get("watchlist",{})
@@ -2323,7 +2753,7 @@ class MatrixPage(QWidget):
             ep_badge = f"   ·   EP {ep}" if ep else ""
             if eps_list:
                 ep_badge += f"  ({len(eps_list)} watched)"
-            label = f"  🌐 {title}{ep_badge}\n  AnimeKai"
+            label = f"  🌐 {title}{ep_badge}\n  Animetsu"
             # Store enough for _resume to know it's a stream entry
             role_data = {"title": title, "source": "stream", "episode": ep,
                          "last_watched": ts}
