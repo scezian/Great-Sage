@@ -1187,6 +1187,7 @@ class MatrixPage(QWidget):
             except Exception as e:
                 log.warning("Operation failed", error=str(e), location="_play_loop")
         _ensure_watching(show)
+        QTimer.singleShot(0, self._cloud_push)  # sync planning→watching immediately
 
         while current:
             mod, _ = matrix_mod()
@@ -1347,9 +1348,9 @@ class MatrixPage(QWidget):
                                 if show in _w:
                                     _w[show]["current_episode"] = new_ep
                                     save_json(MATRIX_PROGRESS, _md)
-                                    QTimer.singleShot(0, self._cloud_push)
                         except Exception:
                             pass
+                        QTimer.singleShot(0, self._cloud_push)  # always push on episode advance
 
                 # Get position — skip reads while mpv is switching files to avoid
                 # capturing a stale position from the previous episode
