@@ -2180,7 +2180,7 @@ class LegionPage(QWidget):
         self._read_progress.setValue(0)
         self.progress_bar.setVisible(True)
         if self._worker and self._worker.isRunning(): self._worker.terminate()
-        self._worker = FetchChapterWorker(url)
+        self._worker = FetchChapterWorker(url, self._current_book)
         self._worker.status.connect(lambda s: self.reader_status.setText(s))
         self._worker.done.connect(self._chapter_done)
         self._worker.error.connect(self._chapter_error)

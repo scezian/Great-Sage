@@ -18,7 +18,7 @@ class NovelBinPlugin(SourcePlugin):
     supports_search = True
     supports_cloudflare = True
 
-    MIRRORS = ["novelbin.com", "novelbin.net", "novelbin.me"]
+    MIRRORS = ["novelbin.com", "novelbin.me", "novelbin.net"]  # .net is JS-rendered, try last
 
     WATERMARK_PATTERNS = [
         r"(?i)visit\s+\S+\s+for\s+(more|latest|updates?).*",
@@ -45,11 +45,15 @@ class NovelBinPlugin(SourcePlugin):
     def _build_mirror_urls(self, url: str) -> list:
         parsed = urlparse(url)
         original_host = parsed.netloc
-        urls = [url]
+        # Always try in MIRRORS order (novelbin.com first) regardless of input domain
+        seen = set()
+        result = []
         for mirror in self.MIRRORS:
-            if mirror != original_host:
-                urls.append(url.replace(original_host, mirror, 1))
-        return urls
+            u = url.replace(original_host, mirror, 1)
+            if u not in seen:
+                seen.add(u)
+                result.append(u)
+        return result
 
     def _get_with_retry(self, url: str, session, scraper=None):
         import time

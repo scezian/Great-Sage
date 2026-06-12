@@ -7,7 +7,7 @@ class LightNovelPubPlugin(SourcePlugin):
     id = "lightnovelpub"
     name = "LightNovelPub"
     base_url = "https://lightnovelpub.me"
-    supports_search = True
+    supports_search = False  # search page is AJAX-rendered, returns no novel links
     supports_cloudflare = False
 
     # Domain has shifted before — match both

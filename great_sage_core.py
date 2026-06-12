@@ -633,9 +633,10 @@ class FetchChapterWorker(QThread):
     error  = pyqtSignal(str)
     status = pyqtSignal(str)
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, book_name: str = ""):
         super().__init__()
         self.url = url
+        self.book_name = book_name
 
     def run(self):
         self.status.emit(f"Loading {self.url[:70]}...")
@@ -648,7 +649,7 @@ class FetchChapterWorker(QThread):
         try:
             # Note: SIGALRM cannot be used from worker threads (Python 3.12+).
             # requests already enforces its own timeout per call, so no wrapper needed.
-            title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url)
+            title, paragraphs, next_url, prev_url, error, url_ch_num = mod.fetch_chapter(self.url, self.book_name)
             if error:
                 log.legion.warning("Chapter fetch returned error", url=self.url, error=error)
                 self.error.emit(error)

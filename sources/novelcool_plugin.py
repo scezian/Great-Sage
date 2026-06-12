@@ -111,20 +111,27 @@ class NovelCoolPlugin(SourcePlugin):
                 if not any(re.search(pat, p) for pat in self.WATERMARK_PATTERNS)]
 
     def search(self, query: str, session) -> list[SearchResult]:
-        url = f"https://www.novelcool.com/search/?name={query}&page=1"
+        from urllib.parse import quote_plus
+        url = f"https://www.novelcool.com/search/?name={quote_plus(query)}&page=1"
         try:
             resp = session.get(url, timeout=15)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
             results = []
-            for item in soup.select(".book-item, .novel-item, li.book"):
-                a = item.select_one("a.book-name, a[href*='/novel/'], h3 a")
-                if not a:
-                    continue
-                title = a.get("title", "") or a.get_text(strip=True)
+            seen = set()
+            for a in soup.find_all("a", href=True):
                 href = a.get("href", "")
-                href = href if href.startswith("http") else self.base_url + href
-                img = item.select_one("img")
+                if "/novel/" not in href:
+                    continue
+                title = a.get("title", "").strip() or a.get_text(strip=True)
+                if not title or len(title) < 3:
+                    continue
+                if any(kw in title for kw in ["ActionAdventure", "SummaryN/A", "FantasySci"]):
+                    continue
+                if href in seen:
+                    continue
+                seen.add(href)
+                img = a.find("img")
                 cover = (img.get("data-src") or img.get("src", "")) if img else ""
                 results.append(SearchResult(title=title, url=href, cover_url=cover))
                 if len(results) >= 10:
@@ -132,5 +139,25 @@ class NovelCoolPlugin(SourcePlugin):
             return results
         except Exception:
             return []
+
+    def get_first_chapter_url(self, book_url: str, session):
+        """NovelCool chapter URLs contain a numeric ID — fetch the book page to get it."""
+        try:
+            resp = session.get(book_url, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            ch_links = []
+            for a in soup.find_all("a", href=True):
+                h = a.get("href", "")
+                if "/chapter/" in h:
+                    m = re.search(r"-Chapter-(\d+)-", h)
+                    num = int(m.group(1)) if m else 9999
+                    ch_links.append((num, h))
+            if not ch_links:
+                return None
+            ch_links.sort(key=lambda x: x[0])
+            return ch_links[0][1]
+        except Exception:
+            return None
 
 plugin = NovelCoolPlugin()

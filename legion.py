@@ -1146,7 +1146,16 @@ def _find_mirror_source(book_name: str, current_url: str):
                 continue
             log.info("Mirror candidate found", source=src_id,
                      matched=best.title, ratio=round(ratio, 2), url=best.url)
-            ch1_url = best.url.rstrip('/') + '/chapter-1'
+            # Use plugin's get_first_chapter_url if available (needed for sites
+            # like NovelCool where chapter URLs contain an opaque numeric ID).
+            # Fall back to appending /chapter-1 for simpler URL schemes.
+            if hasattr(plugin, "get_first_chapter_url"):
+                ch1_url = plugin.get_first_chapter_url(best.url, SESSION)
+                if not ch1_url:
+                    log.debug("get_first_chapter_url returned None", source=src_id)
+                    continue
+            else:
+                ch1_url = best.url.rstrip('/') + '/chapter-1'
             try:
                 test_result = fetch_chapter(ch1_url)
                 t_paras = test_result[1]
@@ -1301,15 +1310,34 @@ def _fetch_chapter_generic(url: str):
 
     return title, paragraphs, next_url, prev_url, None, url_ch_num
 
-def fetch_chapter(url: str):
+def fetch_chapter(url: str, book_name: str = ""):
     plugin = plugin_registry.for_url(url)
     if plugin:
         scraper = SCRAPER if plugin.supports_cloudflare else None
         result  = plugin.fetch_chapter(url, SESSION, scraper)
-        if result.error:
-            return "", [], None, None, result.error, None
-        result.paragraphs = plugin.clean_content(result.paragraphs)
-        return result.title, result.paragraphs, result.next_url, result.prev_url, None, result.chapter_num
+        if not result.error:
+            result.paragraphs = plugin.clean_content(result.paragraphs)
+            return result.title, result.paragraphs, result.next_url, result.prev_url, None, result.chapter_num
+        # Plugin failed — try mirror source if we have a book name
+        log.error("Plugin fetch failed, trying mirror source",
+                  url=url, plugin=plugin.id, error=result.error)
+        if book_name:
+            mirror_url = _find_mirror_source(book_name, url)
+            if mirror_url:
+                mirror_plugin = plugin_registry.for_url(mirror_url)
+                if mirror_plugin:
+                    scraper2 = SCRAPER if mirror_plugin.supports_cloudflare else None
+                    r2 = mirror_plugin.fetch_chapter(mirror_url, SESSION, scraper2)
+                    if not r2.error:
+                        r2.paragraphs = mirror_plugin.clean_content(r2.paragraphs)
+                        log.info("Mirror source fetch succeeded",
+                                 mirror_url=mirror_url, plugin=mirror_plugin.id)
+                        return r2.title, r2.paragraphs, r2.next_url, r2.prev_url, None, r2.chapter_num
+                else:
+                    # Mirror URL not covered by any plugin — fall back to generic
+                    log.info("Mirror URL has no plugin, using generic fetch", mirror_url=mirror_url)
+                    return _fetch_chapter_generic(mirror_url)
+        return "", [], None, None, result.error, None
     else:
         return _fetch_chapter_generic(url)
 
@@ -1336,7 +1364,7 @@ def download_book(book_name: str, start_url: str, incremental: bool = False):
             seen.add(url)
             progress.update(task, description=f"Chapter {chapter_num}...")
 
-            title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url)
+            title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url, book_name)
             if error or not paragraphs:
                 print(f"\nError at {url}: {error or 'No content'}")
                 break
@@ -2252,7 +2280,7 @@ class DownloadManager:
                     log.debug(f"DownloadManager: Released book lock for {book_name} in _download_book (pause requested)")
                     return
                 try:
-                    title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url)
+                    title, paragraphs, next_url, prev_url, error, url_ch_num = fetch_chapter(url, book_name)
                     if error or not paragraphs:
                         reason = error or 'No content returned'
                         log.error("Chapter fetch failed during download", book=book_name, url=url, reason=reason)

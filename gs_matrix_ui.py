@@ -1347,6 +1347,7 @@ class MatrixPage(QWidget):
                                 if show in _w:
                                     _w[show]["current_episode"] = new_ep
                                     save_json(MATRIX_PROGRESS, _md)
+                                    QTimer.singleShot(0, self._cloud_push)
                         except Exception:
                             pass
 
