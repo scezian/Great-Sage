@@ -22,6 +22,8 @@ The media side is built around your local files — point Matrix at your downloa
 
 - Matrix
 - <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/7bdd8c76-7df4-4bd8-8688-c9090124dfaa" />
+- <img width="1908" height="975" alt="image" src="https://github.com/user-attachments/assets/cbfe1667-939b-4a11-a0d0-b60d48e57894" />
+
 
 - Sage
 - <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a1fa60d2-58ef-41a6-bf75-66ea84683b8b" />
