@@ -5,12 +5,25 @@
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# ── Auto-update ────────────────────────────────────────────────────────────
+# Pull latest changes quietly. If anything new came in, re-run setup so the
+# venv/system deps stay in sync — users never have to think about this.
+if command -v git &>/dev/null && [ -d "$SCRIPT_DIR/.git" ]; then
+    BEFORE=$(git rev-parse HEAD 2>/dev/null)
+    git pull --quiet --ff-only >/dev/null 2>&1
+    AFTER=$(git rev-parse HEAD 2>/dev/null)
+
+    if [ "$BEFORE" != "$AFTER" ] || [ ! -d "$SCRIPT_DIR/venv" ]; then
+        echo "Updating Great Sage, this may take a moment..."
+        chmod +x "$SCRIPT_DIR/setup.sh"
+        "$SCRIPT_DIR/setup.sh"
+    fi
+fi
 
 # Activate virtual environment
 source "$SCRIPT_DIR/venv/bin/activate"
-
-# Change to the Great Sage directory
-cd "$SCRIPT_DIR"
 
 # Launch Great Sage GUI using venv python explicitly
 echo "Launching Great Sage..."

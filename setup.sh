@@ -101,17 +101,21 @@ echo ""
 
 case "$PKG_MANAGER" in
     pacman)
-        sudo pacman -Sy --needed --noconfirm python python-pip mpv git &>/dev/null &
+        sudo pacman -Sy --needed --noconfirm python python-pip mpv git \
+            python-pyqt6 python-pyqt6-webengine &>/dev/null &
         ;;
     apt)
         (sudo apt update -qq && sudo apt install -y python3 python3-pip python3-venv \
-            mpv git libxcb-xinerama0 libxcb-cursor0 &>/dev/null) &
+            mpv git libxcb-xinerama0 libxcb-cursor0 \
+            python3-pyqt6 python3-pyqt6.qtwebengine &>/dev/null) &
         ;;
     dnf)
-        sudo dnf install -y python3 python3-pip mpv git &>/dev/null &
+        sudo dnf install -y python3 python3-pip mpv git \
+            python3-pyqt6 python3-pyqt6-webengine &>/dev/null &
         ;;
     zypper)
-        sudo zypper install -y python3 python3-pip mpv git &>/dev/null &
+        sudo zypper install -y python3 python3-pip mpv git \
+            python3-qt6 python3-qt6-webengine &>/dev/null &
         ;;
 esac
 
@@ -139,13 +143,19 @@ fi
 section "04  Virtual environment"
 
 if [ ! -d "$SCRIPT_DIR/venv" ]; then
-    python3 -m venv "$SCRIPT_DIR/venv" &>/dev/null &
+    python3 -m venv --system-site-packages "$SCRIPT_DIR/venv" &>/dev/null &
     VENV_PID=$!
     spinner $VENV_PID "Creating venv"
     wait $VENV_PID
-    ok "venv created at ${DIM}$SCRIPT_DIR/venv${RESET}"
+    ok "venv created at ${DIM}$SCRIPT_DIR/venv${RESET} ${DIM}(with system site-packages)${RESET}"
 else
     ok "venv already exists"
+    # Ensure existing venvs also get access to system PyQt6-WebEngine
+    if ! grep -q "include-system-site-packages = true" "$SCRIPT_DIR/venv/pyvenv.cfg" 2>/dev/null; then
+        sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' \
+            "$SCRIPT_DIR/venv/pyvenv.cfg" 2>/dev/null || true
+        ok "Enabled system site-packages for existing venv"
+    fi
 fi
 
 # ── 5. Python dependencies ────────────────────────────────────────────────────
@@ -153,8 +163,6 @@ fi
 section "05  Python packages"
 
 PACKAGES=(
-    "PyQt6"
-    "PyQt6-WebEngine"
     "flask"
     "requests"
     "beautifulsoup4"
@@ -170,6 +178,13 @@ PACKAGES=(
 )
 
 "$SCRIPT_DIR/venv/bin/pip" install --quiet --upgrade pip &>/dev/null
+
+# Remove any pip-installed PyQt6/PyQt6-WebEngine from a previous setup — these
+# bundle their own ffmpeg/OpenSSL and conflict with/shadow the system Qt
+# packages installed in step 02, which are what actually have working
+# codecs and DRM support for the embedded browser.
+"$SCRIPT_DIR/venv/bin/pip" uninstall --quiet -y PyQt6-WebEngine PyQt6-WebEngine-Qt6 \
+    PyQt6 PyQt6-Qt6 PyQt6-sip &>/dev/null || true
 
 TOTAL=${#PACKAGES[@]}
 for i in "${!PACKAGES[@]}"; do

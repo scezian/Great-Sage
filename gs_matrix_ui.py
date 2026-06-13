@@ -18,10 +18,11 @@ from gs_theme import *
 from gs_widgets import lbl, btn, hline, vline, tag, NavRail, EyeBreakToast, SyncToast
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject
+    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject, QEvent
 )
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
     WEBENGINE_OK = True
 except ImportError:
     WEBENGINE_OK = False
@@ -56,6 +57,12 @@ from great_sage_core import (
 # Do NOT redefine it here — both gs_matrix_ui and any external IPC caller must
 # use the same socket path or IPC commands will be sent to the wrong socket.
 # Current value: MPV_SOCKET_PATH = "/tmp/mpvsocket_gs"  (see gs_theme.py)
+
+# Sync hook — registered by SettingsPage after it constructs GreatSageSync.
+# Calling _sync_item_added(title, media_type, status, ...) fires an immediate
+# push_single to the cloud without any coupling between MatrixPage and SettingsPage.
+def _sync_item_added(title: str, media_type: str, status: str = "Planning", **kw) -> None:
+    pass  # replaced at runtime by SettingsPage.__init__
 
 
 class TrailerPickerDialog(QDialog):
@@ -256,144 +263,8 @@ class TrailerDialog(QDialog):
             super().keyPressEvent(e)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# AD / POPUP INTERCEPTOR  (blocks redirect scripts on anime sites)
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Hardcoded fallback — used only if adblock_lists.json is missing or invalid,
-# so the interceptor still has *something* to work with. The JSON file is the
-# source of truth for normal use; edit it (or drop in updates) without
-# touching this code.
-_FALLBACK_AD_BLOCK_DOMAINS = {
-    "doubleclick.net","googlesyndication.com","adservice.google.com",
-    "pagead2.googlesyndication.com","adsterra.com","propellerads.com",
-    "popads.net","rayanbordel.com",
-}
-_FALLBACK_POPUP_URL_PATTERNS = [
-    "redirect","popup","popunder","clickunder","/pop/","track.",
-    "/ad/","/ads/","/click/",
-]
-
-
-def _load_adblock_lists():
-    """Load AD_BLOCK_DOMAINS / POPUP_URL_PATTERNS from adblock_lists.json,
-    sitting next to this file. Falls back to a small built-in set if the
-    JSON is missing/corrupt, so a bad edit can't break the whole app."""
-    import json as _json
-    path = SCRIPT_DIR / "adblock_lists.json"
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = _json.load(f)
-        domains = set()
-        for group in data.get("domains", {}).values():
-            domains.update(group)
-        patterns = list(data.get("url_patterns", []))
-        if domains and patterns:
-            return domains, patterns
-    except Exception as e:
-        log.warning("Failed to load adblock_lists.json — using fallback list",
-                     error=str(e), path=str(path))
-    return set(_FALLBACK_AD_BLOCK_DOMAINS), list(_FALLBACK_POPUP_URL_PATTERNS)
-
-
-AD_BLOCK_DOMAINS, POPUP_URL_PATTERNS = _load_adblock_lists()
-
-
-# Adsterra "Social Bar" / push-notification ad loaders constantly rotate
-# their domain (e.g. cf.rayanbordel.com) to dodge static blocklists, but the
-# shape of the request stays the same: a "cf."-prefixed host serving a script
-# at /<random-alnum-hash>/<digits>. This regex catches new rotations even
-# when the exact domain isn't in AD_BLOCK_DOMAINS yet.
-_SOCIAL_BAR_RE = re.compile(r'^cf\.[a-z0-9-]+\.[a-z]{2,}$')
-_SOCIAL_BAR_PATH_RE = re.compile(r'^/[A-Za-z0-9]{8,}/\d+/?$')
-
-if WEBENGINE_OK:
-    from PyQt6.QtWebEngineCore import (
-        QWebEngineUrlRequestInterceptor, QWebEngineUrlRequestInfo,
-        QWebEngineProfile, QWebEnginePage, QWebEngineSettings
-    )
-
-    class AnimeInterceptor(QWebEngineUrlRequestInterceptor):
-        def interceptRequest(self, info: QWebEngineUrlRequestInfo):
-            url = info.requestUrl().toString()
-            host = info.requestUrl().host().lower()
-            path = info.requestUrl().path()
-            # Strip a literal leading "www." (NOT str.lstrip, which strips
-            # individual characters in the given set and can mangle hosts
-            # like "wmedia.net" -> "media.net")
-            if host.startswith("www."):
-                host = host[4:]
-
-            # Block known ad domains FIRST — this must run before the
-            # YouTube/Google allowlist below, otherwise ad/consent domains
-            # like adservice.google.com or fundingchoicesmessages.google.com
-            # (which DO contain "google.com") get whitelisted and skipped.
-            for domain in AD_BLOCK_DOMAINS:
-                if host == domain or host.endswith("." + domain):
-                    info.block(True); return
-
-            # Block rotated Social Bar / push-ad loader domains (see regex
-            # comment above) — but don't catch legit Cloudflare "cf." hosts
-            # like cf.cloudflare.com / cf-assets.* by also requiring the
-            # tell-tale random-hash path shape.
-            if (_SOCIAL_BAR_RE.match(host) and "cloudflare" not in host
-                    and _SOCIAL_BAR_PATH_RE.match(path)):
-                info.block(True); return
-
-            # Skip blocking for YouTube and Google-owned domains needed for player init
-            # and video playback (googlevideo.com is the primary stream source).
-            # Blocking these often results in black screens or player hangs.
-            if any(x in host for x in [
-                "youtube.com", "googlevideo.com", "ytimg.com", 
-                "ggpht.com", "google.com", "gstatic.com"
-            ]):
-                return
-
-
-            # Block popup/redirect URL patterns (only for non-main frame requests)
-            if info.resourceType() not in (
-                QWebEngineUrlRequestInfo.ResourceType.ResourceTypeMainFrame,
-                QWebEngineUrlRequestInfo.ResourceType.ResourceTypeSubFrame,
-            ):
-                for pat in POPUP_URL_PATTERNS:
-                    if pat in url.lower():
-                        info.block(True); return
-
-    class AnimePage(QWebEnginePage):
-        """Custom page that blocks ad popups but allows fullscreen video windows."""
-        def __init__(self, profile, parent=None):
-            super().__init__(profile, parent)
-            # Enable features needed for video playback and livestreams
-            s = self.settings()
-            s.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
-            s.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
-            s.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)
-            s.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
-            s.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
-            s.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, True)
-            self.fullScreenRequested.connect(self._handle_fullscreen)
-
-        def _handle_fullscreen(self, request):
-            request.accept()
-            # In PyQt6 QWebEnginePage doesn't have .view(), but we pass it as parent
-            view = self.parent()
-            if view:
-                if request.toggleOn():
-                    view.window().showFullScreen()
-                else:
-                    view.window().showNormal()
-
-        def createWindow(self, _type):
-            # Allow fullscreen/video popup windows, block everything else
-            from PyQt6.QtWebEngineCore import QWebEnginePage as _P
-            if _type in (_P.WebWindowType.WebBrowserWindow,
-                         _P.WebWindowType.WebDialog):
-                # These are likely video player popups — allow them on the same view
-                return self
-            return None  # block ad popups
-
-        def javaScriptConsoleMessage(self, level, message, line, source):
-            pass  # suppress console noise
+# ── Ad blocker — see gs_adblock.py ───────────────────────────────────────────
+from gs_adblock import AdBlockPage, get_manager as _get_adblock_manager
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -631,6 +502,7 @@ class MatrixPage(QWidget):
             wl[lst].append({"title":title,"is_anime":anime,"added":time.time(),
                             "watched":False,"notes":"Added via GUI","updated_at":_wl_now()})
             save_json(MATRIX_PROGRESS, md)
+            _sync_item_added(title, "Anime" if anime else "Novel", lst.capitalize())
             self.wl_input.clear()
             self.refresh()
             # Switch to the tab we just added to
@@ -701,6 +573,12 @@ class MatrixPage(QWidget):
                 e["scored_at"] = time.time()
 
         wl[to_list].append(e); save_json(MATRIX_PROGRESS, md); self.refresh()
+        _sync_item_added(
+            title,
+            "Anime" if e.get("is_anime", True) else "Novel",
+            to_list.capitalize(),
+            rating=e.get("score", 0),
+        )
 
     def _wl_remove(self, title, lst_name):
         md = matrix_data(); wl = md.get("watchlist",{})
@@ -986,7 +864,7 @@ class MatrixPage(QWidget):
             if ep and WEBENGINE_OK and hasattr(self, "_stream_view"):
                 import urllib.parse
                 q = urllib.parse.quote(f"{title} episode {ep}")
-                self._stream_view.load(QUrl(f"https://animetsu.net/search?keyword={q}"))
+                self._stream_view.load(QUrl(f"https://animekai.be/search?keyword={q}"))
             return
 
         # Local file entry
@@ -1054,7 +932,12 @@ class MatrixPage(QWidget):
 
     def _cw_remove(self, title):
         md = matrix_data()
-        if title in md.get("watching",{}): del md["watching"][title]
+        watching = md.get("watching", {})
+        norm = self._norm_title(title)
+        for k in list(watching.keys()):
+            kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
+            if self._norm_title(kt) == norm:
+                del watching[k]
         save_json(MATRIX_PROGRESS, md); self.refresh()
 
     def _find_subtitle(self, video_path: str) -> str:
@@ -1629,7 +1512,7 @@ class MatrixPage(QWidget):
             log.warning("auto_complete error", error=str(e))
 
     def _build_stream(self):
-        """STREAM tab — Animetsu + YouTube browser with landing page, ad blocking,
+        """STREAM tab — AnimeKai + YouTube browser with landing page, ad blocking,
            persistent login, real-time episode tracking and full Matrix integration."""
         w = QWidget()
         wv = QVBoxLayout(w)
@@ -1659,36 +1542,10 @@ class MatrixPage(QWidget):
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-        # ── Ad / popup interceptor ─────────────────────────────────────────────
-        self._interceptor = AnimeInterceptor()
-        self._stream_profile.setUrlRequestInterceptor(self._interceptor)
-
-        # ── Cosmetic filtering: inject CSS before page scripts run ─────────────
-        # Runs at DocumentCreation (earlier than our post-load JS popup killer),
-        # so common ad/overlay containers are hidden via CSS the instant they
-        # appear, before they can render or grab focus.
-        from PyQt6.QtWebEngineCore import QWebEngineScript
-        cosmetic_css = r"""
-[class*="ad-"], [class*="-ad"], [class*="ads-"], [class*="-ads"],
-[id*="ad-"], [id*="-ad"], [id*="ads-"], [id*="-ads"],
-[class*="banner-ad"], [class*="sponsor"], [id*="sponsor"],
-amp-ad, ins.adsbygoogle, iframe[src*="doubleclick"],
-iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
-    display: none !important; visibility: hidden !important;
-    height: 0 !important; width: 0 !important;
-}
-"""
-        cosmetic_js = (
-            "(function(){var s=document.createElement('style');"
-            "s.textContent=" + repr(cosmetic_css) + ";"
-            "document.documentElement.appendChild(s);})();"
-        )
-        cosmetic_script = QWebEngineScript()
-        cosmetic_script.setSourceCode(cosmetic_js)
-        cosmetic_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
-        cosmetic_script.setRunsOnSubFrames(True)
-        cosmetic_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
-        self._stream_profile.scripts().insert(cosmetic_script)
+        # ── Ad blocker (gs_adblock.py) ─────────────────────────────────────────
+        # Installs network interceptor + cosmetic CSS script into the profile.
+        self._adblock = _get_adblock_manager()
+        self._adblock.install(self._stream_profile)
 
         # ── Web view ───────────────────────────────────────────────────────────
         self._stream_view = QWebEngineView()
@@ -1697,7 +1554,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
 
         # ── Custom page (blocks popups, suppresses JS console noise) ──────────
         # We pass the view as parent so the page can access it for fullscreen
-        self._stream_page = AnimePage(self._stream_profile, self._stream_view)
+        self._stream_page = self._adblock.make_page(self._stream_profile, self._stream_view)
         self._stream_view.setPage(self._stream_page)
 
         # Enable fullscreen and media capabilities on the view's settings too
@@ -1735,7 +1592,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
             lambda: self._stream_show_landing())
 
         self._stream_url_bar = QLineEdit()
-        self._stream_url_bar.setPlaceholderText("https://animetsu.net")
+        self._stream_url_bar.setPlaceholderText("https://animekai.be")
         self._stream_url_bar.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; color:{TEXT};"
             f"font-size:12px; padding:4px 12px; border-radius:3px;")
@@ -1759,6 +1616,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         nv.addWidget(self._stream_url_bar, 1)
         nv.addWidget(self._stream_landing_btn)
         wv.addWidget(nav_bar)
+        self._stream_nav_bar = nav_bar
 
         # ── Loading progress bar (thin, below nav) ─────────────────────────────
         self._stream_progress = QProgressBar()
@@ -1828,10 +1686,57 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         self._stream_current_ep   = 0
         self._stream_last_tracked = ("", 0)
         self._stream_logged_in    = False
+        self._stream_fullscreen   = False
+
+        # Escape (caught via eventFilter so it doesn't interfere with other
+        # keys like space/arrows reaching the player) exits our fullscreen.
+        self._stream_view.installEventFilter(self)
 
         # ── Landing page ───────────────────────────────────────────────────────
         self._stream_show_landing()
         return w
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, "_stream_view", None) \
+                and getattr(self, "_stream_fullscreen", False) \
+                and event.type() == QEvent.Type.KeyPress \
+                and event.key() == Qt.Key.Key_Escape:
+            self._exit_stream_fullscreen()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _enter_stream_fullscreen(self):
+        """Hide all surrounding chrome and make the stream view cover the
+        whole window — entered when the page's player requests fullscreen."""
+        if self._stream_fullscreen:
+            return
+        self._stream_fullscreen = True
+        self._stream_nav_bar.hide()
+        self._stream_progress.hide()
+        self._now_watch_bar.hide()
+        if hasattr(self, "_tabs"):
+            self._tabs.tabBar().hide()
+        win = self._stream_view.window()
+        win.showFullScreen()
+        self._stream_view.setFocus()
+
+    def _exit_stream_fullscreen(self):
+        """Restore chrome and exit our window-level fullscreen. Also tells
+        the page's own player to leave HTML fullscreen if it's still in it."""
+        if not self._stream_fullscreen:
+            return
+        self._stream_fullscreen = False
+        if hasattr(self, "_tabs"):
+            self._tabs.tabBar().show()
+        self._stream_nav_bar.show()
+        if self._now_watch_lbl.text():
+            self._now_watch_bar.show()
+        win = self._stream_view.window()
+        win.showNormal()
+        # Ask the page to drop out of its own HTML5 fullscreen too, in case
+        # it's still considered "fullscreen" by the document.
+        self._stream_page.runJavaScript(
+            "if (document.fullscreenElement) { document.exitFullscreen(); }")
 
     def _stream_show_landing(self):
         """Show the StreamGate landing page in the web view."""
@@ -2024,7 +1929,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
     <span class="accent-pink">watch.</span>
   </div>
   <p class="hero-sub">
-    Thousands of anime titles on Animetsu. Billions of videos on YouTube.
+    Thousands of anime titles on AnimeKai. Billions of videos on YouTube.
     Two of the internet's best streaming destinations — right here.
   </p>
 </div>
@@ -2033,9 +1938,9 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
   <div class="eyebrow">The Platforms</div>
   <div class="section-title">Two giants. One gateway.</div>
   <div class="platform-grid">
-    <div class="platform-card" onclick="window.location='https://animetsu.net'">
+    <div class="platform-card" onclick="window.location='https://animekai.be'">
       <div class="p-icon p-icon-a">📺</div>
-      <div class="p-name">Animetsu</div>
+      <div class="p-name">AnimeKai</div>
       <p class="p-desc">A dedicated anime streaming platform with 12,000+ series — from classic shonen to the latest seasonal drops. Subbed and dubbed. No filler.</p>
       <div class="tags">
         <span class="tag">12,000+ titles</span>
@@ -2043,7 +1948,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         <span class="tag">Daily updates</span>
         <span class="tag">HD quality</span>
       </div>
-      <button class="p-link p-link-a">Visit Animetsu ↗</button>
+      <button class="p-link p-link-a">Visit AnimeKai ↗</button>
     </div>
     <div class="platform-card" onclick="window.location='https://www.youtube.com'">
       <div class="p-icon p-icon-y">▶️</div>
@@ -2068,11 +1973,11 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
     </div>
   </div>
   <div class="cards-grid">
-    <div class="card" onclick="window.location='https://animetsu.net/anime/solo-leveling'">
+    <div class="card" onclick="window.location='https://animekai.be/watch/solo-leveling-season-2-arise-from-the-shadow'">
       <div class="card-thumb" style="background:#1f1630">
         <span>⚔️</span>
         <span class="badge badge-trending">Trending</span>
-        <span class="src-tag src-a">Animetsu</span>
+        <span class="src-tag src-a">AnimeKai</span>
       </div>
       <div class="card-body">
         <div class="card-title">Solo Leveling</div>
@@ -2096,11 +2001,11 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         </div>
       </div>
     </div>
-    <div class="card" onclick="window.location='https://animetsu.net/anime/jujutsu-kaisen'">
+    <div class="card" onclick="window.location='https://animekai.be/watch/jujutsu-kaisen-0'">
       <div class="card-thumb" style="background:#1a1228">
         <span>🥋</span>
         <span class="badge badge-new">New</span>
-        <span class="src-tag src-a">Animetsu</span>
+        <span class="src-tag src-a">AnimeKai</span>
       </div>
       <div class="card-body">
         <div class="card-title">Jujutsu Kaisen S3</div>
@@ -2116,7 +2021,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
 </body>
 </html>
 """
-        self._stream_view.setHtml(html, QUrl("https://animetsu.net"))
+        self._stream_view.setHtml(html, QUrl("https://animekai.be"))
 
     # ── Stream navigation ──────────────────────────────────────────────────────
     def _stream_navigate(self):
@@ -2136,11 +2041,12 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         url_str = url.toString()
         self._stream_url_bar.setText(url_str)
         self._parse_animekai_url(url_str)
-        # Instant login detection from URL alone
-        if "animetsu" in url_str.lower():
+        if "animekai" in url_str.lower():
             url_lower = url_str.lower()
-            if any(p in url_lower for p in ("/home", "/user/", "/profile", "/watchlist", "/history", "/bookmarks")):
-                self._on_login_check(True)
+            if "/watch/" in url_lower:
+                if not getattr(self, "_scrape_timer_pending", False):
+                    self._scrape_timer_pending = True
+                    QTimer.singleShot(3000, self._run_animetsu_scrape)
 
     def _on_stream_title_changed(self, title):
         self._parse_animekai_title(title)
@@ -2150,126 +2056,15 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         self._stream_back.setEnabled(self._stream_view.history().canGoBack())
         self._stream_fwd.setEnabled(self._stream_view.history().canGoForward())
         # Inject popup/overlay killer
-        self._stream_page.runJavaScript(self._popup_killer_js())
-        # URL-based login hint
+        self._stream_page.runJavaScript(self._adblock.popup_killer_js())
         url = self._stream_view.url().toString().lower()
-        if "animetsu" in url:
-            if "/home" in url or "/user/" in url or "/profile" in url or "/watchlist" in url:
-                self._on_login_check(True)
-            else:
-                self._check_login_status()
-
-    def _popup_killer_js(self) -> str:
-        return """
-(function() {
-    // Kill modal overlays and age-gate popups
-    var killSelectors = [
-        '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]',
-        '[class*="dialog"]', '[class*="alert"]', '[class*="consent"]',
-        '[class*="gdpr"]', '[class*="cookie"]', '[class*="age"]',
-        '[class*="verify"]', '[class*="gate"]', '[class*="wall"]',
-        '[id*="modal"]', '[id*="popup"]', '[id*="overlay"]',
-        '[id*="consent"]', '[id*="cookie"]', '[id*="age"]',
-        '[id*="gdpr"]', '[id*="adblock"]', '[id*="gate"]',
-    ];
-
-    function isAdOverlay(el) {
-        var r = el.getBoundingClientRect();
-        var cs = getComputedStyle(el);
-        var z = parseInt(cs.zIndex || '0', 10) || 0;
-        return (cs.position === 'fixed' || cs.position === 'absolute') &&
-               r.width > 150 && r.height > 80 && z >= 999;
-    }
-
-    // Looser check used only for text-pattern matches below: many ad/age-gate
-    // overlays don't set an explicit z-index at all (rely on DOM order), so
-    // requiring z>=999 misses them. Fixed/absolute + reasonable size is
-    // specific enough once combined with the literal "over 18" style text.
-    function isFixedBox(el) {
-        var r = el.getBoundingClientRect();
-        var cs = getComputedStyle(el);
-        return (cs.position === 'fixed' || cs.position === 'absolute') &&
-               r.width > 150 && r.height > 80;
-    }
-
-    function killPopups() {
-        killSelectors.forEach(function(sel) {
-            document.querySelectorAll(sel).forEach(function(el) {
-                if (isAdOverlay(el)) el.remove();
-            });
-        });
-
-        // Text-based detection: catch ad-injected fake age-gates / consent
-        // dialogs that don't use recognizable class/id names (common with
-        // obfuscated ad injectors).
-        var TEXT_PATTERNS = [
-            'over 18', 'over18', 'are you 18', 'age verification',
-            'confirm your age', 'this site contains', 'adult content',
-            'enter age', 'i am 18', "i'm 18"
-        ];
-        document.querySelectorAll('div, section, aside').forEach(function(el) {
-            if (!el.isConnected) return;
-            var txt = (el.textContent || '').toLowerCase();
-            if (txt.length > 0 && txt.length < 500 &&
-                TEXT_PATTERNS.some(function(p) { return txt.includes(p); })) {
-                var node = el;
-                var target = null;
-                for (var i = 0; i < 6 && node; i++) {
-                    if (isFixedBox(node)) { target = node; break; }
-                    node = node.parentElement;
-                }
-                (target || el).remove();
-            }
-        });
-
-        // Restore scroll if body was locked by a modal
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
-
-        // Auto-click deny/close buttons, but only inside elements we'd
-        // already consider ad overlays — avoids clicking real site nav
-        // links/buttons that happen to contain words like "close".
-        var closePatterns = [
-            'close', 'dismiss', 'deny', 'cancel', 'no thanks',
-            'not now', 'disagree', 'reject'
-        ];
-        document.querySelectorAll('button, [role="button"]').forEach(function(btn) {
-            var txt = (btn.textContent || btn.innerText || '').toLowerCase().trim();
-            if (!closePatterns.some(function(p) { return txt.includes(p); })) return;
-            var node = btn;
-            for (var i = 0; i < 6 && node; i++) {
-                if (isAdOverlay(node)) { btn.click(); break; }
-                node = node.parentElement;
-            }
-        });
-    }
-
-    // Run immediately
-    killPopups();
-
-    // Watch for dynamically injected popups
-    var observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(m) {
-            if (m.addedNodes.length) killPopups();
-        });
-    });
-    observer.observe(document.body || document.documentElement, {
-        childList: true, subtree: true
-    });
-
-    // Also run after short delays for late-loading overlays
-    setTimeout(killPopups, 800);
-    setTimeout(killPopups, 2000);
-    setTimeout(killPopups, 4000);
-    setTimeout(killPopups, 7000);
-    setTimeout(killPopups, 12000);
-})();
-"""
+        if "animekai" in url and "/watch/" in url:
+            QTimer.singleShot(2000, self._run_animetsu_scrape)
 
     def _check_login_status(self):
         """Detect if user is logged into AnimeKai by checking page content."""
         url = self._stream_view.url().toString()
-        if "animetsu" not in url.lower(): return
+        if "animekai" not in url.lower(): return
         js = """
         (function() {
             // AnimeKai shows a profile image/avatar when logged in
@@ -2326,19 +2121,21 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
     # ── Episode detection ──────────────────────────────────────────────────────
     def _parse_animekai_url(self, url: str):
         """Parse AnimeKai URL patterns:
-           animekai.to/watch/{slug}#ep={num}
-           animekai.to/watch/{slug}?ep={num}
-           animekai.to/{slug}/ep-{num}
+           animekai.be/watch/{slug}/ep-{num}
+           animekai.be/watch/{slug}#ep={num}
+           animekai.be/watch/{slug}?ep={num}
         """
-        # Pattern 1: /watch/slug#ep=12 or /watch/slug?ep=12
-        m = re.search(r'/watch/([^#?/]+)[#?]ep[=:](\d+)', url)
+        if "animekai" not in url.lower():
+            return
+        # Pattern 1: /watch/slug/ep-12
+        m = re.search(r'/watch/([^/#?]+)/ep-(\d+)', url)
         if m:
             slug = m.group(1)
             ep = int(m.group(2))
-            title = re.sub(r'-[a-z0-9]{3,6}$', '', slug).replace('-', ' ').title()
+            title = slug.replace('-', ' ').title()
             self._update_now_watching(title, ep); return
-        # Pattern 2: /slug/ep-12
-        m = re.search(r'/([a-z0-9-]+)/ep-(\d+)', url)
+        # Pattern 2: /watch/slug#ep=12 or /watch/slug?ep=12
+        m = re.search(r'/watch/([^#?/]+)[#?]ep[=:](\d+)', url)
         if m:
             slug = m.group(1)
             ep = int(m.group(2))
@@ -2346,25 +2143,21 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
             self._update_now_watching(title, ep)
 
     def _parse_animekai_title(self, title: str):
-        """Parse page title variations:
+        """Parse AnimeKai page title variations:
            'Solo Leveling Episode 12 - AnimeKai'
            'Watch Solo Leveling Ep 12 Online'
-           'Solo Leveling - Episode 12'
         """
         if not title: return
         t_lower = title.lower()
-        # Must be an AnimeKai page or watch page
-        if not any(k in t_lower for k in ('animetsu', 'watch', 'episode', ' ep ')):
+        if 'animekai' not in t_lower and 'watch' not in t_lower and 'episode' not in t_lower:
             return
-        # Block generic site page titles that are not real shows
         _JUNK_TITLES = (
             'recently added', 'latest episodes', 'popular anime',
             'new release', 'home page', 'search results', 'genre',
-            'schedule', 'top anime', 'trending', 'bookmark',
+            'schedule', 'top anime', 'trending', 'bookmark', 
         )
         if any(junk in t_lower for junk in _JUNK_TITLES):
             return
-        # Try multiple patterns
         patterns = [
             r'^(?:watch\s+)?(.+?)\s+[Ee]p(?:isode)?[\s.#]*(\d+)',
             r'^(.+?)\s*[-–]\s*[Ee]p(?:isode)?[\s.#]*(\d+)',
@@ -2374,17 +2167,80 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
             m = re.search(pat, title, re.IGNORECASE)
             if m:
                 show = m.group(1).strip()
-                # Strip site name suffixes
-                show = re.sub(r'\s*[-|]\s*(Animetsu|Watch Online|HD|Sub|Dub).*$',
+                show = re.sub(r'\s*[-|]\s*(AnimeKai|Watch Online|HD|Sub|Dub).*$',
                                '', show, flags=re.IGNORECASE).strip()
                 ep = int(m.group(2))
                 if show and ep > 0:
                     self._update_now_watching(show, ep)
                     return
 
+    def _run_animetsu_scrape(self):
+        """Called via QTimer after page load to give SPA time to render."""
+        self._scrape_timer_pending = False
+        url = self._stream_view.url().toString().lower()
+        if "/watch/" in url and "animekai" in url:
+            self._stream_page.runJavaScript(
+                self._animetsu_scrape_js(), 0, self._on_animetsu_scraped)
+
+    def _animetsu_scrape_js(self) -> str:
+        """JS injected on AnimeKai watch pages to extract series title + episode number."""
+        return """
+(function() {
+    // AnimeKai URL: /watch/{slug}/ep-{num}
+    var ep = 0;
+    var urlMatch = window.location.href.match(/\/ep-(\d+)/i);
+    if (urlMatch) ep = parseInt(urlMatch[1], 10);
+    if (!ep) {
+        urlMatch = window.location.href.match(/[?#&]ep[=:](\d+)/i);
+        if (urlMatch) ep = parseInt(urlMatch[1], 10);
+    }
+
+    var seriesTitle = '';
+
+    // 1. Page heading
+    var h = document.querySelector('h1, h2, .film-name, .anime-name');
+    if (h) {
+        var t = (h.textContent || '').trim();
+        if (t.length >= 3) seriesTitle = t;
+    }
+
+    // 2. og:title meta
+    if (!seriesTitle) {
+        var og = document.querySelector('meta[property="og:title"]');
+        if (og) seriesTitle = (og.getAttribute('content') || '').trim();
+    }
+
+    // 3. Page title fallback
+    if (!seriesTitle) {
+        seriesTitle = document.title
+            .replace(/\s*[Ee]pisode\s*\d+.*$/, '')
+            .replace(/\s*[|\-]\s*AnimeKai.*$/i, '')
+            .replace(/\s*[Ee]nglish\s*(Sub|Dub).*$/i, '')
+            .trim();
+    }
+
+    return seriesTitle ? {title: seriesTitle, ep: ep || 1} : null;
+})();
+"""
+    def _on_animetsu_scraped(self, result):
+        """Callback from the DOM scraper JS — result is {title, ep} or None."""
+        if not result or not isinstance(result, dict):
+            return
+        title = (result.get('title') or '').strip()
+        # Strip trailing user counts like "48.3K users" or "8.3K users"
+        import re as _re
+        title = _re.sub(r'[\s\d.,]+K?\s*users?\s*$', '', title, flags=_re.IGNORECASE).strip()
+        ep    = int(result.get('ep') or 1)
+        if title and len(title) >= 3:
+            self._update_now_watching(title, ep)
+
     def _update_now_watching(self, title: str, ep: int):
         if not title or len(title) < 2: return
         title = title.strip()
+        # Block raw UUIDs/hex slugs (no spaces, all hex chars, long)
+        import re as _re
+        if _re.fullmatch(r'[0-9a-fA-F]{8,}', title.replace(' ', '')):
+            return
         self._stream_current_show = title
         self._stream_current_ep   = ep
         # Update now-watching bar
@@ -2399,6 +2255,15 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
                 target=self._auto_track, args=(title, ep), daemon=True
             ).start()
 
+    @staticmethod
+    def _norm_title(t: str) -> str:
+        """Normalize a title for fuzzy matching — lowercase, collapse all
+        punctuation/whitespace to single spaces. This lets slug-derived
+        titles ('Solo Leveling Season 2 Arise From The Shadow') and
+        page-heading titles ('Solo Leveling Season 2: Arise from the
+        Shadow') match as the same show."""
+        return re.sub(r'[^a-z0-9]+', ' ', t.lower()).strip()
+
     def _auto_track(self, title: str, ep: int):
         """Write episode progress to matrix_progress.json + auto-move lists."""
         if not hasattr(self, '_track_lock'):
@@ -2411,45 +2276,62 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
                 planning  = wl.setdefault("planning", [])
                 wl_watching = wl.setdefault("watching", [])
 
-                # Fuzzy key match in watching dict
+                norm_title = self._norm_title(title)
+
+                # Fuzzy key match in watching dict (normalized comparison so
+                # minor punctuation/case differences between scrape sources
+                # don't create duplicate entries for the same show)
                 key = None
                 for k in watching:
                     kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
-                    if kt.lower() == title.lower():
+                    if self._norm_title(kt) == norm_title:
                         key = k
                         break
 
                 if key is None:
                     key = title
-                    # Auto-move from planning → watching in watchlist
-                    new_planning = []
-                    found_in_planning = False
-                    for e in planning:
-                        t = e.get("title", "") if isinstance(e, dict) else str(e)
-                        if t.lower() == title.lower():
-                            found_in_planning = True
-                            # Move to watchlist watching
-                            entry = e if isinstance(e, dict) else {"title": t}
-                            entry["is_anime"] = True
-                            if not any(
-                                (x.get("title","") if isinstance(x,dict) else str(x)).lower() == title.lower()
-                                for x in wl_watching
-                            ):
+                    already_in_wl_watching = any(
+                        self._norm_title(x.get("title","") if isinstance(x,dict) else str(x)) == norm_title
+                        for x in wl_watching
+                    )
+                    if not already_in_wl_watching:
+                        # Try to move from planning → wl["watching"] first
+                        new_planning = []
+                        found_in_planning = False
+                        for e in planning:
+                            t = e.get("title", "") if isinstance(e, dict) else str(e)
+                            if self._norm_title(t) == norm_title:
+                                found_in_planning = True
+                                entry = e if isinstance(e, dict) else {"title": t}
+                                entry["is_anime"] = True
+                                entry["updated_at"] = _wl_now()
                                 wl_watching.append(entry)
+                            else:
+                                new_planning.append(e)
+                        if found_in_planning:
+                            wl["planning"] = new_planning
                         else:
-                            new_planning.append(e)
-                    if found_in_planning:
-                        wl["planning"] = new_planning
+                            # Brand-new show not in any list — add to wl["watching"]
+                            # so it appears in the Watchlist tab and syncs to cloud.
+                            wl_watching.append({
+                                "title":      title,
+                                "is_anime":   True,
+                                "added":      int(time.time()),
+                                "watched":    False,
+                                "notes":      "Auto-added from STREAM tab",
+                                "updated_at": _wl_now(),
+                            })
+                            _sync_item_added(title, "Anime", "Watching")
 
-                # Update or create watching entry
+                # Update or create watching dict entry (Continue Watching)
                 now = int(time.time())
                 if isinstance(watching.get(key), dict):
                     old_ep = watching[key].get("current_episode", 0)
                     watching[key]["current_episode"] = max(ep, old_ep)
-                    watching[key]["title"]           = title
-                    watching[key]["last_watched"]    = now
-                    watching[key]["source"]          = watching[key].get("source", "animetsu")
-                    # Track episode list
+                    if len(title) > len(watching[key].get("title", "")):
+                        watching[key]["title"] = title
+                    watching[key]["last_watched"] = now
+                    watching[key]["source"]       = watching[key].get("source", "animekai")
                     eps_watched = watching[key].setdefault("episodes_watched", [])
                     if ep not in eps_watched:
                         eps_watched.append(ep)
@@ -2459,14 +2341,15 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
                         "title":            title,
                         "current_episode":  ep,
                         "episodes_watched": [ep],
-                        "source":           "animetsu",
+                        "source":           "animekai",
                         "is_anime":         True,
                         "started":          now,
                         "last_watched":     now,
                     }
                 save_json(MATRIX_PROGRESS, md)
-            # Refresh UI on main thread
+            # Refresh UI and push to cloud
             QTimer.singleShot(0, self.refresh)
+            QTimer.singleShot(0, self._cloud_push)
         except Exception as e:
             log.warning("Operation failed", error=str(e), location="_auto_track")
 
@@ -2499,6 +2382,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
             "notes": "Added from STREAM tab", "updated_at": _wl_now()
         })
         save_json(MATRIX_PROGRESS, md)
+        _sync_item_added(title, "Anime", "Planning")
         self.refresh()
         self._now_watch_wl_btn.setText("✓ ADDED")
         QTimer.singleShot(2000, lambda: self._now_watch_wl_btn.setText("+ WATCHLIST"))
@@ -2601,7 +2485,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
                 
                 QMessageBox.information(self, "Sync",
                     "No watch history found in browser storage.\n\n"
-                    "Watch some episodes on Animetsu first — progress is\n"
+                    "Watch some episodes on AnimeKai first — progress is\n"
                     "saved locally as you watch and will sync automatically.")
                 return
 
@@ -2636,7 +2520,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
                     ):
                         wl_w.append({"title": title, "is_anime": True,
                                      "added": now, "watched": False,
-                                     "notes": "Synced from Animetsu history"})
+                                     "notes": "Synced from AnimeKai history"})
 
                 if isinstance(watching.get(key), dict):
                     old_ep = watching[key].get("current_episode", 0)
@@ -2694,9 +2578,11 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
         # ── Collect all continue-watching entries (local + AnimeKai) ──────────
         entries = []  # list of (last_watched_ts, display_label, user_role_data, row_height)
 
-        # 1) Local MPV entries
+        # 1) Local MPV entries (AnimeKai/stream entries handled in section 2)
         for key, info in md.get("watching", {}).items():
             if not isinstance(info, dict): continue
+            if info.get("source") == "animekai":
+                continue
             t    = info.get("title", key)
             pos  = info.get("position", 0)
             dur  = info.get("duration", 0)
@@ -2742,7 +2628,22 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
 
             entries.append((ts, label, info, 52 if time_line else 36))
 
-        # 2) AnimeKai stream entries (handled via stream_watching key below)
+        # 2) AnimeKai / stream entries — sourced from 'watching' entries with
+        # source == "animekai", plus the legacy 'stream_watching' key.
+        for key, info in md.get("watching", {}).items():
+            if not isinstance(info, dict): continue
+            if info.get("source") != "animekai": continue
+            title = info.get("title", key)
+            ep  = info.get("current_episode", 0)
+            ts  = info.get("last_watched", 0)
+            eps_list = info.get("episodes_watched", [])
+            ep_badge = f"   ·   EP {ep}" if ep else ""
+            if eps_list:
+                ep_badge += f"  ({len(eps_list)} watched)"
+            label = f"  🌐 {title}{ep_badge}\n  AnimeKai"
+            role_data = {"title": title, "source": "stream", "episode": ep,
+                         "last_watched": ts}
+            entries.append((ts, label, role_data, 52))
 
         stream_watching = md.get("stream_watching", {})
         for title, info in stream_watching.items():
@@ -2753,7 +2654,7 @@ iframe[src*="googlesyndication"], iframe[id*="google_ads"] {
             ep_badge = f"   ·   EP {ep}" if ep else ""
             if eps_list:
                 ep_badge += f"  ({len(eps_list)} watched)"
-            label = f"  🌐 {title}{ep_badge}\n  Animetsu"
+            label = f"  🌐 {title}{ep_badge}\n  AnimeKai"
             # Store enough for _resume to know it's a stream entry
             role_data = {"title": title, "source": "stream", "episode": ep,
                          "last_watched": ts}

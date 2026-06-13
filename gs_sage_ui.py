@@ -820,6 +820,13 @@ class SettingsPage(QWidget):
         super().__init__()
         self.rec_received.connect(self._show_rec_notification)
         self._build()
+        # Register instant-push hook so Matrix can trigger a push_single
+        # immediately when an item is added, without any import coupling.
+        try:
+            import gs_matrix_ui as _mx
+            _mx._sync_item_added = self.sync_item_added
+        except Exception:
+            pass
 
     def _build(self):
         # ── Outer layout ─────────────────────────────────────────────────────
@@ -1409,7 +1416,7 @@ class SettingsPage(QWidget):
         if not hasattr(self, "_autosync_timer"):
             self._autosync_timer = QTimer(self)
             self._autosync_timer.timeout.connect(self._sync_cycle)
-        self._autosync_timer.start(10 * 60 * 1000)  # 10 minutes
+        self._autosync_timer.start(3 * 60 * 1000)  # 3 minutes
         # Delay rec polling by 5s so the main window is fully visible before
         # any notification dialog tries to attach to it as a parent.
         QTimer.singleShot(5000, self._start_rec_polling)
@@ -1463,6 +1470,31 @@ class SettingsPage(QWidget):
                 self.rec_received.emit(rec)
 
         sync.start_polling(interval=120, callback=_on_recs)
+
+    def sync_item_added(self, title: str, media_type: str, status: str = "Planning",
+                        episode: int = 0, notes: str = "", rating: int = 0,
+                        cover_url: str = "") -> None:
+        """
+        Immediately push a single newly-added watchlist item to the cloud.
+        Called from gs_matrix_ui via the _sync_item_added hook — no import
+        coupling needed between MatrixPage and SettingsPage.
+        """
+        import logging as _logging, threading as _threading
+        _log = _logging.getLogger("great_sage.sync")
+        sync = self._get_sync()
+        if not sync or not sync.is_logged_in():
+            return
+
+        def _do():
+            ok = sync.push_single(title, media_type, status,
+                                  episode=episode, notes=notes,
+                                  rating=rating, cover_url=cover_url)
+            if ok:
+                _log.info(f"[cloud] Instant push: '{title}' → {status}")
+            else:
+                _log.warning(f"[cloud] Instant push failed for '{title}'")
+
+        _threading.Thread(target=_do, daemon=True, name="gs_sync_add").start()
 
     def _show_rec_notification(self, rec: dict):
         """Show a notification dialog for an incoming recommendation."""
