@@ -1557,6 +1557,9 @@ class MatrixPage(QWidget):
         self._stream_page = self._adblock.make_page(self._stream_profile, self._stream_view)
         self._stream_view.setPage(self._stream_page)
 
+        # Wire fullscreen request from the page into our handler
+        self._stream_page.fullScreenRequested.connect(self._on_fullscreen_requested)
+
         # Enable fullscreen and media capabilities on the view's settings too
         vs = self._stream_view.settings()
         vs.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
@@ -1583,13 +1586,10 @@ class MatrixPage(QWidget):
         self._stream_back   = _nav_btn("←", "Back")
         self._stream_fwd    = _nav_btn("→", "Forward")
         self._stream_reload = _nav_btn("↻", "Reload")
-        self._stream_home_btn = _nav_btn("⌂", "Home")
 
         self._stream_back.clicked.connect(self._stream_view.back)
         self._stream_fwd.clicked.connect(self._stream_view.forward)
         self._stream_reload.clicked.connect(self._stream_view.reload)
-        self._stream_home_btn.clicked.connect(
-            lambda: self._stream_show_landing())
 
         self._stream_url_bar = QLineEdit()
         self._stream_url_bar.setPlaceholderText("https://animekai.be")
@@ -1598,17 +1598,14 @@ class MatrixPage(QWidget):
             f"font-size:12px; padding:4px 12px; border-radius:3px;")
         self._stream_url_bar.returnPressed.connect(self._stream_navigate)
 
-        # Login status — shown as a small dot indicator on the home button
         self._stream_landing_btn = QPushButton("⌂  HOME")
         self._stream_landing_btn.setFixedHeight(30)
         self._stream_landing_btn.setToolTip("Return to StreamGate landing page")
         self._stream_landing_btn.setStyleSheet(
-            f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:9px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
+            f"background:{ACCENT}; border:none; color:#fff;"
+            f"font-size:11px; font-weight:bold; letter-spacing:1px; padding:5px 16px; border-radius:4px;")
         self._stream_landing_btn.clicked.connect(
             lambda: self._stream_show_landing())
-
-        # YT button removed — use landing page instead
 
         nv.addWidget(self._stream_back)
         nv.addWidget(self._stream_fwd)
@@ -1705,6 +1702,14 @@ class MatrixPage(QWidget):
             return True
         return super().eventFilter(obj, event)
 
+    def _on_fullscreen_requested(self, request):
+        """Handle fullscreen requests from the web page."""
+        request.accept()
+        if request.toggleOn():
+            self._enter_stream_fullscreen()
+        else:
+            self._exit_stream_fullscreen()
+
     def _enter_stream_fullscreen(self):
         """Hide all surrounding chrome and make the stream view cover the
         whole window — entered when the page's player requests fullscreen."""
@@ -1716,7 +1721,20 @@ class MatrixPage(QWidget):
         self._now_watch_bar.hide()
         if hasattr(self, "_tabs"):
             self._tabs.tabBar().hide()
+        # Hide the main window nav rail
         win = self._stream_view.window()
+        nav_rail = win.findChild(QWidget, "NavRail")
+        if nav_rail is None:
+            # fallback: look for any widget named _nav_rail
+            for child in win.findChildren(QWidget):
+                if child.__class__.__name__ == "NavRail":
+                    nav_rail = child
+                    break
+        if nav_rail:
+            nav_rail.hide()
+            self._stream_hidden_nav_rail = nav_rail
+        else:
+            self._stream_hidden_nav_rail = None
         win.showFullScreen()
         self._stream_view.setFocus()
 
@@ -1731,10 +1749,13 @@ class MatrixPage(QWidget):
         self._stream_nav_bar.show()
         if self._now_watch_lbl.text():
             self._now_watch_bar.show()
+        # Restore nav rail
+        if getattr(self, "_stream_hidden_nav_rail", None):
+            self._stream_hidden_nav_rail.show()
+            self._stream_hidden_nav_rail = None
         win = self._stream_view.window()
         win.showNormal()
-        # Ask the page to drop out of its own HTML5 fullscreen too, in case
-        # it's still considered "fullscreen" by the document.
+        # Ask the page to drop out of its own HTML5 fullscreen too
         self._stream_page.runJavaScript(
             "if (document.fullscreenElement) { document.exitFullscreen(); }")
 
@@ -2051,13 +2072,21 @@ class MatrixPage(QWidget):
     def _on_stream_title_changed(self, title):
         self._parse_animekai_title(title)
 
+    # Sites where the popup killer should NOT run — their own JS handles layout
+    _POPUP_KILLER_SKIP = (
+        "youtube.com", "youtu.be", "google.com", "google.",
+        "twitch.tv", "netflix.com", "crunchyroll.com",
+    )
+
     def _on_stream_load_finished(self, ok):
         self._stream_progress.hide()
         self._stream_back.setEnabled(self._stream_view.history().canGoBack())
         self._stream_fwd.setEnabled(self._stream_view.history().canGoForward())
-        # Inject popup/overlay killer
-        self._stream_page.runJavaScript(self._adblock.popup_killer_js())
         url = self._stream_view.url().toString().lower()
+        # Only inject popup killer on sites that actually have intrusive overlays
+        # Skip trusted sites where it causes layout/scroll interference
+        if not any(s in url for s in self._POPUP_KILLER_SKIP):
+            self._stream_page.runJavaScript(self._adblock.popup_killer_js())
         if "animekai" in url and "/watch/" in url:
             QTimer.singleShot(2000, self._run_animetsu_scrape)
 

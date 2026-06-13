@@ -148,7 +148,7 @@ def load_seen_recs() -> list:
     return load_json(SAGE_SEEN_FILE, [])
 
 def save_seen_recs(seen: list):
-    save_json(SAGE_SEEN_FILE, seen[-100:])
+    save_json(SAGE_SEEN_FILE, seen[-200:])
 
 def add_seen_recs(titles: list):
     seen = load_seen_recs()
@@ -843,7 +843,8 @@ def get_recommendations(profile_text: str, mode: str) -> tuple:
     # Build exclusion block for the SYSTEM prompt (not user turn — LLMs ignore trailing constraints)
     seen_system_block = ""
     if combined_seen:
-        seen_list = "\n".join(f"- {t}" for t in sorted(combined_seen)[-60:])
+        # Keep insertion order (most recent last) — take the last 80, never sort
+        seen_list = "\n".join(f"- {t}" for t in list(combined_seen)[-80:])
         seen_system_block = (
             "\n\n[HARD EXCLUSION LIST — NEVER recommend any of these titles under any circumstances. "
             "Even if they seem like a perfect fit, skip them and suggest something else:]\n"
@@ -907,7 +908,7 @@ def get_quick_pick(profile_text: str) -> tuple:
     seen = load_seen_recs()
     seen_system_block = ""
     if seen:
-        seen_list = "\n".join(f"- {t}" for t in seen[-30:])
+        seen_list = "\n".join(f"- {t}" for t in seen[-80:])
         seen_system_block = (
             "\n\n[HARD EXCLUSION LIST — do NOT suggest any of these under any circumstances:]\n"
             + seen_list
