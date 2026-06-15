@@ -181,7 +181,7 @@ def save_json(path: str, data: dict) -> bool:
             try:
                 existing_size = os.path.getsize(abs_path)
                 new_size = len(json.dumps(data).encode())
-                if existing_size > 500 and new_size < 200:
+                if existing_size > 500 and new_size < existing_size * 0.10:
                     log.error(
                         "save_json REFUSED: would overwrite non-empty file with near-empty data",
                         path=abs_path, existing_bytes=existing_size, new_bytes=new_size

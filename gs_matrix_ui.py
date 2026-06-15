@@ -291,6 +291,8 @@ class MatrixPage(QWidget):
                 if s.is_logged_in():
                     s.restore_to_disk()
                     log.sync.info("[cloud] Pull on launch complete")
+                    # Refresh UI on main thread after data is written to disk
+                    QTimer.singleShot(0, self.refresh)
             except Exception as e:
                 log.sync.warning("[cloud] Pull on launch failed", error=str(e))
         threading.Thread(target=_do, daemon=True).start()
