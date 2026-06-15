@@ -272,11 +272,14 @@ from gs_adblock import AdBlockPage, get_manager as _get_adblock_manager
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MatrixPage(QWidget):
+    _request_cloud_push = pyqtSignal()  # thread-safe push trigger from play loop
+
     def __init__(self):
         super().__init__()
         self._meta_worker  = None
         self._mpv_process  = None
         self._play_thread  = None
+        self._request_cloud_push.connect(self._cloud_push)
         self._build()
         self.refresh()
         # Pull from cloud on launch (delayed so token refresh has time to complete)
@@ -1107,7 +1110,7 @@ class MatrixPage(QWidget):
             except Exception as e:
                 log.warning("Operation failed", error=str(e), location="_play_loop")
         _ensure_watching(show)
-        QTimer.singleShot(0, self._cloud_push)  # sync planning→watching immediately
+        self._request_cloud_push.emit()  # sync planning→watching immediately (thread-safe)
 
         while current:
             mod, _ = matrix_mod()
@@ -1270,7 +1273,7 @@ class MatrixPage(QWidget):
                                     save_json(MATRIX_PROGRESS, _md)
                         except Exception:
                             pass
-                        QTimer.singleShot(0, self._cloud_push)  # always push on episode advance
+                        self._request_cloud_push.emit()  # always push on episode advance (thread-safe)
 
                 # Get position — skip reads while mpv is switching files to avoid
                 # capturing a stale position from the previous episode
@@ -1509,7 +1512,7 @@ class MatrixPage(QWidget):
             QTimer.singleShot(0, self.refresh)
             QTimer.singleShot(0, lambda: self.now_lbl.setText(
                 f"✅ '{show}' moved to Completed"))
-            QTimer.singleShot(0, self._cloud_push)
+            self._request_cloud_push.emit()  # auto-complete push (thread-safe)
         except Exception as e:
             log.warning("auto_complete error", error=str(e))
 
