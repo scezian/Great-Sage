@@ -2016,6 +2016,14 @@ class MatrixApp:
                             item.total_episodes = _total_eps
                             self.storage.update_watching(show_key, item)
 
+                        # Immediately update episode from current filename — don't wait for on_progress
+                        _season, _episode = MediaPlayer._extract_season_episode(os.path.basename(item.file_path))
+                        if _episode > 0 and _episode != item.current_episode:
+                            item.current_episode = _episode
+                            if _season > 0:
+                                item.current_season = _season
+                            self.storage.update_watching(show_key, item)
+
                         def on_next(next_file):
                             """Called when moving to a new episode — update episode tracking."""
                             next_title = extract_show_title(os.path.basename(next_file))
