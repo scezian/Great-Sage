@@ -272,7 +272,8 @@ from gs_adblock import AdBlockPage, get_manager as _get_adblock_manager
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MatrixPage(QWidget):
-    _request_cloud_push = pyqtSignal()  # thread-safe push trigger from play loop
+    _request_cloud_push = pyqtSignal()   # thread-safe push trigger from play loop
+    _request_toast      = pyqtSignal(str, str)  # (message, kind) — "info" or "warn"
 
     def __init__(self):
         super().__init__()
@@ -280,25 +281,59 @@ class MatrixPage(QWidget):
         self._mpv_process  = None
         self._play_thread  = None
         self._request_cloud_push.connect(self._cloud_push)
+        self._request_toast.connect(self._show_cloud_toast)
         self._build()
         self.refresh()
+        # Instantiate cloud-sync toast (parented to self so it overlays MatrixPage)
+        self._cloud_toast = SyncToast(self)
+        self._cloud_toast.hide()
         # Pull from cloud on launch (delayed so token refresh has time to complete)
         QTimer.singleShot(3000, self._cloud_pull_on_launch)
 
     def _cloud_pull_on_launch(self):
-        """Pull latest watchlist from Supabase on app launch (background thread)."""
+        """
+        Pull latest watchlist from Supabase on launch, then keep polling every
+        5 minutes so TrackFlix additions appear in Great Sage without a restart.
+        """
+        POLL_INTERVAL = 300  # seconds between watchlist pulls
+
         def _do():
             try:
                 from gs_sync import GreatSageSync
                 s = GreatSageSync()
-                if s.is_logged_in():
+                if not s.is_logged_in():
+                    log.sync.warning("[cloud] Not logged in — skipping pull")
+                    self._request_toast.emit(
+                        "☁  Cloud sync: not logged in — sign in in Settings", "warn"
+                    )
+                    return
+
+                # ── First pull immediately on launch ─────────────────────────
+                try:
                     s.restore_to_disk()
                     log.sync.info("[cloud] Pull on launch complete")
-                    # Refresh UI on main thread after data is written to disk
                     QTimer.singleShot(0, self.refresh)
+                except Exception as e:
+                    log.sync.warning("[cloud] Pull on launch failed", error=str(e))
+
+                # ── Keep polling every POLL_INTERVAL seconds ──────────────────
+                while True:
+                    import time as _time
+                    _time.sleep(POLL_INTERVAL)
+                    try:
+                        ok = s.restore_to_disk()
+                        if ok:
+                            log.sync.info("[cloud] Periodic pull complete")
+                            QTimer.singleShot(0, self.refresh)
+                        else:
+                            log.sync.warning("[cloud] Periodic pull returned False")
+                    except Exception as e:
+                        log.sync.warning("[cloud] Periodic pull failed", error=str(e))
+
             except Exception as e:
-                log.sync.warning("[cloud] Pull on launch failed", error=str(e))
-        threading.Thread(target=_do, daemon=True).start()
+                log.sync.warning("[cloud] Pull thread crashed", error=str(e))
+
+        threading.Thread(target=_do, daemon=True, name="gs_cloud_pull").start()
 
     def _cloud_push(self):
         """Push current progress to Supabase in the background."""
@@ -312,6 +347,10 @@ class MatrixPage(QWidget):
             except Exception as e:
                 log.sync.warning("[cloud] Push failed", error=str(e))
         threading.Thread(target=_do, daemon=True).start()
+
+    def _show_cloud_toast(self, message: str, kind: str = "info"):
+        """Show a SyncToast on the main thread. Safe to call via signal from any thread."""
+        self._cloud_toast.show_toast(message)
 
     def _build(self):
         import types as _mt
@@ -1066,7 +1105,7 @@ class MatrixPage(QWidget):
         t = threading.Thread(
             target=self._play_loop,
             args=(path, start, show),
-            daemon=True
+            daemon=False
         )
         self._play_thread = t
         t.start()
@@ -1305,8 +1344,7 @@ class MatrixPage(QWidget):
                     dur_snap = duration
                     fname = current
                     track_event("watch_time", {"minutes": 0.05})  # ~3s per save cycle
-                    def _save(sk=show, p=pos_snap, d=dur_snap, f=fname, sess=play_session):
-                        if sess != play_session: return  # stale — a newer episode is playing
+                    def _save(sk=show, p=pos_snap, d=dur_snap, f=fname):
                         if p <= 0: return                # never persist a zero from a stale tick
                         md = matrix_data()
                         watching = md.get("watching", {})
@@ -1321,7 +1359,7 @@ class MatrixPage(QWidget):
                             watching[target_key]["last_watched"] = time.time()
                             save_json(MATRIX_PROGRESS, md)
                         QTimer.singleShot(0, self.refresh)
-                    threading.Thread(target=_save, daemon=True).start()
+                    threading.Thread(target=_save, daemon=False).start()
 
                 # Re-check for next episode once we're past 85%
                 # (handles case where cur_next was None at launch but file appeared)

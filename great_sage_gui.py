@@ -501,6 +501,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_auto_sync_worker') and self._auto_sync_worker:
             self._auto_sync_worker.quit()
             self._auto_sync_worker.wait(1000)
+        # Wait for play thread to finish its final save before exiting
+        matrix_page = self._page_objs.get("matrix") if hasattr(self, '_page_objs') else None
+        if matrix_page is not None:
+            play_thread = getattr(matrix_page, '_play_thread', None)
+            if play_thread is not None and play_thread.is_alive():
+                play_thread.join(timeout=4)
         event.accept()
 
     def _build(self):

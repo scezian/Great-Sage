@@ -148,7 +148,7 @@ _json_cache: dict[str, tuple[float, dict]] = {}
 
 def load_json_cached(path: str, default=None) -> dict:
     """Load JSON only if the file has changed since last read."""
-    p_str = str(path)
+    p_str = os.path.realpath(os.path.expanduser(str(path)))
     try:
         mtime = os.path.getmtime(p_str)
         if p_str in _json_cache and _json_cache[p_str][0] == mtime:

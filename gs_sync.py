@@ -542,15 +542,21 @@ class GreatSageSync:
 
     # ── Background polling ────────────────────────────────────────────────────
 
-    def start_polling(self, interval: int = 300, callback=None):
+    def start_polling(self, interval: int = 300, callback=None,
+                      watchlist_callback=None):
         """
-        Poll recommendations inbox every `interval` seconds.
-        Calls callback(recs: list) when new recommendations arrive.
-        Fires an immediate first check so pending recs surface on launch
-        rather than waiting the full interval.
+        Poll recommendations inbox AND pull watchlist every `interval` seconds.
+
+        - callback(recs)           called when new recommendations arrive
+        - watchlist_callback()     called after each successful restore_to_disk()
+                                   so the UI can refresh itself
+
+        Fires an immediate first check so pending recs and any TrackFlix
+        additions surface on launch rather than waiting the full interval.
         """
         if callback and callback not in self._rec_callbacks:
             self._rec_callbacks.append(callback)
+        self._watchlist_callback = watchlist_callback
         if self._poll_thread and self._poll_thread.is_alive():
             return
         self._stop_poll.clear()
@@ -567,6 +573,20 @@ class GreatSageSync:
         last_seen: set[str] = set()
 
         def _check():
+            # ── Pull watchlist from cloud (TrackFlix → Great Sage) ──────────
+            try:
+                ok = self.restore_to_disk()
+                if ok:
+                    cb = getattr(self, "_watchlist_callback", None)
+                    if cb:
+                        try:
+                            cb()
+                        except Exception as e:
+                            logger.error(f"[gs_sync] Watchlist callback error: {e}")
+            except Exception as e:
+                logger.error(f"[gs_sync] Watchlist pull error: {e}")
+
+            # ── Poll recommendations inbox ───────────────────────────────────
             try:
                 recs = self.get_recommendations()
                 new_ids = {r["id"] for r in recs}
@@ -576,14 +596,14 @@ class GreatSageSync:
                         try:
                             cb(new_recs)
                         except Exception as e:
-                            logger.error(f"[gs_sync] Callback error: {e}")
+                            logger.error(f"[gs_sync] Rec callback error: {e}")
                 last_seen.clear()
                 last_seen.update(new_ids)
             except Exception as e:
-                logger.error(f"[gs_sync] Poll error: {e}")
+                logger.error(f"[gs_sync] Rec poll error: {e}")
 
         # Immediate first check — don't make the user wait a full interval
-        # before pending recommendations surface.
+        # before pending recommendations or TrackFlix additions surface.
         _check()
 
         while not self._stop_poll.wait(timeout=interval):

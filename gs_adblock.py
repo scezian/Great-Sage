@@ -671,7 +671,10 @@ if _WEBENGINE_OK:
                 host._enter_stream_fullscreen()
 
         def createWindow(self, _type):
-            return None  # block all popups
+            # Return a new AdBlockPage (same profile) so sub-frames also
+            # inherit javaScriptConfirm/Alert overrides. Never attached to a
+            # view so it stays invisible; Qt GCs it when nothing references it.
+            return AdBlockPage(self.profile(), self.parent())
 
         def javaScriptAlert(self, url, msg):     pass
         def javaScriptConfirm(self, url, msg):   return False
@@ -901,6 +904,11 @@ var CLOSE_PATTERNS = [
 
 // ── Core sweep ────────────────────────────────────────────────────────────
 function killOverlays() {
+    // Never touch the DOM while the user is in HTML5 fullscreen — the player's
+    // fullscreen container would match our heuristics and get removed, causing
+    // the fullscreen to collapse unexpectedly.
+    if (document.fullscreenElement) return;
+
     // Pass 1: selector + heuristic
     KILL_SELECTORS.forEach(function(sel) {
         try {
@@ -1054,6 +1062,10 @@ class AdBlockManager:
         # Cosmetic injection script
         self._inject_cosmetic(profile)
 
+        # Popup/overlay killer — persistent script so it also runs inside
+        # cross-origin iframes (where runJavaScript can't reach).
+        self._inject_popup_killer(profile)
+
     def make_page(self, profile, parent=None) -> "AdBlockPage":
         """Return a fully configured AdBlockPage."""
         return AdBlockPage(profile, parent)
@@ -1098,6 +1110,20 @@ class AdBlockManager:
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         profile.scripts().insert(script)
 
+    def _inject_popup_killer(self, profile) -> None:
+        """
+        Inject the overlay killer as a persistent profile script so it runs
+        in EVERY frame including cross-origin iframes at DocumentReady.
+        """
+        from PyQt6.QtWebEngineCore import QWebEngineScript
+        script = QWebEngineScript()
+        script.setName("gs_adblock_popup_killer")
+        script.setSourceCode(popup_killer_js())
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        script.setRunsOnSubFrames(True)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        profile.scripts().insert(script)
+
     def _start_background_fetch(self) -> None:
         t = threading.Thread(target=self._fetch_worker, daemon=True, name="adblock_fetch")
         t.start()
@@ -1115,15 +1141,16 @@ class AdBlockManager:
             # Update live interceptor
             if self._interceptor:
                 self._interceptor.update_engine(engine)
-            # Re-inject cosmetic scripts into all known profiles
+            # Re-inject cosmetic + popup killer scripts into all known profiles
             for profile in self._profiles:
                 try:
-                    # Remove old script, insert refreshed one
                     scripts = profile.scripts()
                     existing = scripts.find("gs_adblock_cosmetic")
                     if not existing.isNull():
                         scripts.remove(existing)
                     self._inject_cosmetic(profile)
+                    if scripts.find("gs_adblock_popup_killer").isNull():
+                        self._inject_popup_killer(profile)
                 except Exception as e:
                     log.warning("adblock: profile cosmetic refresh failed — %s", e)
             log.info("adblock: filter lists updated. domains=%d block_rules=%d",
