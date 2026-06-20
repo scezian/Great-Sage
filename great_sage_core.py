@@ -907,6 +907,8 @@ class MetadataWorker(QThread):
             if res:
                 x  = res[0]
                 ov = _strip_markdown(x.get("overview", ""))
+                poster_path = x.get("poster_path", "")
+                img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
                 log.matrix.info("Metadata fetched via TMDB fallback", title=self.clean)
                 self.done.emit({
                     "title":   x.get("title") or x.get("name", self.clean),
@@ -914,6 +916,7 @@ class MetadataWorker(QThread):
                     "synopsis": ov,
                     "score":   round(x.get("vote_average", 0), 1),
                     "source":  "TMDB",
+                    "image_url": img_url,
                 })
             else:
                 log.matrix.warning("No metadata found", title=self.clean)

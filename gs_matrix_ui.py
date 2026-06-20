@@ -271,6 +271,32 @@ from gs_adblock import AdBlockPage, get_manager as _get_adblock_manager
 # ANIMEKAI WATCH HISTORY SYNC WORKER
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WATCHLIST DETAIL POSTER WORKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _PosterWorker(QThread):
+    """Downloads a poster/cover image from a URL in the background and
+    emits the raw bytes. Kept separate from MetadataWorker so a slow image
+    host never blocks the synopsis/title from showing up."""
+    done  = pyqtSignal(bytes)
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        try:
+            import requests as _req
+            r = _req.get(self.url, timeout=15)
+            r.raise_for_status()
+            self.done.emit(r.content)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MatrixPage(QWidget):
     _request_cloud_push = pyqtSignal()   # thread-safe push trigger from play loop
     _request_toast      = pyqtSignal(str, str)  # (message, kind) — "info" or "warn"
@@ -475,7 +501,24 @@ class MatrixPage(QWidget):
 
         self.wl_detail_w = QWidget()
         self.wl_detail_w.hide()
-        dv = QVBoxLayout(self.wl_detail_w)
+        outer_dv = QHBoxLayout(self.wl_detail_w)
+        outer_dv.setContentsMargins(0,0,0,0)
+        outer_dv.setSpacing(24)
+
+        # Poster — fixed width, left side. Hidden until an image loads so
+        # layout doesn't reserve empty space for titles with no artwork.
+        self.wl_d_poster = QLabel("")
+        self.wl_d_poster.setFixedSize(180, 260)
+        self.wl_d_poster.setScaledContents(False)
+        self.wl_d_poster.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        self.wl_d_poster.setStyleSheet(
+            f"background:{BG2};border:1px solid {BORDER};border-radius:6px;")
+        self.wl_d_poster.hide()
+        outer_dv.addWidget(self.wl_d_poster, 0, Qt.AlignmentFlag.AlignTop)
+        self._poster_worker = None
+
+        text_col = QWidget()
+        dv = QVBoxLayout(text_col)
         dv.setContentsMargins(0,0,0,0)
         dv.setSpacing(0)
 
@@ -513,6 +556,8 @@ class MatrixPage(QWidget):
         self.wl_d_src_lbl.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:.5px;")
         btn_row.addWidget(self.wl_d_trailer_btn); btn_row.addStretch(); btn_row.addWidget(self.wl_d_src_lbl)
         dv.addLayout(btn_row)
+
+        outer_dv.addWidget(text_col, 1)
 
         rv.addWidget(self.wl_detail_w, 1)
         splitter.addWidget(right)
@@ -684,12 +729,15 @@ class MatrixPage(QWidget):
             self.wl_placeholder.setText(f"No metadata found for '{title}'.")
             self.wl_placeholder.show(); self.wl_detail_w.hide()
             return
-        t       = info.get("title", title)
-        yr      = info.get("year","")
-        sc      = info.get("score", 0)
-        ov      = info.get("synopsis") or info.get("overview","")
-        src_s   = info.get("source","")
-        genres  = info.get("genres","")
+        t        = info.get("title", title)
+        yr       = info.get("year","")
+        sc       = info.get("score", 0)
+        ov       = info.get("synopsis") or info.get("overview","")
+        src_s    = info.get("source","")
+        genres   = info.get("genres","")
+        seasons  = info.get("seasons","")
+        episodes = info.get("episodes","")
+        runtime  = info.get("runtime","")
         genre_str = (", ".join(genres[:4]) if isinstance(genres,list) else
                      genres if isinstance(genres,str) else "")
 
@@ -698,6 +746,14 @@ class MatrixPage(QWidget):
         meta_parts = []
         if yr: meta_parts.append(str(yr))
         if sc and sc != "N/A": meta_parts.append(f"★ {sc}")
+        if seasons and str(seasons) not in ("", "Unknown"):
+            s = int(seasons) if str(seasons).isdigit() else seasons
+            meta_parts.append(f"{s} Season" + ("s" if s != 1 else ""))
+        if episodes and str(episodes) not in ("", "Unknown"):
+            e = int(episodes) if str(episodes).isdigit() else episodes
+            meta_parts.append(f"{e} Episode" + ("s" if e != 1 else ""))
+        if runtime and not str(runtime).startswith("?"):
+            meta_parts.append(str(runtime))
         if genre_str: meta_parts.append(genre_str)
         self.wl_d_meta.setText("  ·  ".join(meta_parts))
 
@@ -707,8 +763,36 @@ class MatrixPage(QWidget):
         self._wl_current_title = title
         self.wl_d_trailer_btn.show()
 
+        self._load_poster(info.get("image_url", ""))
+
         self.wl_placeholder.hide()
         self.wl_detail_w.show()
+
+    def _load_poster(self, url: str):
+        """Fetch and display the poster for the currently-shown detail entry.
+        Hides the poster slot entirely if there's no image_url or the
+        download fails, rather than showing a broken/blank box."""
+        if self._poster_worker and self._poster_worker.isRunning():
+            self._poster_worker.terminate()
+        self.wl_d_poster.clear()
+        self.wl_d_poster.hide()
+        if not url:
+            return
+        self._poster_worker = _PosterWorker(url)
+        self._poster_worker.done.connect(lambda data, u=url: self._set_poster(data, u))
+        self._poster_worker.error.connect(lambda e: None)  # silently keep poster hidden
+        self._poster_worker.start()
+
+    def _set_poster(self, data: bytes, url: str):
+        # Guard against a late-arriving image for a title the user has since
+        # navigated away from (e.g. rapid clicking down the watchlist).
+        pix = QPixmap()
+        if not pix.loadFromData(data):
+            return
+        pix = pix.scaled(180, 260, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                          Qt.TransformationMode.SmoothTransformation)
+        self.wl_d_poster.setPixmap(pix)
+        self.wl_d_poster.show()
 
     def _reset_trailer_btn(self):
         self.wl_d_trailer_btn.setText("▶  WATCH TRAILER")

@@ -1742,6 +1742,9 @@ class MetadataFetcher:
                 if MetadataFetcher.title_matches(title, entry['title'], alts):
                     genres = [g['name'] for g in entry.get('genres', [])]
                     themes = [t2['name'] for t2 in entry.get('themes', [])]
+                    images = entry.get('images', {}) or {}
+                    img_url = (images.get('jpg', {}) or {}).get('large_image_url') \
+                        or (images.get('jpg', {}) or {}).get('image_url', '')
                     return {
                         'source':       'Jikan / MAL',
                         'title':        entry.get('title_english') or entry['title'],
@@ -1756,6 +1759,7 @@ class MetadataFetcher:
                         'status':       entry.get('status', 'Unknown'),
                         'rating':       entry.get('rating', 'Unknown'),
                         'studios':      [s['name'] for s in entry.get('studios', [])],
+                        'image_url':    img_url,
                     }
         except Exception as e:
             safe_print(f"Jikan error: {e}", "[dim]")
@@ -1800,6 +1804,8 @@ class MetadataFetcher:
                                    timeout=10).json()
 
                 genres = [g['name'] for g in det.get('genres', [])]
+                poster_path = det.get('poster_path', '')
+                img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ''
 
                 if media_type == 'movie':
                     return {
@@ -1814,6 +1820,7 @@ class MetadataFetcher:
                         'type':         'Movie',
                         'status':       det.get('status', 'Unknown'),
                         'runtime':      f"{det.get('runtime', '?')} min",
+                        'image_url':    img_url,
                     }
                 else:  # tv
                     return {
@@ -1832,6 +1839,7 @@ class MetadataFetcher:
                         'network':      ', '.join(
                             n['name'] for n in det.get('networks', [])
                         ) or 'Unknown',
+                        'image_url':    img_url,
                     }
 
         except Exception as e:
@@ -1857,6 +1865,7 @@ class MetadataFetcher:
                 show = entry.get('show', {})
                 alts = [show.get('name', '')]
                 if MetadataFetcher.title_matches(title, show.get('name', ''), alts):
+                    img = show.get('image') or {}
                     return {
                         'source':       'TVMaze',
                         'title':        show.get('name', ''),
@@ -1868,6 +1877,7 @@ class MetadataFetcher:
                         'type':         show.get('type', 'Unknown'),
                         'status':       show.get('status', 'Unknown'),
                         'network':      (show.get('network') or {}).get('name', 'Unknown'),
+                        'image_url':    img.get('original') or img.get('medium', ''),
                     }
         except Exception as e:
             safe_print(f"TVMaze error: {e}", "[dim]")
