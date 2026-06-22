@@ -98,6 +98,7 @@ from gs_widgets import (
     lbl, btn, hline, vline, tag,
     NavRail, EyeBreakToast, SyncToast,
     WatchfaceWindow, MemoryPalaceWindow,
+    NotificationBell,
 )
 
 # ── Page modules ──────────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ from great_sage_core import (
     legion_data, matrix_data, bookmarks_data,
     sage_memory_load,
     SageWorker, AutoSyncWorker, start_mobile_server,
+    get_notification_store,
 )
 
 # ── Qt ────────────────────────────────────────────────────────────────────────
@@ -270,8 +272,12 @@ class DashboardPage(QWidget):
         qa_v.addWidget(qa_label)
         qa_row = QHBoxLayout()
         qa_row.setSpacing(10)
+
+        # Bell — first slot, replaces Highlights
+        self._notif_bell = NotificationBell()
+        qa_row.addWidget(self._notif_bell)
+
         for text, cb in [
-            ("✦  HIGHLIGHTS",          self._show_highlights),
             ("📅  CALENDAR",            self._show_calendar),
             ("📊  WRAPPED — ALL TIME",  lambda: self._show_wrapped("alltime")),
             ("⊙  SETTINGS",            lambda: self._launch("settings")),
@@ -459,6 +465,10 @@ class DashboardPage(QWidget):
                 f"{n_enabled} plugin{'s' if n_enabled != 1 else ''} enabled"
                 if n_enabled else "No plugins installed yet")
             self._card_plugins._sub_lbl.setText("")
+
+            # Refresh notification bell badge
+            if hasattr(self, "_notif_bell"):
+                self._notif_bell.refresh_badge()
 
         except Exception as e:
             log.warning("DashboardPage.refresh error", error=str(e))
@@ -810,18 +820,109 @@ class MainWindow(QMainWindow):
             try:
                 version_file = Path(SCRIPT_DIR) / "VERSION"
                 local_version = version_file.read_text().strip() if version_file.exists() else None
-                url = "https://raw.githubusercontent.com/scezian/Great-Sage/main/VERSION"
-                with urllib.request.urlopen(url, timeout=5) as resp:
+
+                # ── Fetch remote VERSION ──────────────────────────────────────
+                url_ver = "https://raw.githubusercontent.com/scezian/Great-Sage/main/VERSION"
+                with urllib.request.urlopen(url_ver, timeout=5) as resp:
                     remote_version = resp.read().decode().strip()
-                if local_version and remote_version and local_version != remote_version:
+
+                if not (local_version and remote_version and
+                        local_version != remote_version):
+                    return   # already up to date
+
+                # ── Deduplicate — don't re-add the same update notification ──
+                store = get_notification_store()
+                notif_id = f"update-{remote_version}"
+                existing = {n["id"] for n in store.all_items()}
+                if notif_id in existing:
+                    # Still show the banner if it was previously dismissed
                     from PyQt6.QtCore import QMetaObject, Qt as _Qt
                     QMetaObject.invokeMethod(
                         self, "_show_update_banner",
                         _Qt.ConnectionType.QueuedConnection,
                     )
-            except Exception:
-                pass
+                    return
+
+                # ── Fetch commits between local tag and remote tag ────────────
+                commits = []
+                try:
+                    import json as _json
+                    local_tag  = f"v{local_version}"
+                    remote_tag = f"v{remote_version}"
+
+                    # Compare API: commits between local tag and remote tag
+                    compare_url = (
+                        f"https://api.github.com/repos/scezian/Great-Sage"
+                        f"/compare/{local_tag}...{remote_tag}"
+                    )
+                    req = urllib.request.Request(
+                        compare_url,
+                        headers={"Accept": "application/vnd.github+json",
+                                 "User-Agent": "GreatSage-App"},
+                    )
+                    with urllib.request.urlopen(req, timeout=8) as r:
+                        cmp_data = _json.loads(r.read().decode())
+
+                    for c in cmp_data.get("commits", []):
+                        msg = c.get("commit", {}).get("message", "").strip()
+                        sha = c.get("sha", "")
+                        if msg:
+                            commits.append({"sha": sha, "message": msg})
+
+                except Exception as _ce:
+                    log.warning("Update check: commit compare failed", error=str(_ce))
+                    # Fallback — last 8 commits from main
+                    try:
+                        import json as _json
+                        fallback_url = (
+                            "https://api.github.com/repos/scezian/Great-Sage"
+                            "/commits?per_page=8"
+                        )
+                        req2 = urllib.request.Request(
+                            fallback_url,
+                            headers={"Accept": "application/vnd.github+json",
+                                     "User-Agent": "GreatSage-App"},
+                        )
+                        with urllib.request.urlopen(req2, timeout=8) as r2:
+                            raw = _json.loads(r2.read().decode())
+                        for c in raw:
+                            msg = c.get("commit", {}).get("message", "").strip()
+                            sha = c.get("sha", "")
+                            if msg:
+                                commits.append({"sha": sha, "message": msg})
+                    except Exception:
+                        pass
+
+                # ── Push notification to store ────────────────────────────────
+                store.add(
+                    notif_type="update",
+                    title=f"Great Sage v{remote_version} available",
+                    data={"version": remote_version, "commits": commits},
+                    notif_id=notif_id,
+                )
+
+                # Also show the banner and refresh the bell
+                from PyQt6.QtCore import QMetaObject, Qt as _Qt
+                QMetaObject.invokeMethod(
+                    self, "_show_update_banner",
+                    _Qt.ConnectionType.QueuedConnection,
+                )
+                QMetaObject.invokeMethod(
+                    self, "_refresh_notif_bell",
+                    _Qt.ConnectionType.QueuedConnection,
+                )
+
+            except Exception as e:
+                log.warning("Update check failed", error=str(e))
+
         threading.Thread(target=_fetch, daemon=True).start()
+
+    @pyqtSlot()
+    def _refresh_notif_bell(self):
+        """Refresh the notification bell badge from the main thread."""
+        dash = self._page_objs.get("dashboard")
+        if dash and hasattr(dash, "_notif_bell"):
+            dash._notif_bell.refresh_badge()
 
     @pyqtSlot()
     def _show_update_banner(self):

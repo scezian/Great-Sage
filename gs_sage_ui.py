@@ -818,7 +818,10 @@ class SettingsPage(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.rec_received.connect(self._show_rec_notification)
+        # Route incoming recs to the notification store (bell) instead of
+        # popping a dialog directly.  The panel's click handler opens the
+        # dialog when the user chooses to act on the notification.
+        self.rec_received.connect(self._store_rec_notification)
         self._build()
         # Register instant-push hook so Matrix can trigger a push_single
         # immediately when an item is added, without any import coupling.
@@ -1495,6 +1498,43 @@ class SettingsPage(QWidget):
                 _log.warning(f"[cloud] Instant push failed for '{title}'")
 
         _threading.Thread(target=_do, daemon=True, name="gs_sync_add").start()
+
+    def _store_rec_notification(self, rec: dict):
+        """
+        Called on the main thread when a rec arrives via the sync poll.
+        Pushes the rec into NotificationStore so the bell badge appears.
+        The RecNotificationDialog is only opened when the user clicks the
+        notification in the panel — not immediately on arrival.
+        """
+        import logging as _logging
+        _log = _logging.getLogger("great_sage.sync")
+        try:
+            from great_sage_core import get_notification_store
+            sender = rec.get("sender", "Someone")
+            title  = rec.get("title", "")
+            notif_id = f"rec-{rec.get('id', '')}"
+            get_notification_store().add(
+                notif_type="friend_rec",
+                title=f"{sender} recommended  {title}",
+                data=rec,
+                notif_id=notif_id,
+            )
+            # Refresh bell badge on the dashboard if it's visible
+            try:
+                from PyQt6.QtWidgets import QApplication as _QApp
+                mw = _QApp.activeWindow()
+                if mw and hasattr(mw, "_page_objs"):
+                    dash = mw._page_objs.get("dashboard")
+                    if dash and hasattr(dash, "_notif_bell"):
+                        dash._notif_bell.refresh_badge()
+            except Exception:
+                pass
+            _log.info(
+                f"[cloud] Rec stored in notification bell: {title} from {sender}")
+        except Exception as e:
+            _log.warning(f"[cloud] Failed to store rec notification: {e}")
+            # Fallback — show the old dialog so the rec is never silently lost
+            self._show_rec_notification(rec)
 
     def _show_rec_notification(self, rec: dict):
         """Show a notification dialog for an incoming recommendation."""

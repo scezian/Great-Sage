@@ -1715,9 +1715,477 @@ class WatchfaceWindow(QWidget):
 
 
 
-# ── Auto-sync worker: checks for new chapters on launch + every 6 hours ───────
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN WINDOW
+# NOTIFICATION BELL — dashboard quick-action button with unread badge
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class NotificationBell(QPushButton):
+    """
+    Bell button that lives in the dashboard Quick Actions row.
+
+    - Paints a small filled accent circle (badge) in the top-right corner
+      when there are unread notifications.
+    - Clicking opens / closes the NotificationPanel anchored below it.
+    - Call refresh_badge() after any store mutation to repaint.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setText("🔔  NOTIFICATIONS")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._unread = 0
+        self._panel: "NotificationPanel | None" = None
+        self._apply_style(False)
+        self.clicked.connect(self._toggle_panel)
+
+    def _apply_style(self, active: bool):
+        if active:
+            self.setStyleSheet(
+                f"QPushButton{{background:transparent;border:1px solid {ACCENT};"
+                f"border-radius:3px;color:{ACCENT};font-size:10px;letter-spacing:1px;"
+                f"padding:8px 14px;}}"
+                f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
+            )
+        else:
+            self.setStyleSheet(
+                f"QPushButton{{background:transparent;border:1px solid {BORDER};"
+                f"border-radius:3px;color:{TEXT2};font-size:10px;letter-spacing:1px;"
+                f"padding:8px 14px;}}"
+                f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
+            )
+
+    def refresh_badge(self):
+        """Re-read unread count from store and repaint."""
+        try:
+            from great_sage_core import get_notification_store
+            self._unread = get_notification_store().unread_count()
+        except Exception:
+            self._unread = 0
+        self.update()   # triggers paintEvent
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._unread <= 0:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Badge: small filled circle at top-right of button
+        badge_r = 5
+        bx = self.width() - badge_r - 4
+        by = badge_r + 3
+        p.setPen(Qt.PenStyle.NoPen)
+        # Dark outline so badge is visible on any background
+        p.setBrush(QBrush(QColor(BG)))
+        p.drawEllipse(bx - badge_r - 1, by - badge_r - 1,
+                      (badge_r + 1) * 2, (badge_r + 1) * 2)
+        # Accent fill
+        p.setBrush(QBrush(QColor(ACCENT)))
+        p.drawEllipse(bx - badge_r, by - badge_r, badge_r * 2, badge_r * 2)
+        p.end()
+
+    def _toggle_panel(self):
+        if self._panel and self._panel.isVisible():
+            self._panel.hide()
+            self._apply_style(False)
+            return
+        self._open_panel()
+
+    def _open_panel(self):
+        # Find the top-level main window to parent the panel to
+        mw = self.window()
+        if self._panel is None:
+            self._panel = NotificationPanel(mw)
+            self._panel.closed.connect(lambda: self._apply_style(False))
+            self._panel.store_changed.connect(self.refresh_badge)
+        else:
+            self._panel.setParent(mw)
+
+        self._panel.reload()
+
+        # Position: below this button, left-aligned with it
+        pos = self.mapTo(mw, self.rect().bottomLeft())
+        pw = 360
+        ph = min(480, max(120, self._panel.sizeHint().height()))
+        x = pos.x()
+        y = pos.y() + 6
+        # Keep inside window horizontally
+        if x + pw > mw.width() - 8:
+            x = mw.width() - pw - 8
+        self._panel.setGeometry(x, y, pw, ph)
+        self._panel.show()
+        self._panel.raise_()
+        self._apply_style(True)
+
+
+class NotificationPanel(QFrame):
+    """
+    Floating dropdown panel listing all notifications.
+
+    Signals:
+        closed       — emitted when panel hides itself
+        store_changed — emitted after any read/mark-all mutation so the bell
+                        can refresh its badge without knowing store internals
+    """
+
+    closed        = pyqtSignal()
+    store_changed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
+                            Qt.WindowType.Popup)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            f"QFrame{{background:{BG2};border:1px solid {BORDER2};"
+            f"border-radius:8px;}}"
+        )
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header row ────────────────────────────────────────────────────────
+        header = QWidget()
+        header.setStyleSheet(
+            f"background:{BG3};border-bottom:1px solid {BORDER};"
+            f"border-top-left-radius:8px;border-top-right-radius:8px;")
+        hh = QHBoxLayout(header)
+        hh.setContentsMargins(14, 10, 10, 10)
+        hh.setSpacing(8)
+
+        title_lbl = QLabel("NOTIFICATIONS")
+        title_lbl.setStyleSheet(
+            f"color:{MUTED};font-size:9px;letter-spacing:3px;"
+            f"background:transparent;border:none;")
+        hh.addWidget(title_lbl)
+        hh.addStretch()
+
+        self._mark_all_btn = QPushButton("Mark all read")
+        self._mark_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mark_all_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;"
+            f"color:{MUTED};font-size:9px;letter-spacing:1px;padding:2px 6px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}"
+        )
+        self._mark_all_btn.clicked.connect(self._on_mark_all_read)
+        hh.addWidget(self._mark_all_btn)
+
+        root.addWidget(header)
+
+        # ── Scrollable items area ─────────────────────────────────────────────
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:none;}"
+            "QScrollBar:vertical{width:4px;background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2};border-radius:2px;}}"
+        )
+
+        self._items_widget = QWidget()
+        self._items_widget.setStyleSheet("background:transparent;")
+        self._items_layout = QVBoxLayout(self._items_widget)
+        self._items_layout.setContentsMargins(0, 0, 0, 0)
+        self._items_layout.setSpacing(0)
+        self._scroll.setWidget(self._items_widget)
+
+        root.addWidget(self._scroll, 1)
+
+    def reload(self):
+        """Clear and rebuild the items list from the store."""
+        # Remove old item widgets
+        while self._items_layout.count():
+            item = self._items_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        try:
+            from great_sage_core import get_notification_store
+            store = get_notification_store()
+            items = store.all_items()
+        except Exception:
+            items = []
+
+        if not items:
+            empty = QLabel("No notifications yet")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet(
+                f"color:{MUTED};font-size:11px;padding:32px 16px;"
+                f"background:transparent;")
+            self._items_layout.addWidget(empty)
+            self._items_layout.addStretch()
+            return
+
+        for notif in items:
+            row = self._make_item_row(notif)
+            self._items_layout.addWidget(row)
+            self._items_layout.addWidget(self._make_divider())
+
+        self._items_layout.addStretch()
+
+    def _make_divider(self) -> QWidget:
+        d = QFrame()
+        d.setFixedHeight(1)
+        d.setStyleSheet(f"background:{BORDER};border:none;")
+        return d
+
+    def _make_item_row(self, notif: dict) -> QWidget:
+        """Build one notification row widget."""
+        is_unread = not notif.get("read", False)
+        ntype     = notif.get("type", "")
+        title     = notif.get("title", "Notification")
+        data      = notif.get("data", {})
+        nid       = notif.get("id", "")
+        ts        = notif.get("timestamp", "")
+
+        row = QWidget()
+        row.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.setStyleSheet(
+            f"QWidget{{background:{'#111118' if is_unread else 'transparent'};"
+            f"border:none;}}"
+            f"QWidget:hover{{background:{BG3};}}"
+        )
+
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(14, 12, 14, 12)
+        rl.setSpacing(10)
+
+        # Unread dot
+        dot = QLabel("●")
+        dot.setFixedWidth(10)
+        dot.setStyleSheet(
+            f"color:{ACCENT if is_unread else 'transparent'};"
+            f"font-size:7px;background:transparent;border:none;")
+        rl.addWidget(dot)
+
+        # Content column
+        col = QVBoxLayout()
+        col.setSpacing(3)
+        col.setContentsMargins(0, 0, 0, 0)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"color:{TEXT if is_unread else TEXT2};"
+            f"font-size:12px;"
+            f"{'font-weight:bold;' if is_unread else ''}"
+            f"background:transparent;border:none;")
+        title_lbl.setWordWrap(True)
+        col.addWidget(title_lbl)
+
+        # Sub-line depending on type
+        if ntype == "update":
+            commits = data.get("commits", [])
+            if commits:
+                preview = commits[0].get("message", "")[:60]
+                sub = QLabel(preview)
+                sub.setStyleSheet(
+                    f"color:{MUTED};font-size:10px;"
+                    f"background:transparent;border:none;")
+                sub.setWordWrap(True)
+                col.addWidget(sub)
+            version = data.get("version", "")
+            if version:
+                ver_lbl = QLabel(f"v{version}")
+                ver_lbl.setStyleSheet(
+                    f"color:{ACCENT};font-size:9px;letter-spacing:1px;"
+                    f"background:transparent;border:none;")
+                col.addWidget(ver_lbl)
+
+        elif ntype == "friend_rec":
+            sender  = data.get("sender", "Someone")
+            rec_type = data.get("type", "")
+            sub_txt = f"from {sender}"
+            if rec_type:
+                sub_txt += f"  ·  {rec_type.upper()}"
+            sub = QLabel(sub_txt)
+            sub.setStyleSheet(
+                f"color:{MUTED};font-size:10px;"
+                f"background:transparent;border:none;")
+            col.addWidget(sub)
+
+        # Timestamp
+        if ts:
+            try:
+                from datetime import timezone as _tz
+                import datetime as _dt
+                dt = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                now = _dt.datetime.now(_tz.utc)
+                diff = now - dt
+                if diff.total_seconds() < 3600:
+                    age = f"{int(diff.total_seconds() // 60)}m ago"
+                elif diff.total_seconds() < 86400:
+                    age = f"{int(diff.total_seconds() // 3600)}h ago"
+                else:
+                    age = f"{diff.days}d ago"
+            except Exception:
+                age = ""
+            if age:
+                age_lbl = QLabel(age)
+                age_lbl.setStyleSheet(
+                    f"color:{MUTED};font-size:9px;"
+                    f"background:transparent;border:none;")
+                col.addWidget(age_lbl)
+
+        rl.addLayout(col, 1)
+
+        # Wire click — mark read then dispatch action
+        row.mousePressEvent = lambda e, _nid=nid, _ntype=ntype, _data=data: \
+            self._on_item_click(_nid, _ntype, _data)
+
+        return row
+
+    def _on_item_click(self, nid: str, ntype: str, data: dict):
+        """Mark read, refresh badge, then open the relevant action."""
+        try:
+            from great_sage_core import get_notification_store
+            get_notification_store().mark_read(nid)
+        except Exception:
+            pass
+        self.store_changed.emit()
+        self.reload()   # repaint unread state
+
+        if ntype == "update":
+            self._show_update_detail(data)
+        elif ntype == "friend_rec":
+            self.hide()
+            self.closed.emit()
+            self._show_rec_dialog(data)
+
+    def _on_mark_all_read(self):
+        try:
+            from great_sage_core import get_notification_store
+            get_notification_store().mark_all_read()
+        except Exception:
+            pass
+        self.store_changed.emit()
+        self.reload()
+
+    def _show_update_detail(self, data: dict):
+        """Open a small dialog showing full commit list for this update."""
+        version  = data.get("version", "")
+        commits  = data.get("commits", [])
+
+        dlg = QDialog(self.window())
+        dlg.setWindowTitle(f"Great Sage  v{version}  — What's new")
+        dlg.setMinimumWidth(420)
+        dlg.setStyleSheet(
+            f"QDialog{{background:{BG};color:{TEXT};}}"
+            f"QLabel{{background:transparent;}}"
+        )
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+
+        header = QLabel(f"Great Sage  v{version}")
+        header.setStyleSheet(
+            f"font-size:16px;font-weight:bold;color:{TEXT};")
+        lay.addWidget(header)
+
+        sub = QLabel("Changes since previous version:")
+        sub.setStyleSheet(f"font-size:11px;color:{MUTED};")
+        lay.addWidget(sub)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(
+            f"QScrollArea{{background:{BG2};border:1px solid {BORDER};"
+            f"border-radius:6px;}}")
+        scroll.setFixedHeight(220)
+
+        inner = QWidget()
+        inner.setStyleSheet(f"background:{BG2};")
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(14, 12, 14, 12)
+        iv.setSpacing(6)
+
+        if commits:
+            for c in commits:
+                msg   = c.get("message", "").split("\n")[0]  # first line only
+                sha   = c.get("sha", "")[:7]
+                row_w = QWidget()
+                row_w.setStyleSheet("background:transparent;")
+                rl    = QHBoxLayout(row_w)
+                rl.setContentsMargins(0, 0, 0, 0)
+                rl.setSpacing(8)
+                sha_lbl = QLabel(sha)
+                sha_lbl.setFixedWidth(46)
+                sha_lbl.setStyleSheet(
+                    f"color:{MUTED};font-size:9px;font-family:monospace;")
+                msg_lbl = QLabel(msg)
+                msg_lbl.setWordWrap(True)
+                msg_lbl.setStyleSheet(f"color:{TEXT2};font-size:11px;")
+                rl.addWidget(sha_lbl)
+                rl.addWidget(msg_lbl, 1)
+                iv.addWidget(row_w)
+        else:
+            iv.addWidget(QLabel("No commit details available."))
+
+        iv.addStretch()
+        scroll.setWidget(inner)
+        lay.addWidget(scroll)
+
+        ok_btn = QPushButton("Close")
+        ok_btn.setStyleSheet(
+            f"background:{BG3};border:1px solid {BORDER2};"
+            f"color:{TEXT2};border-radius:6px;padding:6px 20px;font-size:11px;")
+        ok_btn.clicked.connect(dlg.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        lay.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _show_rec_dialog(self, data: dict):
+        """Open RecNotificationDialog from gs_sage_ui for the given rec."""
+        try:
+            from gs_sage_ui import RecNotificationDialog
+            from gs_sync import GreatSageSync
+            import logging as _logging
+            _log = _logging.getLogger("great_sage.sync")
+
+            mw = self.window()
+            dlg = RecNotificationDialog(data, parent=mw)
+            from PyQt6.QtCore import Qt as _Qt
+            dlg.setWindowFlags(dlg.windowFlags() |
+                               _Qt.WindowType.WindowStaysOnTopHint)
+            dlg.raise_()
+            dlg.activateWindow()
+            dlg.exec()
+
+            # Resolve accept / dismiss via the settings page sync handle
+            # (avoids import coupling — find SettingsPage on the main window)
+            settings_page = None
+            try:
+                if hasattr(mw, "_page_objs"):
+                    settings_page = mw._page_objs.get("settings")
+            except Exception:
+                pass
+
+            sync = None
+            if settings_page and hasattr(settings_page, "_get_sync"):
+                sync = settings_page._get_sync()
+
+            if sync:
+                if dlg.result_action == "add":
+                    ok = sync.accept_recommendation(
+                        data["id"], data["title"], data.get("type", ""))
+                    if ok:
+                        _log.info(
+                            f"[cloud] Accepted recommendation: {data['title']}")
+                elif dlg.result_action == "dismiss":
+                    sync.dismiss_recommendation(data["id"])
+                    _log.info(
+                        f"[cloud] Dismissed recommendation: {data['title']}")
+        except Exception as e:
+            log.warning("NotificationPanel: rec dialog error", error=str(e))
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.closed.emit()
 
