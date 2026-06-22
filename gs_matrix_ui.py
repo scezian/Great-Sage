@@ -399,8 +399,17 @@ class MatrixPage(QWidget):
         tabs.addTab(self._build_watchlist(),  "WATCHLIST")
         tabs.addTab(self._build_browser(),    "BROWSE")
         tabs.addTab(self._build_continue(),   "CONTINUE")
-        self._stream_tab = self._build_stream()
+
+        # STREAM tab is expensive to build (QWebEngineView + ad-blocker
+        # filter compilation), so we defer it until the user actually opens
+        # it instead of paying that cost at app launch for every session.
+        self._stream_built = False
+        self._stream_tab_index = 3
+        self._stream_ready_callbacks = []
+        self._stream_tab = self._build_stream_placeholder()
         tabs.addTab(self._stream_tab,         "STREAM")
+        tabs.currentChanged.connect(self._on_matrix_tab_changed)
+
         self._tabs = tabs
 
         try:
@@ -988,11 +997,13 @@ class MatrixPage(QWidget):
         if info.get("source") == "stream":
             title = info.get("title", "")
             ep    = info.get("episode", 0)
-            self._tabs.setCurrentIndex(3)
-            if ep and WEBENGINE_OK and hasattr(self, "_stream_view"):
-                import urllib.parse
-                q = urllib.parse.quote(f"{title} episode {ep}")
-                self._stream_view.load(QUrl(f"https://animekai.be/search?keyword={q}"))
+            self._tabs.setCurrentIndex(self._stream_tab_index)
+            def _go_to_episode():
+                if ep and WEBENGINE_OK and hasattr(self, "_stream_view"):
+                    import urllib.parse
+                    q = urllib.parse.quote(f"{title} episode {ep}")
+                    self._stream_view.load(QUrl(f"https://animekai.be/search?keyword={q}"))
+            self._ensure_stream_built(on_ready=_go_to_episode)
             return
 
         # Local file entry
@@ -1637,6 +1648,84 @@ class MatrixPage(QWidget):
             self._request_cloud_push.emit()  # auto-complete push (thread-safe)
         except Exception as e:
             log.warning("auto_complete error", error=str(e))
+
+    def _build_stream_placeholder(self) -> QWidget:
+        """Lightweight stand-in shown until the user first opens STREAM.
+        Avoids paying for QWebEngineView + ad-blocker init at launch."""
+        ph = QWidget()
+        phv = QVBoxLayout(ph)
+        phv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        spinner = QLabel("◐")
+        spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spinner.setStyleSheet(f"font-size:32px; color:{ACCENT};")
+
+        msg = QLabel("Loading stream…")
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg.setStyleSheet(f"color:{MUTED}; font-size:12px; letter-spacing:0.5px;")
+
+        phv.addWidget(spinner); phv.addSpacing(10); phv.addWidget(msg)
+
+        frames = ["◐", "◓", "◑", "◒"]
+        state  = {"i": 0}
+        timer  = QTimer(ph)
+        def _tick():
+            state["i"] = (state["i"] + 1) % len(frames)
+            spinner.setText(frames[state["i"]])
+        timer.timeout.connect(_tick)
+        timer.start(120)
+        # Keep references so the timer isn't garbage-collected and so we
+        # can stop it cleanly once the real tab replaces this placeholder.
+        ph._spinner_timer = timer
+
+        return ph
+
+    def _on_matrix_tab_changed(self, idx: int):
+        if idx == self._stream_tab_index:
+            self._ensure_stream_built()
+
+    def _ensure_stream_built(self, on_ready=None):
+        """Build the real STREAM tab on first use and swap it in for the
+        placeholder. Safe to call repeatedly — no-ops (beyond queuing the
+        callback) once a build has been kicked off.
+
+        on_ready: optional callback invoked once the real tab exists —
+        either immediately (already built) or after the deferred build
+        completes (not built yet). Lets callers like _resume() chain work
+        that needs self._stream_view without racing the deferred build.
+        """
+        if self._stream_built:
+            if on_ready:
+                on_ready()
+            return
+        if on_ready:
+            self._stream_ready_callbacks.append(on_ready)
+        if getattr(self, "_stream_build_pending", False):
+            return
+        self._stream_build_pending = True
+        # Defer the actual (blocking) construction to the next event-loop
+        # tick. Without this, _build_stream() runs synchronously in the
+        # same call as the tab switch and Qt never gets a chance to paint
+        # the spinner before the UI freezes for the build duration.
+        QTimer.singleShot(0, self._do_build_stream)
+
+    def _do_build_stream(self):
+        self._stream_built = True
+        self._stream_build_pending = False
+        real = self._build_stream()
+        spinner_timer = getattr(self._stream_tab, "_spinner_timer", None)
+        if spinner_timer:
+            spinner_timer.stop()
+        self._tabs.removeTab(self._stream_tab_index)
+        self._tabs.insertTab(self._stream_tab_index, real, "STREAM")
+        self._tabs.setCurrentIndex(self._stream_tab_index)
+        self._stream_tab = real
+        callbacks, self._stream_ready_callbacks = self._stream_ready_callbacks, []
+        for cb in callbacks:
+            try:
+                cb()
+            except Exception as e:
+                log.warning("stream ready callback failed", error=str(e))
 
     def _build_stream(self):
         """STREAM tab — AnimeKai + YouTube browser with landing page, ad blocking,

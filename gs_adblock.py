@@ -1036,11 +1036,18 @@ class AdBlockManager:
         self._profiles: list = []
         self._lock = threading.Lock()
 
-        # Try cache first (instant startup)
-        if _FILTER_CACHE.exists() and _COSMETIC_CACHE.exists():
-            self._engine, self._cosmetic = _load_from_cache()
-
-        # Background refresh
+        # NOTE: we deliberately do NOT load the on-disk cache here. Even a
+        # warm cache means reconstructing tens of thousands of FilterRule
+        # objects (one re.compile() each) for EasyList + EasyPrivacy + uBO
+        # + AdGuard combined — multiple seconds of synchronous main-thread
+        # work (measured at ~4-5s for ~40k rules in isolation). AdBlockManager()
+        # is built the moment the user opens STREAM, on the main thread —
+        # blocking here freezes the whole app and can trigger an OS-level
+        # "Application Not Responding" prompt. self._engine starts as a bare
+        # FilterEngine, which still has the built-in _FALLBACK_DOMAINS hash
+        # set, so basic blocking is active immediately; full EasyList-class
+        # blocking comes online a moment later once the background load
+        # below finishes and swaps the real engine into the live interceptor.
         self._start_background_fetch()
 
     # ── Public API ─────────────────────────────────────────────────────────
@@ -1128,31 +1135,50 @@ class AdBlockManager:
         t = threading.Thread(target=self._fetch_worker, daemon=True, name="adblock_fetch")
         t.start()
 
+    def _swap_in(self, engine: FilterEngine, cosmetic: CosmeticEngine) -> None:
+        """Make a newly loaded/downloaded engine live: update internal state,
+        the running interceptor, and re-inject cosmetic scripts into every
+        profile that's already had install() called on it."""
+        with self._lock:
+            self._engine   = engine
+            self._cosmetic = cosmetic
+        if self._interceptor:
+            self._interceptor.update_engine(engine)
+        for profile in self._profiles:
+            try:
+                scripts = profile.scripts()
+                existing = scripts.find("gs_adblock_cosmetic")
+                if not existing.isNull():
+                    scripts.remove(existing)
+                self._inject_cosmetic(profile)
+                if scripts.find("gs_adblock_popup_killer").isNull():
+                    self._inject_popup_killer(profile)
+            except Exception as e:
+                log.warning("adblock: profile cosmetic refresh failed — %s", e)
+
     def _fetch_worker(self) -> None:
+        # ── Step 1: load whatever's on disk first, off the main thread ──────
+        # This is the part that used to run synchronously in __init__ and
+        # could freeze the UI for several seconds reconstructing tens of
+        # thousands of compiled FilterRule objects.
+        if _FILTER_CACHE.exists() and _COSMETIC_CACHE.exists():
+            try:
+                engine, cosmetic = _load_from_cache()
+                if engine._loaded:
+                    self._swap_in(engine, cosmetic)
+                    log.info("adblock: cache loaded in background. domains=%d block_rules=%d",
+                             len(engine.domain_set), len(engine.block_rules))
+            except Exception as e:
+                log.warning("adblock: cache load failed — %s", e)
+
+        # ── Step 2: refresh from network if the cache is stale/missing ──────
         if not _needs_refresh():
             log.info("adblock: filter lists are fresh, skipping download")
             return
         log.info("adblock: downloading filter lists in background…")
         engine, cosmetic = _download_and_compile()
         if engine._loaded:
-            with self._lock:
-                self._engine   = engine
-                self._cosmetic = cosmetic
-            # Update live interceptor
-            if self._interceptor:
-                self._interceptor.update_engine(engine)
-            # Re-inject cosmetic + popup killer scripts into all known profiles
-            for profile in self._profiles:
-                try:
-                    scripts = profile.scripts()
-                    existing = scripts.find("gs_adblock_cosmetic")
-                    if not existing.isNull():
-                        scripts.remove(existing)
-                    self._inject_cosmetic(profile)
-                    if scripts.find("gs_adblock_popup_killer").isNull():
-                        self._inject_popup_killer(profile)
-                except Exception as e:
-                    log.warning("adblock: profile cosmetic refresh failed — %s", e)
+            self._swap_in(engine, cosmetic)
             log.info("adblock: filter lists updated. domains=%d block_rules=%d",
                      len(engine.domain_set), len(engine.block_rules))
 
