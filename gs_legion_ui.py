@@ -1,3129 +1,4229 @@
 """
-gs_legion_ui.py — Great Sage
-=============================
-Legion module UI: novel reader page and all related dialogs.
+gs_legion_ui.py  —  Legion Discovery Tab
+Great Sage  ·  New Legion built from scratch
+
+Layout
+------
+  Header row  :  LEGION ◈ DISCOVER  |  Search bar  |  Source dropdown
+  Grid        :  Unified book covers (7 columns) — trending on load
+  Local strip :  Books found in the existing Legion library folder
+  Detail panel:  Slides in from the right on card click
+
+Sources
+-------
+  Royal Road   — scraping (trending + search)
+  LibRead      — cloudscraper (popular + search + chapters)
+  Gutenberg    — Gutendex API (most downloaded + search)
+  Local        — scans Legion library folder for EPUB / PDF / TXT
+
+All network work runs in QThread workers so the UI never blocks.
 """
-import os, re, time
 
-try:
-    from gs_logger import log
-except Exception as _log_err:
-    class _NoopLog:
-        def __getattr__(self, name): return _NoopLog()
-        def __call__(self, *a, **kw): return None
-    log = _NoopLog()
+from __future__ import annotations
 
-from gs_theme import *
-from gs_widgets import lbl, btn, hline, vline, tag, NavRail, EyeBreakToast, SyncToast, _TouchScrollFilter
+import os
+import re
+import json
+import threading
+import urllib.request
+from pathlib import Path
+from typing import Optional
+
+import requests
+import cloudscraper
+from bs4 import BeautifulSoup
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject
+    Qt, QThread, QObject, pyqtSignal, QSize, QTimer,
+    QPropertyAnimation, QEasingCurve, QRect, QPoint,
 )
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    WEBENGINE_OK = True
-except ImportError:
-    WEBENGINE_OK = False
 from PyQt6.QtGui import (
-    QColor, QFont, QPalette, QTextCursor, QTextOption, QKeySequence, QShortcut,
-    QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath,
-    QTextCharFormat
+    QPixmap, QImage, QPainter, QColor, QBrush,
+    QPainterPath, QFont,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QStackedWidget, QLabel, QPushButton, QLineEdit, QTextEdit, QSlider,
-    QFrame, QListWidget, QListWidgetItem, QTabWidget, QComboBox,
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QMessageBox, QAbstractItemView,
-    QProgressBar, QGroupBox, QFormLayout, QStatusBar, QMenu, QSplitter, QScrollArea,
-    QGraphicsOpacityEffect,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QScrollArea, QFrame, QLineEdit,
+    QGridLayout, QComboBox, QSizePolicy,
+    QStackedWidget, QTextBrowser, QTextEdit, QApplication,
+    QDialog, QLayout,
 )
+
+from difflib import SequenceMatcher
+
+from gs_theme import *  # noqa: F403
+from gs_widgets import _TouchScrollFilter
 from great_sage_core import (
-    SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
-    load_json, save_json,
-    legion_data, matrix_data, bookmarks_data,
-    _catalogue_panel_class, _clean_media_title, _strip_markdown, _detect_genre,
-    _grep_book_for_term,
-    sage_memory_load, sage_memory_append, sage_memory_extract,
-    behaviour_data, behaviour_summary, track_event, stream_watch_context,
-    FetchChapterWorker, SageWorker, MetadataWorker, AutoSyncWorker,
-    _SageCompanionWorker, _NewChaptersWorker, _MetaRefreshWorker,
-    start_mobile_server,
-    set_session_groq_model, get_session_groq_model,
-    GROQ_MODEL_VERSATILE, GROQ_MODEL_INSTANT,
+    legion_data, get_legion_data, get_bookmarks_data, save_json, load_json_cached,
+    LEGION_BOOKMARKS, LEGION_PROGRESS, SCRIPT_DIR,
+    sage_mod, _grep_book_for_term, get_matrix_data, get_session_groq_model,
 )
 
-def _get_legion_mod():
-    from great_sage_core import legion_mod
-    return legion_mod()
+# ── Constants ──────────────────────────────────────────────────────────────────
 
-from gs_widgets import ReadingRoomOverlay
-from gs_matrix_ui import CalendarDialog, HighlightsDialog, WrappedDialog
-
-_BG_MODES = {
-    "dark":  (BG3,      TEXT),
-    "sepia": ("#F5ECD7", "#3A2A1A"),
-    "white": ("#FFFFFF", "#1A1A1A"),
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
 }
 
-class LegionPage(QWidget):
+COVER_W = 150   # px — all covers forced to this width
+COVER_H = 225   # px — all covers forced to this height (2:3 ratio)
+GRID_COLS = 7
+
+RR_BASE   = "https://www.royalroad.com"
+LR_BASE   = "https://libread.com"
+GX_BASE   = "https://gutendex.com"
+
+LOCAL_EXTENSIONS = {".epub", ".pdf", ".txt"}
+
+# Local books folder — lives inside the repo so it's easy to find
+LEGION_LIBRARY = str(SCRIPT_DIR / "Local")
+
+# Ensure the folder exists on first run
+Path(LEGION_LIBRARY).mkdir(parents=True, exist_ok=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA CLASSES
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BookItem:
+    """Normalised book/novel record from any source."""
+
+    __slots__ = (
+        "title", "author", "cover_url", "url",
+        "source", "synopsis", "local_path", "file_type",
+    )
+
+    def __init__(
+        self,
+        title: str,
+        author: str = "",
+        cover_url: str = "",
+        url: str = "",
+        source: str = "",          # "royalroad" | "libread" | "gutenberg" | "local"
+        synopsis: str = "",
+        local_path: str = "",
+        file_type: str = "",       # "EPUB" | "PDF" | "TXT" (local only)
+    ):
+        self.title      = title
+        self.author     = author
+        self.cover_url  = cover_url
+        self.url        = url
+        self.source     = source
+        self.synopsis   = synopsis
+        self.local_path = local_path
+        self.file_type  = file_type
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NETWORK WORKERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FetchWorker(QThread):
+    """
+    Generic background worker.
+    Runs `task()` and emits results(list) for lists, detail(dict) for dicts,
+    or error(str) on failure.
+    """
+    results = pyqtSignal(list)
+    detail  = pyqtSignal(dict)
+    error   = pyqtSignal(str)
+
+    def __init__(self, task, parent=None):
+        super().__init__(parent)
+        self._task      = task
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            data = self._task()
+            if not self._cancelled:
+                if isinstance(data, dict):
+                    self.detail.emit(data)
+                else:
+                    self.results.emit(data or [])
+        except Exception as e:
+            if not self._cancelled:
+                self.error.emit(str(e))
+
+
+
+# ── Cover disk cache ──────────────────────────────────────────────────────────
+_COVER_CACHE_DIR  = Path(os.path.expanduser("~/.cache/great_sage/covers"))
+_COVER_CACHE_MAX_BYTES = 50 * 1024 * 1024   # 50 MB
+
+def _cache_key(url: str) -> str:
+    import hashlib
+    return hashlib.md5(url.encode()).hexdigest()
+
+def _cover_cache_load(url: str) -> QPixmap | None:
+    """Return cached QPixmap for url, or None if not cached."""
+    path = _COVER_CACHE_DIR / (_cache_key(url) + ".jpg")
+    if path.exists():
+        px = QPixmap(str(path))
+        return px if not px.isNull() else None
+    return None
+
+def _cover_cache_save(url: str, data: bytes):
+    """Save raw image bytes to disk. Wipes entire cache if over 50MB."""
+    try:
+        _COVER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Check total cache size — wipe and start fresh if over cap
+        total = sum(f.stat().st_size for f in _COVER_CACHE_DIR.glob("*.jpg"))
+        if total >= _COVER_CACHE_MAX_BYTES:
+            for f in _COVER_CACHE_DIR.glob("*.jpg"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        path = _COVER_CACHE_DIR / (_cache_key(url) + ".jpg")
+        path.write_bytes(data)
+    except Exception:
+        pass
+
+
+class _CoverPool(QObject):
+    """
+    Singleton thread-pool for cover downloads.
+    Max 8 concurrent downloads — no more thread explosion.
+    Callbacks are delivered back to the main thread via a Qt signal.
+    """
+    _delivered = pyqtSignal(object, str, QPixmap)   # (callback_fn, url, pixmap)
+
     def __init__(self):
         super().__init__()
-        self._worker = None
-        self._font_size = 18
-        # Reader settings — loaded from progress on init, saved on change
-        self._rs_defaults = {
-            "font_size":   18,
-            "line_height": 1.9,
-            "padding_h":   80,    # horizontal padding px
-            "padding_v":   36,    # vertical padding px
-            "bg_mode":     "dark", # "dark" | "sepia" | "white"
-            "tts_rate":    185,
-        }
-        self._rs = {**self._rs_defaults, **legion_data().get("reader_settings", {})}
-        self._font_size = self._rs["font_size"]
-        self._current_url = ""; self._next_url = ""; self._prev_url = ""
-        self._current_book = ""; self._book_data = {}
-        # Local-file navigation state
-        self._current_ch_num = 0    # chapter number currently on screen
-        self._total_ch_local = 0    # how many chapters exist in the .txt file
-        self._reading_local  = False  # True = came from local file
-        self._chapter_loading = False # True while a new chapter is being set up
-        # Scroll position memory: {book_name: {ch_num: fraction 0.0-1.0}}
-        self._scroll_positions = {}
+        from concurrent.futures import ThreadPoolExecutor
+        self._pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="cover")
+        self._delivered.connect(self._dispatch)
 
-        
-        # Worker cleanup
-        self._meta_workers = [] # Track all background workers for cleanup
-        self._max_stored_workers = 5 # Keep a small pool of recently active workers
-        
-        self._build()
-        # Eye-break reminder — fires every 15 minutes while reading
-        self._eye_toast = EyeBreakToast(self)
-        self._eye_timer = QTimer(self)
-        self._eye_timer.setInterval(15 * 60 * 1000)   # 15 minutes
-        self._eye_timer.timeout.connect(self._eye_toast.show_toast)
-        # Stop all workers cleanly when the application quits
-        app = QApplication.instance()
-        if app:
-            app.aboutToQuit.connect(self.cleanup_all_workers)
+    def request(self, url: str, callback):
+        """Queue a cover download; callback(url, QPixmap) fires on the main thread."""
+        self._pool.submit(self._fetch, url, callback)
 
-    def _cleanup_worker(self, worker):
-        """Remove worker from _meta_workers list after it finishes."""
+    def _fetch(self, url: str, callback):
+        # Cache hit — load from disk, no network
+        cached = _cover_cache_load(url)
+        if cached is not None:
+            self._delivered.emit(callback, url, cached)
+            return
         try:
-            if worker in self._meta_workers:
-                self._meta_workers.remove(worker)
-                log.debug("Cleaned up worker", worker=worker)
+            resp = requests.get(url, headers=HEADERS, timeout=8)
+            img  = QImage()
+            img.loadFromData(resp.content)
+            if not img.isNull():
+                _cover_cache_save(url, resp.content)
+                px = QPixmap.fromImage(img).scaled(
+                    COVER_W, COVER_H,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._delivered.emit(callback, url, px)
+                return
+        except Exception:
+            pass
+        self._delivered.emit(callback, url, QPixmap())
+
+    @staticmethod
+    def _dispatch(callback, url: str, px: QPixmap):
+        callback(url, px)
+
+
+# Module-level singleton — shared by every CoverCard
+_COVER_POOL = _CoverPool()
+
+
+class CoverWorker(QThread):
+    """
+    Legacy shim kept so DetailPanel (which still uses CoverWorker directly) works.
+    New card code uses _COVER_POOL instead.
+    """
+    done = pyqtSignal(str, QPixmap)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self._url = url
+
+    def run(self):
+        cached = _cover_cache_load(self._url)
+        if cached is not None:
+            self.done.emit(self._url, cached)
+            return
+        try:
+            resp = requests.get(self._url, headers=HEADERS, timeout=8)
+            img  = QImage()
+            img.loadFromData(resp.content)
+            if not img.isNull():
+                _cover_cache_save(self._url, resp.content)
+                px = QPixmap.fromImage(img).scaled(
+                    COVER_W, COVER_H,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.done.emit(self._url, px)
+                return
+        except Exception:
+            pass
+        self.done.emit(self._url, QPixmap())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCRAPERS / FETCHERS  (all run inside FetchWorker threads)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _title_score(title: str, query: str) -> float:
+    t, q = title.lower().strip(), query.lower().strip()
+    if t == q: return 1.0
+    if t.startswith(q): return 0.9
+    if q in t: return 0.75
+    if all(w in t for w in q.split()): return 0.6
+    return SequenceMatcher(None, q, t).ratio() * 0.5
+
+
+# ── Library persistence ────────────────────────────────────────────────────────
+# Categories mirror Matrix watchlist: planning / reading / dropped / completed
+# Each entry: {"title", "author", "cover_url", "url", "source", "synopsis"}
+
+LIBRARY_CATEGORIES = ("planning", "reading", "dropped", "completed")
+
+
+def _load_library() -> dict:
+    data = get_bookmarks_data()
+    for cat in LIBRARY_CATEGORIES:
+        data.setdefault(cat, [])
+    return data
+
+
+def _save_library(data: dict) -> bool:
+    return save_json(LEGION_BOOKMARKS, data)
+
+
+def library_add(book: "BookItem", category: str) -> bool:
+    """Add book to library under category. Moves it if already in another category."""
+    if category not in LIBRARY_CATEGORIES:
+        return False
+    data  = _load_library()
+    entry = {
+        "title":     book.title,
+        "author":    book.author,
+        "cover_url": book.cover_url,
+        "url":       book.url,
+        "source":    book.source,
+        "synopsis":  book.synopsis,
+    }
+    # Remove from any existing category first
+    for cat in LIBRARY_CATEGORIES:
+        data[cat] = [e for e in data[cat] if e.get("title") != book.title]
+    data[category].append(entry)
+    return _save_library(data)
+
+
+def library_remove(title: str) -> bool:
+    """Remove a book from all library categories."""
+    data = _load_library()
+    changed = False
+    for cat in LIBRARY_CATEGORIES:
+        before = len(data[cat])
+        data[cat] = [e for e in data[cat] if e.get("title") != title]
+        if len(data[cat]) != before:
+            changed = True
+    if changed:
+        _save_library(data)
+    return changed
+
+
+def library_get_category(title: str) -> str | None:
+    """Return the category a book is in, or None."""
+    data = _load_library()
+    for cat in LIBRARY_CATEGORIES:
+        if any(e.get("title") == title for e in data[cat]):
+            return cat
+    return None
+
+
+# ── Chapter download registry ──────────────────────────────────────────────────
+# Maps book_title → ChapterDownloadWorker so any caller can stop a worker by title.
+
+class _DownloadRegistry:
+    _workers: dict[str, "ChapterDownloadWorker"] = {}
+
+    @classmethod
+    def start(cls, book: "BookItem"):
+        cls.stop(book.title)   # cancel any existing worker first
+        w = ChapterDownloadWorker(book)
+        cls._workers[book.title] = w
+        w.start()
+
+    @classmethod
+    def stop(cls, title: str):
+        w = cls._workers.pop(title, None)
+        if w is not None:
+            w.cancel()          # sets flag; worker exits between chapters
+
+    @classmethod
+    def is_running(cls, title: str) -> bool:
+        w = cls._workers.get(title)
+        return w is not None and w.isRunning()
+
+
+class ChapterDownloadWorker(QThread):
+    """
+    Background chapter downloader for a Jump In book.
+
+    Behaviour:
+    - Resumes from last_downloaded_url stored in LEGION_PROGRESS (or starts
+      from the book's detail-page first chapter if nothing is saved yet).
+    - Chains through next_url until it reaches the end of published chapters.
+    - When caught up, waits POLL_INTERVAL seconds then re-checks the last
+      chapter for a new next_url.
+    - Saves last_downloaded_chapter + last_downloaded_url to LEGION_PROGRESS
+      after every successful chapter save.
+    - Checks _cancelled between every chapter fetch so cancellation is
+      near-instantaneous and never blocks the UI.
+    """
+
+    POLL_INTERVAL = 600   # 10 minutes
+
+    def __init__(self, book: "BookItem", parent=None):
+        super().__init__(parent)
+        self._book      = book
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _load_start_url(self) -> str | None:
+        """Return the URL to resume from, or None if we can't determine one."""
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(self._book.title, {})
+            saved = entry.get("last_downloaded_url")
+            # Only trust the saved URL if it actually points to a chapter page.
+            # A landing-page URL (no /chapter- segment) means corrupted state —
+            # fall through and re-derive the first chapter URL instead.
+            if saved and "/chapter-" in saved:
+                return saved
+        except Exception:
+            pass
+        # Fall back to the book's landing-page URL and fetch chapter 1 from it
+        return self._fetch_first_chapter_url()
+
+    def _fetch_first_chapter_url(self) -> str | None:
+        """Fetch the fiction/book page and return the first chapter URL."""
+        try:
+            url = self._book.url
+            if not url:
+                return None
+            if "libread.com" in url:
+                scraper = _libread_scraper()
+                r = scraper.get(url, timeout=12)
+                if r.status_code != 200:
+                    return None
+                soup = BeautifulSoup(r.text, "html.parser")
+                # First chapter link — /libread/<slug>/chapter-01
+                a = soup.select_one("a[href*='/chapter-']")
+                if a:
+                    href = a["href"]
+                    return ("https://libread.com" + href) if href.startswith("/") else href
+            else:
+                # Royal Road
+                s = _session()
+                r = s.get(url, timeout=10)
+                if r.status_code != 200:
+                    return None
+                soup = BeautifulSoup(r.text, "html.parser")
+                a = soup.select_one("table#chapters a[href*='/chapter/']")
+                if a:
+                    href = a["href"]
+                    return (RR_BASE + href) if href.startswith("/") else href
+        except Exception:
+            pass
+        return None
+
+    # Sentinel returned when a chapter URL definitively does not exist (404 / no content).
+    # Callers use this to distinguish end-of-book from transient network failures.
+    _NOT_FOUND = "NOT_FOUND"
+
+    def _fetch_chapter(self, url: str):
+        """
+        Fetch one chapter. Returns (title, paragraphs, next_url, error).
+        Uses the same proven logic as ChapterFetchWorker.
+
+        error == ChapterDownloadWorker._NOT_FOUND  →  chapter does not exist (end of book)
+        error == <other string>                    →  transient network/parse failure
+        error is None                              →  success
+        """
+        try:
+            if "libread.com" in url:
+                # Reuse the proven libread fetcher via a temporary worker instance
+                tmp = ChapterFetchWorker(url, self._book.title)
+                title, paragraphs, next_url, _prev, error = tmp._fetch_libread(url)
+                # Treat HTTP errors (404, 403, etc.) as permanent — chapter doesn't exist
+                if error and ("HTTP 4" in error or "HTTP 5" in error):
+                    return title, [], None, self._NOT_FOUND
+                # "No content found" means the page exists but is empty — LibRead returns
+                # 200 on ghost URLs past the real end of the book.  Treat as end-of-book,
+                # NOT as a transient failure (which would cause infinite retry loops).
+                if error == "No content found":
+                    return title, [], None, self._NOT_FOUND
+                return title, paragraphs, next_url, error
+            else:
+                # Royal Road via legion.fetch_chapter
+                from great_sage_core import legion_mod
+                mod, err = legion_mod()
+                if err or not mod:
+                    return None, [], None, f"Legion module unavailable: {err}"
+                title, paragraphs, next_url, _prev, error, _ = mod.fetch_chapter(
+                    url, self._book.title)
+                # Treat HTTP 4xx as permanent
+                if error and ("HTTP 4" in error or "404" in error):
+                    return title, [], None, self._NOT_FOUND
+                return title or "Chapter", paragraphs or [], next_url, error
         except Exception as e:
-            log.warning("Worker cleanup failed", error=str(e), worker=worker)
+            return None, [], None, str(e)
 
-    def cleanup_all_workers(self):
-        """Stop all running QThreads. Call this before the widget is destroyed."""
-        # FetchChapterWorker (web scrape)
-        if self._worker and self._worker.isRunning():
-            self._worker.terminate()
-            self._worker.wait(1000)
-            self._worker = None
-        # Sage companion worker
-        if hasattr(self, '_sage_worker') and self._sage_worker and self._sage_worker.isRunning():
-            self._sage_worker.terminate()
-            self._sage_worker.wait(1000)
-            self._sage_worker = None
+    def _save_progress(self, chapter_num: int, url: str):
+        """Persist last_downloaded_chapter + url to LEGION_PROGRESS."""
+        # Never persist a landing-page URL as a resume point — only chapter URLs are valid.
+        if "/chapter-" not in url:
+            return
+        try:
+            data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            # Resurrection guard: if the book was removed from LEGION_PROGRESS while
+            # this worker was still running (e.g. user hit Remove), do NOT re-create
+            # the entry.  setdefault would silently resurrect it — check first.
+            if self._book.title not in data.get("books", {}):
+                return
+            entry = data["books"][self._book.title]
+            entry["last_downloaded_chapter"] = chapter_num
+            entry["last_downloaded_url"]     = url
+            save_json(LEGION_PROGRESS, data)
+        except Exception:
+            pass
 
-        # Meta workers
-        for w in list(self._meta_workers):
-            try:
-                if w.isRunning():
-                    w.terminate()
-                    w.wait(500)
-            except Exception:
-                pass
-        self._meta_workers.clear()
-        log.debug("LegionPage: all workers stopped")
+    def _chapter_num_from_progress(self) -> int:
+        """Return the last downloaded chapter number (0 if none)."""
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(self._book.title, {})
+            return int(entry.get("last_downloaded_chapter", 0))
+        except Exception:
+            return 0
 
-    def hideEvent(self, event):
-        """Stop all running workers when the page is hidden or the app closes."""
-        self.cleanup_all_workers()
-        super().hideEvent(event)
+    # ── Gutenberg helpers ─────────────────────────────────────────────────────
 
-    def _make_icon_list(self):
-        """Create a standard icon-mode QListWidget matching the Jump In grid style."""
-        lw = QListWidget()
-        lw.setViewMode(QListWidget.ViewMode.IconMode)
-        lw.setIconSize(QSize(100, 140))
-        lw.setGridSize(QSize(120, 185))
-        lw.setResizeMode(QListWidget.ResizeMode.Adjust)
-        lw.setMovement(QListWidget.Movement.Static)
-        lw.setWordWrap(True)
-        lw.setSpacing(8)
-        # Pixel-level scrolling so scrollbar maximum() is meaningful for infinite scroll
-        lw.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        lw.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        lw.setStyleSheet(
-            f"QListWidget{{background:transparent;border:none;padding:12px;}}"
-            f"QListWidget::item{{background:transparent;border-radius:8px;color:{TEXT2};"
-            f"font-size:10px;text-align:center;}}"
-            f"QListWidget::item:hover{{background:{BG2};}}"
-            f"QListWidget::item:selected{{background:{BG3};color:{ACCENT};}}")
-        return lw
+    _CHAPTER_RE = re.compile(
+        r"^(CHAPTER|Chapter|PART|Part|BOOK|Book|VOLUME|Volume|SECTION|Section|"
+        r"Prologue|PROLOGUE|Epilogue|EPILOGUE)"
+        r"[\s\.\-]*(M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})|\d{1,3}|"
+        r"ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN|"
+        r"ELEVEN|TWELVE|THIRTEEN|FOURTEEN|FIFTEEN|SIXTEEN|SEVENTEEN|EIGHTEEN|NINETEEN|TWENTY)?"
+        r"[\s\.\-:]*([A-Z][^a-z]{0,60})?\.?\s*$",
+        re.MULTILINE,
+    )
+    _FILTER_RE = re.compile(r"^\[.*?\]$")
+
+    def _gutenberg_download(self) -> list:
+        """One-shot download and chapter split for Gutenberg books."""
+        url = self._book.url
+        s   = _session()
+        try:
+            r = s.get(url, timeout=60)
+        except Exception:
+            return []
+        if r.status_code != 200:
+            return []
+        text = r.text
+        start_m = re.search(r"\*{3}\s*START OF.*?\*{3}", text, re.IGNORECASE)
+        if start_m:
+            text = text[start_m.end():]
+        end_m = re.search(r"\*{3}\s*END OF.*?\*{3}", text, re.IGNORECASE)
+        if end_m:
+            text = text[:end_m.start()]
+        text  = text.strip()
+        lines = text.splitlines()
+
+        splits = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or len(stripped) > 80:
+                continue
+            if self._CHAPTER_RE.match(stripped):
+                splits.append((i, re.sub(r"[\]\[\.]+$", "", stripped).strip()))
+
+        def to_paragraphs(ls):
+            paras, cur = [], []
+            for l in ls:
+                if l.strip():
+                    cur.append(l.strip())
+                else:
+                    if cur:
+                        paras.append(" ".join(cur))
+                        cur = []
+            if cur:
+                paras.append(" ".join(cur))
+            return [p for p in paras if len(p) > 10 and not self._FILTER_RE.match(p)]
+
+        if len(splits) >= 2:
+            chapters = []
+            for idx, (line_idx, heading) in enumerate(splits):
+                end   = splits[idx + 1][0] if idx + 1 < len(splits) else len(lines)
+                paras = to_paragraphs(lines[line_idx + 1:end])
+                if paras:
+                    chapters.append((heading, paras))
+            return chapters
+        else:
+            all_paras = to_paragraphs(lines)
+            return [
+                (f"Part {i // 120 + 1}", all_paras[i:i + 120])
+                for i in range(0, len(all_paras), 120)
+            ]
+
+    def _run_gutenberg(self):
+        """Download and store a complete Gutenberg book. Runs once, no polling."""
+        if self._chapter_num_from_progress() > 0:
+            return   # already downloaded
+        chapters = self._gutenberg_download()
+        if not chapters or self._cancelled:
+            return
+        try:
+            from great_sage_core import legion_mod
+            mod, err = legion_mod()
+            if not mod or err:
+                return
+        except Exception:
+            return
+        for chapter_num, (title, paragraphs) in enumerate(chapters, start=1):
+            if self._cancelled:
+                return
+            mod.append_chapter_to_file(self._book.title, chapter_num, title, paragraphs)
+            self._save_progress(chapter_num, self._book.url)
+
+    # ── main loop ─────────────────────────────────────────────────────────────
+
+    def run(self):
+        # Gutenberg — one-shot download, no chaining, no polling
+        if self._book.source == "gutenberg":
+            self._run_gutenberg()
+            return
+
+        url = self._load_start_url()
+        if not url or self._cancelled:
+            return
+
+        chapter_num = self._chapter_num_from_progress()
+
+        # Safety: derive base_url for arithmetic fallback from the book's canonical
+        # landing-page URL stored in LEGION_PROGRESS, not from the current chapter URL.
+        # This prevents a drifted/truncated chapter URL from corrupting the book ID in
+        # all subsequent arithmetic-generated URLs.
+        try:
+            _prog = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            _landing = _prog.get("books", {}).get(self._book.title, {}).get("url", "")
+        except Exception:
+            _landing = ""
+        self._landing_url = _landing or self._book.url
+
+        _consecutive_empty = 0   # guard against ghost-URL chains (LibRead 200 on dead pages)
+
+        while not self._cancelled:
+            title, paragraphs, next_url, error = self._fetch_chapter(url)
+
+            if self._cancelled:
+                return
+
+            if error == self._NOT_FOUND:
+                # Chapter definitively doesn't exist — reached end of published content.
+                # Don't increment chapter_num; fall into the polling loop below.
+                next_url          = None
+                error             = None
+                paragraphs        = []   # ensure write block is skipped
+                _consecutive_empty = 0
+
+            if error or not paragraphs:
+                if error:
+                    # Transient network/parse failure — back off and retry same URL
+                    for _ in range(30):   # 30 × 1s = 30s back-off
+                        if self._cancelled:
+                            return
+                        self.msleep(1000)
+                    continue
+                # No error but empty paragraphs — could be a genuine caught-up state
+                # or a ghost URL.  Count consecutive occurrences; if we see 3 in a row
+                # with no real content, treat it as end-of-book and enter polling.
+                _consecutive_empty += 1
+                if _consecutive_empty >= 3:
+                    next_url          = None
+                    _consecutive_empty = 0
+                # Fall through to next_url handling.
+
+            if paragraphs:
+                _consecutive_empty = 0
+                chapter_num += 1
+
+                # Import storage from legion.py
+                try:
+                    from great_sage_core import legion_mod
+                    mod, err = legion_mod()
+                    if mod and not err:
+                        mod.append_chapter_to_file(self._book.title, chapter_num, title, paragraphs)
+                except Exception:
+                    pass
+
+                self._save_progress(chapter_num, url)
+
+            if self._cancelled:
+                return
+
+            if next_url:
+                url = next_url
+                self.msleep(800)   # polite delay between chapters
+            else:
+                # Caught up — poll until a new chapter appears
+                last_url = url
+                _consecutive_empty = 0
+                while not self._cancelled:
+                    for _ in range(self.POLL_INTERVAL):
+                        if self._cancelled:
+                            return
+                        self.msleep(1000)
+
+                    # Re-fetch the last chapter to check for a new next_url
+                    _, _, new_next, _ = self._fetch_chapter(last_url)
+                    if self._cancelled:
+                        return
+                    if new_next:
+                        url = new_next
+                        break   # exit poll loop, continue download loop
+
+
+def jump_in_add(book: "BookItem"):
+    """Add book to legion progress (Jump In) without overwriting existing progress."""
+    data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+    if book.title not in data.get("books", {}):
+        data.setdefault("books", {})[book.title] = {
+            "title":                   book.title,
+            "author":                  book.author,
+            "cover_url":               book.cover_url,
+            "url":                     book.url,
+            "source":                  book.source,
+            "synopsis":                book.synopsis,
+            "chapters_read":           0,
+            "current_chapter":         0,
+            "last_read":               0,
+            "last_downloaded_chapter": 0,
+            "last_downloaded_url":     "",
+            "download_state": {
+                "status":                      "idle",
+                "total_chapters_downloaded":   0,
+                "last_downloaded_chapter":     None,
+                "last_downloaded_chapter_num": 0,
+                "download_path":               None,
+                "failed_chapters":             [],
+                "timestamp":                   0,
+                "pause_requested":             False,
+            },
+        }
+        save_json(LEGION_PROGRESS, data)
+
+    # Auto-download for all supported sources
+    if book.source in ("royalroad", "libread", "gutenberg"):
+        _DownloadRegistry.start(book)
+
+
+def jump_in_remove(title: str, delete_files: bool = False) -> bool:
+    """Remove book from legion progress (Jump In).
+    If delete_files=True, also wipe the downloaded chapters from disk.
+    Always stops any running download worker immediately.
+    """
+    # Stop downloader first — non-blocking (sets cancel flag only)
+    _DownloadRegistry.stop(title)
+
+    data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+    if title in data.get("books", {}):
+        del data["books"][title]
+        save_json(LEGION_PROGRESS, data)
+
+    if delete_files:
+        try:
+            import shutil as _shutil
+            from great_sage_core import legion_mod
+            mod, err = legion_mod()
+            if mod and not err:
+                import re as _re, os as _os
+                safe     = _re.sub(r'[^\w\-_\. ]', '_', title)
+                book_dir = _os.path.join(mod.LIBRARY_DIR, safe)
+                if _os.path.isdir(book_dir):
+                    _shutil.rmtree(book_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    return True
+
+
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    return s
+
+
+def _libread_scraper() -> cloudscraper.CloudScraper:
+    return cloudscraper.create_scraper(
+        browser={"browser": "chrome", "platform": "linux", "desktop": True}
+    )
+
+
+def fetch_royalroad_trending(page: int = 1) -> list[BookItem]:
+    s    = _session()
+    r    = s.get(f"{RR_BASE}/fictions/trending", params={"page": page}, timeout=10)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    items = []
+    for card in soup.select("div.fiction-list-item"):
+        title_el = card.select_one("h2.fiction-title")
+        cover_el = card.select_one("img")
+        link_el  = card.select_one("a[href*='/fiction/']")
+        if not title_el or not link_el:
+            continue
+        synopsis_el = card.select_one("div.fiction-description")
+        author_el   = card.select_one("span.author a, h4.font-white a, .author a")
+        items.append(BookItem(
+            title     = title_el.text.strip(),
+            author    = author_el.text.strip() if author_el else "",
+            cover_url = cover_el["src"] if cover_el else "",
+            url       = RR_BASE + link_el["href"],
+            source    = "royalroad",
+            synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
+        ))
+    return items
+
+
+
+def fetch_royalroad_best_rated(page: int = 1) -> list[BookItem]:
+    s    = _session()
+    r    = s.get(f"{RR_BASE}/fictions/best-rated", params={"page": page}, timeout=10)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    items = []
+    for card in soup.select("div.fiction-list-item"):
+        title_el = card.select_one("h2.fiction-title")
+        cover_el = card.select_one("img")
+        link_el  = card.select_one("a[href*='/fiction/']")
+        if not title_el or not link_el:
+            continue
+        synopsis_el = card.select_one("div.fiction-description")
+        author_el   = card.select_one("span.author a, h4.font-white a, .author a")
+        items.append(BookItem(
+            title     = title_el.text.strip(),
+            author    = author_el.text.strip() if author_el else "",
+            cover_url = cover_el["src"] if cover_el else "",
+            url       = RR_BASE + link_el["href"],
+            source    = "royalroad",
+            synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
+        ))
+    return items
+
+def fetch_royalroad_detail(url: str) -> dict:
+    """Fetch synopsis and chapter list for a Royal Road fiction page."""
+    s = _session()
+    r = s.get(url, timeout=10)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Synopsis — RR wraps it in div.description > div (inner content)
+    synopsis = ""
+    syn_el = soup.select_one("div.description")
+    if syn_el:
+        # Remove any nested script/style tags
+        for tag in syn_el.find_all(["script", "style"]):
+            tag.decompose()
+        synopsis = syn_el.get_text("\n", strip=True)
+
+    # Author — RR detail page has it in h4.font-white > a or span[property="name"]
+    author = ""
+    author_el = soup.select_one("h4.font-white a, span[property='name'], .author a")
+    if author_el:
+        author = author_el.get_text(strip=True)
+
+    # Chapters — listed in a table with class fiction-list-chapter or in tbody tr
+    chapters = []
+    for row in soup.select("table#chapters tbody tr, table.table tbody tr"):
+        a = row.select_one("td a[href*='/chapter/']")
+        if a:
+            chapters.append({
+                "title": a.text.strip(),
+                "url":   RR_BASE + a["href"] if a["href"].startswith("/") else a["href"],
+            })
+
+    return {"synopsis": synopsis, "author": author, "chapters": chapters, "total_pages": 1}
+
+
+def fetch_libread_popular(page: int = 1) -> list[BookItem]:
+    """Fetch popular books from LibRead with pagination."""
+    s = _libread_scraper()
+    url = f"{LR_BASE}/most-popular" if page == 1 else f"{LR_BASE}/most-popular?page={page}"
+    r = s.get(url, timeout=12)
+    if r.status_code != 200:
+        return []
+    soup  = BeautifulSoup(r.text, "html.parser")
+    items = []
+    for row in soup.select("div.ul-list1 div.li-row"):
+        title_el = row.select_one("h3.tit a")
+        if not title_el:
+            continue
+        href      = title_el.get("href", "")
+        cover_el  = row.select_one("img")
+        cover_url = cover_el.get("src", "") if cover_el else ""
+        if cover_url and cover_url.startswith("/"):
+            cover_url = LR_BASE + cover_url
+        author_el = row.select_one("p.author a, span.author")
+        synopsis_el = row.select_one("p.intro")
+        items.append(BookItem(
+            title     = title_el.text.strip(),
+            author    = author_el.text.strip() if author_el else "",
+            cover_url = cover_url,
+            url       = f"{LR_BASE}{href}",
+            source    = "libread",
+            synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
+        ))
+    return items
+
+
+def _parse_gutendex_results(results: list) -> list[BookItem]:
+    """Convert a list of Gutendex book dicts into BookItems."""
+    items = []
+    for book in results:
+        title     = book.get("title", "").strip()
+        authors   = ", ".join(a["name"] for a in book.get("authors", []))
+        cover_url = book.get("formats", {}).get("image/jpeg", "")
+        txt_url   = (
+            book.get("formats", {}).get("text/plain; charset=utf-8")
+            or book.get("formats", {}).get("text/html; charset=utf-8")
+            or book.get("formats", {}).get("text/plain")
+            or ""
+        )
+        if not title or not txt_url:
+            continue
+        # Build a synopsis from subjects — Gutendex has no description field
+        subjects  = book.get("subjects", [])
+        synopsis  = "; ".join(subjects[:6]) if subjects else ""
+        # Store the Gutenberg book ID in url so detail can look up synopsis later
+        book_id   = book.get("id", "")
+        items.append(BookItem(
+            title     = title,
+            author    = authors,
+            cover_url = cover_url,
+            url       = txt_url,
+            source    = "gutenberg",
+            synopsis  = synopsis,
+        ))
+    return items
+
+
+def fetch_gutenberg_popular(page: int = 1) -> list[BookItem]:
+    """Fetch a page of popular Gutenberg books."""
+    s = _session()
+    r = s.get(f"{GX_BASE}/books/", params={"sort": "popular", "languages": "en", "page": page}, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    return _parse_gutendex_results(data.get("results", []))
+
+
+def search_gutenberg(query: str, page: int = 1) -> list[BookItem]:
+    """Search Project Gutenberg via the Gutendex API."""
+    s = _session()
+    r = s.get(f"{GX_BASE}/books/", params={"search": query, "languages": "en", "page": page}, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    return _parse_gutendex_results(data.get("results", []))
+
+
+def fetch_gutenberg_detail(url: str) -> dict:
+    """
+    Fetch synopsis/metadata for a Gutenberg book.
+    url is the Gutendex API endpoint e.g. https://gutendex.com/books/1342/
+    """
+    try:
+        s = _session()
+        r = s.get(url, timeout=10)
+        r.raise_for_status()
+        data     = r.json()
+        subjects = data.get("subjects", [])
+        synopsis = (
+            "Subjects: " + ", ".join(subjects[:6])
+            if subjects else "No synopsis available for this Gutenberg title."
+        )
+        return {"synopsis": synopsis, "chapters": [], "total_pages": 0}
+    except Exception:
+        return {"synopsis": "", "chapters": [], "total_pages": 0}
+
+
+def search_royalroad(query: str, page: int = 1) -> list[BookItem]:
+    s    = _session()
+    r    = s.get(f"{RR_BASE}/fictions/search", params={"title": query, "page": page}, timeout=10)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+    items = []
+    for card in soup.select("div.fiction-list-item"):
+        title_el = card.select_one("h2.fiction-title")
+        cover_el = card.select_one("img")
+        link_el  = card.select_one("a[href*='/fiction/']")
+        if not title_el or not link_el:
+            continue
+        author_el   = card.select_one("span.author a, h4.font-white a, .author a")
+        synopsis_el = card.select_one("div.fiction-description")
+        items.append(BookItem(
+            title     = title_el.text.strip(),
+            author    = author_el.text.strip() if author_el else "",
+            cover_url = cover_el["src"] if cover_el else "",
+            url       = RR_BASE + link_el["href"],
+            source    = "royalroad",
+            synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
+        ))
+    return items
+
+
+def search_libread(query: str, page: int = 1) -> list[BookItem]:
+    """Search LibRead via POST — returns BookItems."""
+    s = _libread_scraper()
+    r = s.post(f"{LR_BASE}/search", data={"searchkey": query}, timeout=12)
+    if r.status_code != 200:
+        return []
+    soup  = BeautifulSoup(r.text, "html.parser")
+    items = []
+    for row in soup.select("div.ul-list1 div.li-row"):
+        title_el = row.select_one("h3.tit a")
+        if not title_el:
+            continue
+        href      = title_el.get("href", "")
+        cover_el  = row.select_one("img")
+        cover_url = cover_el.get("src", "") if cover_el else ""
+        if cover_url and cover_url.startswith("/"):
+            cover_url = LR_BASE + cover_url
+        author_el   = row.select_one("p.author a, span.author")
+        synopsis_el = row.select_one("p.intro")
+        items.append(BookItem(
+            title     = title_el.text.strip(),
+            author    = author_el.text.strip() if author_el else "",
+            cover_url = cover_url,
+            url       = f"{LR_BASE}{href}",
+            source    = "libread",
+            synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
+        ))
+    return items
+
+def fetch_libread_detail(url: str) -> dict:
+    """Fetch synopsis and chapter list for a LibRead book page."""
+    s = _libread_scraper()
+    r = s.get(url, timeout=12)
+    if r.status_code != 200:
+        return {"synopsis": "", "chapters": [], "total_pages": 0}
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # Synopsis — div.m-desc (live selector confirmed); filter out vote/rating <p> tags
+    synopsis = ""
+    desc_div = soup.find("div", class_="m-desc")
+    if desc_div:
+        synopsis = "\n\n".join(
+            p.get_text(strip=True) for p in desc_div.find_all("p")
+            if "vote" not in p.get("class", [])
+        )
+
+    # Author — identified by glyphicon span with title="Author", not a class
+    author = ""
+    author_el = soup.select_one('span[title="Author"] ~ div.right a.a1')
+    if author_el:
+        author = author_el.get_text(strip=True)
+
+    # Extract slug from URL: https://libread.com/libread/{slug}
+    import re as _re
+    slug_match = _re.search(r"/libread/([^/?#]+)", url)
+    chapters = []
+    if slug_match:
+        slug = slug_match.group(1)
+
+        # Try to find total chapter count from the page
+        total = 0
+        for sel in ["span.chapter-count", "div.chapter-count", ".chapter-count",
+                    "div.ul-list2 li", "div.chapter-list li"]:
+            els = soup.select(sel)
+            if els:
+                # If it's a count element, parse the number
+                text = els[0].get_text()
+                m = _re.search(r"(\d+)", text)
+                if m and len(els) == 1:
+                    total = int(m.group(1))
+                elif len(els) > 1:
+                    total = len(els)
+                if total:
+                    break
+
+        # Default to building at least chapter 1 so Read Now always works
+        if not total:
+            total = 1
+
+        for i in range(1, min(total + 1, 201)):  # cap list at 200
+            padded = f"{i:02d}" if i < 100 else str(i)
+            chapters.append({
+                "title": f"Chapter {i}",
+                "url":   f"{LR_BASE}/libread/{slug}/chapter-{padded}",
+            })
+
+    return {"synopsis": synopsis, "author": author, "chapters": chapters, "total_pages": 1}
+
+
+def scan_local_library() -> list[BookItem]:
+    """
+    Scan LEGION_LIBRARY for EPUB / PDF / TXT files and return them as BookItems.
+    Returns an empty list (never raises) if the folder doesn't exist or is unreadable.
+    """
+    items = []
+    library = Path(LEGION_LIBRARY)
+    if not library.is_dir():
+        return items
+    try:
+        for path in sorted(library.rglob("*")):
+            if path.suffix.lower() not in LOCAL_EXTENSIONS:
+                continue
+            title     = path.stem.replace("_", " ").replace("-", " ").strip()
+            file_type = path.suffix.lstrip(".").upper()
+            items.append(BookItem(
+                title      = title,
+                source     = "local",
+                local_path = str(path),
+                file_type  = file_type,
+            ))
+    except Exception:
+        pass
+    return items
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COVER CARD WIDGET
+# ══════════════════════════════════════════════════════════════════════════════
+
+class CoverCard(QWidget):
+    """
+    Single book card: fixed-size cover image + title label below.
+    Emits clicked(BookItem) on tap, delete_requested(BookItem) when ✕ is pressed
+    in edit mode.
+    """
+    clicked          = pyqtSignal(object)  # BookItem
+    delete_requested = pyqtSignal(object)  # BookItem
+
+    def __init__(self, book: BookItem, parent=None):
+        super().__init__(parent)
+        self.book       = book
+        self._pixmap    = None
+        self._worker    = None
+        self._drag_start = None   # tracks press position for touch-scroll vs tap
+        self.setFixedWidth(COVER_W)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._build()
+        if book.cover_url:
+            self._load_cover()
+        # No cover_url → show placeholder icon, card stays visible
 
     def _build(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(0,0,0,0)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(5)
+
+        # Cover frame
+        self._cover = QLabel()
+        self._cover.setFixedSize(COVER_W, COVER_H)
+        self._cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover.setStyleSheet(
+            f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px;")
+        self._set_placeholder()
+        lay.addWidget(self._cover)
+
+        # Title
+        self._title_lbl = QLabel(self.book.title)
+        self._title_lbl.setFixedWidth(COVER_W)
+        self._title_lbl.setWordWrap(True)
+        self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self._title_lbl.setStyleSheet(
+            f"color:{TEXT2}; font-size:14px; background:transparent; border:none;")
+        self._title_lbl.setMaximumHeight(80)
+        lay.addWidget(self._title_lbl)
+
+        # File type badge for local files
+        if self.book.source == "local" and self.book.file_type:
+            badge = QLabel(self.book.file_type)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setStyleSheet(
+                f"background:{BG3}; color:{ACCENT}; font-size:8px; "
+                f"letter-spacing:1px; border:1px solid {BORDER2}; border-radius:3px; "
+                f"padding:1px 4px;")
+            lay.addWidget(badge)
+
+        # Delete overlay (shown in edit mode)
+        self._del_btn = QPushButton("✕", self._cover)
+        self._del_btn.setFixedSize(22, 22)
+        self._del_btn.move(COVER_W - 26, 4)
+        self._del_btn.setStyleSheet(
+            "QPushButton{background:#c0392b; color:white; border:none; "
+            "border-radius:11px; font-size:11px; font-weight:bold;}"
+            "QPushButton:hover{background:#e74c3c;}")
+        self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._del_btn.clicked.connect(lambda: self.delete_requested.emit(self.book))
+        self._del_btn.hide()
+
+    def _set_placeholder(self):
+        icon = {"local": "📄", "gutenberg": "📖"}.get(self.book.source, "📚")
+        self._cover.setText(icon)
+        self._cover.setStyleSheet(
+            f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px; "
+            f"font-size:28px; color:{BORDER2};")
+
+    def _load_cover(self):
+        _COVER_POOL.request(self.book.cover_url, self._on_cover)
+
+    def _on_cover(self, url: str, px: QPixmap):
+        try:
+            _ = self._cover.objectName()  # raises RuntimeError if C++ obj deleted
+        except RuntimeError:
+            return
+        if px.isNull():
+            self._set_placeholder()
+            return
+        # Crop to exact COVER_W × COVER_H
+        scaled = px.scaled(
+            COVER_W, COVER_H,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        # Rounded corners via painter
+        result = QPixmap(COVER_W, COVER_H)
+        result.fill(Qt.GlobalColor.transparent)
+        p = QPainter(result)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, COVER_W, COVER_H, 5, 5)
+        p.setClipPath(path)
+        # Centre-crop
+        sx = (scaled.width()  - COVER_W) // 2
+        sy = (scaled.height() - COVER_H) // 2
+        p.drawPixmap(0, 0, scaled, sx, sy, COVER_W, COVER_H)
+        p.end()
+        self._pixmap = result
+        try:
+            self._cover.setPixmap(result)
+            self._cover.setStyleSheet(
+                "background:transparent; border:none; border-radius:5px;")
+        except RuntimeError:
+            pass
+
+    def enterEvent(self, e):
+        self._cover.setStyleSheet(
+            f"background:{BG2}; border:1px solid {ACCENT}; border-radius:5px;"
+            + ("" if self._pixmap else f" font-size:28px; color:{BORDER2};"))
+        self._title_lbl.setStyleSheet(
+            f"color:{TEXT}; font-size:10px; background:transparent; border:none;")
+        if self._pixmap:
+            self._cover.setPixmap(self._pixmap)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._cover.setStyleSheet(
+            f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px;"
+            + ("" if self._pixmap else f" font-size:28px; color:{BORDER2};"))
+        self._title_lbl.setStyleSheet(
+            f"color:{TEXT2}; font-size:10px; background:transparent; border:none;")
+        if self._pixmap:
+            self._cover.setPixmap(self._pixmap)
+        super().leaveEvent(e)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = e.position().toPoint()
+        super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self._drag_start is not None:
+            delta = (e.position().toPoint() - self._drag_start).manhattanLength()
+            if delta < 8:   # genuine tap, not a scroll gesture
+                self.clicked.emit(self.book)
+            self._drag_start = None
+        super().mouseReleaseEvent(e)
+
+    def set_delete_mode(self, enabled: bool):
+        """Show/hide the red ✕ delete button on this card."""
+        self._del_btn.setVisible(enabled)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DETAIL PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FlowLayout(QLayout):
+    """Wrapping flow layout for genre chips."""
+    def __init__(self, parent=None, spacing=6):
+        super().__init__(parent)
+        self._items   = []
+        self._spacing = spacing
+
+    def setSpacing(self, s):
+        self._spacing = s
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size + QSize(0, 0)
+
+    def _do_layout(self, rect, test):
+        x, y, row_h = rect.x(), rect.y(), 0
+        for item in self._items:
+            w = item.widget()
+            if not w:
+                continue
+            iw = item.sizeHint().width()
+            ih = item.sizeHint().height()
+            if x + iw > rect.right() and x > rect.x():
+                x  = rect.x()
+                y += row_h + self._spacing
+                row_h = 0
+            if not test:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+            x     += iw + self._spacing
+            row_h  = max(row_h, ih)
+        return y + row_h - rect.y()
+
+
+class DetailPanel(QWidget):
+    """
+    Slides in from the right over the discovery grid.
+    Shows cover, title, author, source, synopsis, and chapter list
+    (or a Read button for Gutenberg / local files).
+    """
+    closed      = pyqtSignal()
+    book_action = pyqtSignal(str, object)  # (action, BookItem) — "read" | "library_add" | "library_remove"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background:{BG2}; border-left:1px solid {BORDER};")
+        self._detail_worker       = None
+        self._detail_cover_worker = None
+        self._first_chapter_url: str | None = None
+        self._build()
+        self.hide()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Sidebar: nav only ──────────────────────────────────────────────────
-        sidebar = QFrame(); sidebar.setObjectName("sidebar"); sidebar.setFixedWidth(220)
+        # ── Top bar ───────────────────────────────────────────────────────────
+        topbar = QWidget()
+        topbar.setStyleSheet(
+            f"background:{BG3}; border-bottom:1px solid {BORDER};")
+        topbar.setFixedHeight(44)
+        tb = QHBoxLayout(topbar)
+        tb.setContentsMargins(14, 0, 14, 0)
+
+        back_btn = QPushButton("← Back")
+        back_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:none; color:{MUTED}; "
+            f"font-size:11px; letter-spacing:0.5px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.clicked.connect(self.close_panel)
+        tb.addWidget(back_btn)
+        tb.addStretch()
+        root.addWidget(topbar)
+
+        # ── Scrollable content ────────────────────────────────────────────────
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+
+        inner = QWidget()
+        inner.setStyleSheet("background:transparent;")
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(24, 24, 24, 24)
+        iv.setSpacing(16)
+
+        # Cover + meta side-by-side
+        meta_row = QHBoxLayout()
+        meta_row.setSpacing(20)
+        meta_row.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._detail_cover = QLabel()
+        self._detail_cover.setFixedSize(180, 270)
+        self._detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._detail_cover.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; "
+            f"font-size:48px;")
+        self._detail_cover.setText("📚")
+        meta_row.addWidget(self._detail_cover)
+
+        meta_col = QVBoxLayout()
+        meta_col.setSpacing(8)
+        meta_col.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._detail_source = QLabel()
+        self._detail_source.setStyleSheet(
+            f"color:{ACCENT}; font-size:9px; letter-spacing:3px; "
+            f"font-weight:bold; background:transparent;")
+        meta_col.addWidget(self._detail_source)
+
+        self._detail_title = QLabel()
+        self._detail_title.setWordWrap(True)
+        self._detail_title.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._detail_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._detail_title.setStyleSheet(
+            f"color:{TEXT}; font-size:20px; font-weight:bold; "
+            f"line-height:1.3; background:transparent;")
+        meta_col.addWidget(self._detail_title)
+
+        self._detail_author = QLabel()
+        self._detail_author.setStyleSheet(
+            f"color:{TEXT2}; font-size:13px; background:transparent;")
+        meta_col.addWidget(self._detail_author)
+
+        meta_col.addSpacing(10)
+
+        # ── Stat cards row ────────────────────────────────────────────────────
+        self._stat_row = QHBoxLayout()
+        self._stat_row.setSpacing(8)
+        self._stat_row.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self._stat_status = self._make_stat_card("Status", "—")
+        self._stat_last   = self._make_stat_card("Last read", "—")
+        self._stat_dl     = self._make_stat_card("Downloaded", "—")
+
+        for card in (self._stat_status, self._stat_last, self._stat_dl):
+            self._stat_row.addWidget(card)
+        self._stat_row.addStretch()
+        meta_col.addLayout(self._stat_row)
+
+        meta_col.addSpacing(10)
+
+        # ── Genre chips row ───────────────────────────────────────────────────
+        self._genre_wrap = QWidget()
+        self._genre_wrap.setStyleSheet("background:transparent;")
+        self._genre_layout = FlowLayout(self._genre_wrap)
+        self._genre_layout.setSpacing(6)
+        self._genre_wrap.hide()
+        meta_col.addWidget(self._genre_wrap)
+
+        meta_col.addSpacing(8)
+
+        # ── Action buttons row ────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self._read_btn = QPushButton("▶  Read Now")
+        self._read_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._read_btn.setStyleSheet(
+            f"QPushButton{{background:{ACCENT}; border:none; color:{BG}; "
+            f"font-size:10px; font-weight:700; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 16px;}}"
+            f"QPushButton:hover{{background:#D4B460;}}")
+        btn_row.addWidget(self._read_btn)
+
+        # Category picker — shown as a compact combo next to the add button
+        self._cat_combo = QComboBox()
+        self._cat_combo.addItems(["Planning", "Reading", "Dropped", "Completed"])
+        self._cat_combo.setFixedWidth(110)
+        self._cat_combo.setStyleSheet(
+            f"QComboBox{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"border-radius:4px; color:{TEXT2}; font-size:10px; padding:4px 8px;}}"
+            f"QComboBox:hover{{border-color:{ACCENT};}}"
+            f"QComboBox::drop-down{{border:none; width:16px;}}"
+            f"QComboBox QAbstractItemView{{background:{BG2}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; selection-background-color:{ACCENT}; selection-color:{BG};}}")
+        btn_row.addWidget(self._cat_combo)
+
+        self._add_lib_btn = QPushButton("+ Library")
+        self._add_lib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_lib_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; font-size:10px; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 12px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+        btn_row.addWidget(self._add_lib_btn)
+
+        # Remove button — same size as Library button, sits next to it
+        self._remove_btn = QPushButton("✕ Remove")
+        self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:1px solid #3D1A20; "
+            f"color:{RED}; font-size:10px; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 12px;}}"
+            f"QPushButton:hover{{background:#2A0E14; border-color:{RED};}}")
+        self._remove_btn.hide()
+        btn_row.addWidget(self._remove_btn)
+
+        btn_row.addStretch()
+        meta_col.addLayout(btn_row)
+
+        # In-library badge
+        self._lib_badge = QLabel()
+        self._lib_badge.setStyleSheet(
+            f"color:{ACCENT}; font-size:9px; letter-spacing:1px; background:transparent;")
+        self._lib_badge.hide()
+        meta_col.addWidget(self._lib_badge)
+
+        meta_row.addLayout(meta_col, 1)
+        iv.addLayout(meta_row)
+
+        # Synopsis
+        syn_label = QLabel("SYNOPSIS")
+        syn_label.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+        iv.addWidget(syn_label)
+
+        self._synopsis = QTextBrowser()
+        self._synopsis.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
+            f"color:{TEXT}; font-size:15px; padding:14px; line-height:1.6;")
+        self._synopsis.setMinimumHeight(400)
+        self._synopsis.setMaximumHeight(800)
+        self._synopsis.setOpenExternalLinks(False)
+        iv.addWidget(self._synopsis)
+
+        # Chapters section
+        self._ch_label = QLabel("CHAPTERS")
+        self._ch_label.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+        iv.addWidget(self._ch_label)
+
+        self._ch_loading = QLabel("Loading chapters…")
+        self._ch_loading.setStyleSheet(
+            f"color:{MUTED}; font-size:11px; background:transparent;")
+        iv.addWidget(self._ch_loading)
+
+        self._ch_scroll = QScrollArea()
+        self._ch_scroll.setWidgetResizable(True)
+        self._ch_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._ch_scroll.setFixedHeight(260)
+        self._ch_scroll.setStyleSheet(
+            f"QScrollArea{{background:{BG3}; border:1px solid {BORDER}; "
+            f"border-radius:6px;}}"
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+
+        self._ch_inner  = QWidget()
+        self._ch_inner.setStyleSheet("background:transparent;")
+        self._ch_layout = QVBoxLayout(self._ch_inner)
+        self._ch_layout.setContentsMargins(10, 8, 10, 8)
+        self._ch_layout.setSpacing(2)
+        self._ch_scroll.setWidget(self._ch_inner)
+        self._ch_scroll.hide()
+        iv.addWidget(self._ch_scroll)
+
+        iv.addStretch()
+        scroll.setWidget(inner)
+        root.addWidget(scroll, 1)
+
+        self._inner_layout = iv
+        self._current_book: Optional[BookItem] = None
+
+    def _make_stat_card(self, label: str, value: str) -> QWidget:
+        card = QWidget()
+        card.setFixedWidth(100)
+        card.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px;")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(3)
+        lbl = QLabel(label.upper())
+        lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:2px; background:transparent; border:none;")
+        val = QLabel(value)
+        val.setStyleSheet(
+            f"color:{TEXT}; font-size:13px; font-weight:bold; background:transparent; border:none;")
+        val.setObjectName("stat_val")
+        lay.addWidget(lbl)
+        lay.addWidget(val)
+        return card
+
+    def _set_stat(self, card: QWidget, value: str):
+        val = card.findChild(QLabel, "stat_val")
+        if val:
+            val.setText(value)
+
+    def _update_stats(self, book: BookItem):
+        status_map = {
+            "reading":   ("● Ongoing",   f"color:{GREEN}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
+            "planning":  ("◉ Planning",  f"color:{MUTED}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
+            "dropped":   ("✕ Dropped",   f"color:{RED}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
+            "completed": ("✓ Completed", f"color:{ACCENT}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
+        }
+        cat = library_get_category(book.title)
+        label_text, label_style = status_map.get(cat or "", ("—", f"color:{MUTED}; font-size:13px; font-weight:bold; background:transparent; border:none;"))
+        val = self._stat_status.findChild(QLabel, "stat_val")
+        if val:
+            val.setText(label_text)
+            val.setStyleSheet(label_style)
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(book.title, {})
+            ch    = int(entry.get("current_chapter", 0))
+            dl    = int(entry.get("last_downloaded_chapter", 0))
+        except Exception:
+            ch = dl = 0
+        self._set_stat(self._stat_last, f"Ch. {ch}" if ch else "—")
+        self._set_stat(self._stat_dl,   f"{dl} ch"  if dl else "—")
+
+    def _update_genres(self, book: BookItem):
+        import re as _re
+        while self._genre_layout.count():
+            item = self._genre_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+        genres = []
+        if book.synopsis:
+            m = _re.search(r"(?i)genre[s]?\s*[:\-]\s*(.+)", book.synopsis)
+            if m:
+                genres = [g.strip() for g in _re.split(r"[,;/]", m.group(1)) if g.strip()]
+        if not genres:
+            self._genre_wrap.hide()
+            return
+        for genre in genres[:8]:
+            chip = QLabel(genre)
+            chip.setStyleSheet(
+                f"color:{ACCENT}; background:transparent; "
+                f"border:1px solid {BORDER2}; border-radius:10px; "
+                f"font-size:11px; padding:2px 10px;")
+            self._genre_layout.addWidget(chip)
+        self._genre_wrap.show()
+        self._genre_wrap.updateGeometry()
+
+    def show_book(self, book: BookItem):
+        self._current_book = book
+        self._first_chapter_url = None
+
+        # Cover
+        self._detail_cover.setText("📚")
+        self._detail_cover.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
+            f"font-size:36px;")
+        if book.cover_url:
+            w = CoverWorker(book.cover_url)
+            w.done.connect(self._on_detail_cover)
+            w.start()
+            self._detail_cover_worker = w
+
+        # Meta
+        self._detail_title.setText(book.title)
+        self._detail_author.setText(book.author or "Unknown author")
+        source_labels = {
+            "royalroad": "ROYAL ROAD",
+            "libread":    "LIBREAD",
+            "gutenberg":  "PROJECT GUTENBERG",
+            "local":      "LOCAL LIBRARY",
+        }
+        self._detail_source.setText(source_labels.get(book.source, book.source.upper()))
+
+        # ── Wire buttons (disconnect first to avoid stacking) ─────────────────
+        for btn in (self._read_btn, self._add_lib_btn, self._remove_btn):
+            try:
+                btn.clicked.disconnect()
+            except TypeError:
+                pass
+
+        self._read_btn.clicked.connect(lambda: self._on_read(book))
+        self._add_lib_btn.clicked.connect(lambda: self._on_add_to_library(book))
+        self._remove_btn.clicked.connect(lambda: self._on_remove_from_library(book))
+
+        # ── Library status ────────────────────────────────────────────────────
+        self._refresh_lib_status(book)
+        self._update_stats(book)
+        self._update_genres(book)
+
+        # ── Chapters ──────────────────────────────────────────────────────────
+        if book.source == "local":
+            self._ch_label.hide()
+            self._ch_loading.hide()
+            self._ch_scroll.hide()
+        elif book.source == "libread":
+            # Chapter list not shown for libread — URL pattern handles navigation
+            self._ch_label.hide()
+            self._ch_loading.hide()
+            self._ch_scroll.hide()
+            self._load_chapters(book)  # still needed to fetch synopsis from detail page
+        else:
+            self._ch_label.show()
+            self._ch_loading.setText("Loading chapters…")
+            self._ch_loading.show()
+            self._ch_scroll.hide()
+            self._load_chapters(book)
+
+        # Synopsis — show cached value immediately; detail fetch overwrites
+        if book.synopsis:
+            self._synopsis.setPlainText(book.synopsis)
+        elif book.source in ("royalroad", "libread"):
+            self._synopsis.setPlainText("Loading synopsis…")
+        else:
+            self._synopsis.setPlainText("No synopsis available.")
+
+        self.show()
+
+    def _refresh_lib_status(self, book: BookItem):
+        """Update badge, remove button, and category combo to reflect current library state."""
+        cat = library_get_category(book.title)
+        if cat:
+            self._lib_badge.setText(f"✓ In library — {cat.capitalize()}")
+            self._lib_badge.show()
+            self._remove_btn.show()
+            # Set combo to current category
+            cat_map = {"planning": 0, "reading": 1, "dropped": 2, "completed": 3}
+            self._cat_combo.setCurrentIndex(cat_map.get(cat, 0))
+        else:
+            self._lib_badge.hide()
+            # Even if not in the library, show the remove button if the book is an
+            # orphaned Jump In entry — so the user always has an escape hatch.
+            try:
+                _ji_data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                _in_ji   = book.title in _ji_data.get("books", {})
+            except Exception:
+                _in_ji = False
+            if _in_ji:
+                self._lib_badge.setText("⚠ In Jump In (not in library)")
+                self._lib_badge.show()
+                self._remove_btn.show()
+            else:
+                self._remove_btn.hide()
+
+    def _on_read(self, book: BookItem):
+        """Read Now: add to library as Reading + add to Jump In, then signal to open reader."""
+        library_add(book, "reading")
+        jump_in_add(book)
+        self._refresh_lib_status(book)
+        self.book_action.emit("read", book)
+
+    def _on_add_to_library(self, book: BookItem):
+        """Add/move to selected category."""
+        cat_names = ("planning", "reading", "dropped", "completed")
+        cat = cat_names[self._cat_combo.currentIndex()]
+        library_add(book, cat)
+        if cat == "reading":
+            jump_in_add(book)
+        else:
+            jump_in_remove(book.title, delete_files=False)
+        self._refresh_lib_status(book)
+        self.book_action.emit("library_add", book)
+
+    def _on_remove_from_library(self, book: BookItem):
+        """Remove absolutely — from library, Jump In, and downloaded chapters."""
+        library_remove(book.title)
+        jump_in_remove(book.title, delete_files=True)
+        self._refresh_lib_status(book)
+        self.book_action.emit("library_remove", book)
+
+    def _on_detail_cover(self, url: str, px: QPixmap):
+        if px.isNull():
+            return
+        scaled = px.scaled(
+            180, 270,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        result = QPixmap(180, 270)
+        result.fill(Qt.GlobalColor.transparent)
+        p = QPainter(result)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, 180, 270, 8, 8)
+        p.setClipPath(path)
+        sx = (scaled.width()  - 180) // 2
+        sy = (scaled.height() - 270) // 2
+        p.drawPixmap(0, 0, scaled, sx, sy, 180, 270)
+        p.end()
+        self._detail_cover.setPixmap(result)
+        self._detail_cover.setStyleSheet("background:transparent; border:none;")
+
+    def _load_chapters(self, book: BookItem):
+        # Clear old chapters
+        while self._ch_layout.count():
+            item = self._ch_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        def _task():
+            if book.source == "royalroad":
+                return fetch_royalroad_detail(book.url)
+            elif book.source == "libread":
+                return fetch_libread_detail(book.url)
+            elif book.source == "gutenberg":
+                return fetch_gutenberg_detail(book.url)
+            return {}
+
+        self._detail_worker = FetchWorker(_task)
+        self._detail_worker.detail.connect(
+            lambda data: self._on_chapters(data, book))
+        self._detail_worker.error.connect(
+            lambda e: self._on_detail_error(e, book))
+        self._detail_worker.start()
+
+    def _on_detail_error(self, error: str, book: BookItem):
+        self._ch_loading.hide()
+        # Show whatever synopsis we already have from the grid scrape
+        if book.synopsis:
+            self._synopsis.setPlainText(book.synopsis)
+        else:
+            self._synopsis.setPlainText("Synopsis unavailable.")
+        if book.source not in ("gutenberg", "local"):
+            self._ch_loading.setText("Could not load chapters.")
+            self._ch_loading.show()
+
+    def _on_chapters(self, data: dict, book: BookItem):
+        chapters = data.get("chapters", [])
+        synopsis = data.get("synopsis", "")
+        author   = data.get("author", "")
+
+        if synopsis:
+            book.synopsis = synopsis
+            self._synopsis.setPlainText(synopsis)
+        elif not book.synopsis:
+            self._synopsis.setPlainText("No synopsis available.")
+
+        if author and not book.author:
+            book.author = author
+            self._detail_author.setText(author)
+
+        self._ch_loading.hide()
+
+        if book.source in ("gutenberg", "local", "libread"):
+            self._ch_label.hide()
+            self._ch_scroll.hide()
+            return
+
+        if not chapters:
+            self._ch_label.hide()
+            return
+
+        self._ch_label.show()
+        self._first_chapter_url = chapters[0].get("url", "") if chapters else ""
+        count_lbl = QLabel(f"{len(chapters)} chapters")
+        count_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:1px; background:transparent;")
+        self._ch_layout.addWidget(count_lbl)
+
+        for ch in chapters:
+            btn = QPushButton(ch["title"])
+            btn.setStyleSheet(
+                f"QPushButton{{background:transparent; border:none; "
+                f"color:{TEXT2}; font-size:11px; text-align:left; padding:5px 6px;}}"
+                f"QPushButton:hover{{color:{ACCENT}; background:{BG2}; border-radius:3px;}}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            ch_url = ch["url"]
+            btn.clicked.connect(lambda _, u=ch_url: self._open_url(u))
+            self._ch_layout.addWidget(btn)
+
+        self._ch_layout.addStretch()
+        self._ch_scroll.show()
+
+    def _open_url(self, url: str):
+        import subprocess
+        subprocess.Popen(["xdg-open", url])
+
+    def close_panel(self):
+        self.hide()
+        self.closed.emit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BOOKS GRID WIDGET
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BooksGrid(QWidget):
+    """Scrollable grid of CoverCard widgets — columns fill available width."""
+    book_clicked     = pyqtSignal(object)  # BookItem
+    delete_requested = pyqtSignal(object)  # BookItem
+
+    _CARD_W   = COVER_W + 16   # card width + per-slot spacing budget
+    _MARGIN   = 28              # horizontal margin each side
+    _MIN_COLS = 2
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cards: list[CoverCard] = []
+        self._pending_books: list[BookItem] = []
+        self._cols = GRID_COLS      # updated dynamically on resize
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{width:5px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+
+        self._container = QWidget()
+        self._container.setStyleSheet("background:transparent;")
+        self._grid = QGridLayout(self._container)
+        self._grid.setContentsMargins(self._MARGIN, 14, self._MARGIN, 28)
+        self._grid.setHorizontalSpacing(16)
+        self._grid.setVerticalSpacing(24)
+        self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        self._scroll.setWidget(self._container)
+        lay.addWidget(self._scroll)
+
+        # Empty state label — shown via set_books([], empty_message=...)
+        self._empty_label = QLabel()
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setWordWrap(True)
+        self._empty_label.setStyleSheet(
+            f"color:{MUTED}; font-size:13px; background:transparent; padding:40px;")
+        self._empty_label.hide()
+        lay.addWidget(self._empty_label, 1)
+
+    # ── Dynamic column count ──────────────────────────────────────────────────
+
+    def _cols_for_width(self, w: int) -> int:
+        usable = w - self._MARGIN * 2
+        return max(self._MIN_COLS, usable // self._CARD_W)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        new_cols = self._cols_for_width(self._scroll.viewport().width())
+        if new_cols != self._cols:
+            self._cols = new_cols
+            self._reflow()
+
+    def _reflow(self):
+        """Re-place all existing cards using the updated column count."""
+        while self._grid.count():
+            self._grid.takeAt(0)
+        for i, card in enumerate(self._cards):
+            self._grid.addWidget(card, i // self._cols, i % self._cols)
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    _BATCH = 12   # cards per event-loop tick — small enough to stay responsive
+
+    def set_books(self, books: list[BookItem], empty_message: str = ""):
+        """Clear existing cards and start populating asynchronously in batches."""
+        # Cancel any pending batch job first
+        self._pending_books: list[BookItem] = []
+
+        # Detach from layout (fast), hide + schedule destruction
+        while self._grid.count():
+            self._grid.takeAt(0)
+        for card in self._cards:
+            card.hide()
+            card.deleteLater()
+        self._cards.clear()
+
+        if not books and empty_message:
+            self._empty_label.setText(empty_message)
+            self._empty_label.show()
+            self._scroll.hide()
+            return
+
+        self._empty_label.hide()
+        self._scroll.show()
+        self._pending_books = list(books)
+        self._flush_batch()
+
+    def _flush_batch(self):
+        """Add one batch of cards then yield back to the event loop."""
+        if not self._pending_books:
+            return
+        batch, self._pending_books = (
+            self._pending_books[:self._BATCH],
+            self._pending_books[self._BATCH:],
+        )
+        self.add_books(batch)
+        if self._pending_books:
+            # 30ms gap: long enough for the event loop to process cover signals
+            # but short enough that the full grid appears quickly
+            QTimer.singleShot(30, self._flush_batch)
+
+    def add_books(self, books: list[BookItem]):
+        """Append books to the existing grid, skipping duplicates already shown."""
+        existing_titles = {c.book.title.strip().lower() for c in self._cards}
+        existing_urls   = {c.book.url.strip().rstrip("/").lower() for c in self._cards}
+        start = len(self._cards)
+        offset = 0
+        for book in books:
+            t = book.title.strip().lower()
+            u = book.url.strip().rstrip("/").lower()
+            if t in existing_titles or u in existing_urls:
+                continue
+            existing_titles.add(t)
+            existing_urls.add(u)
+            card = CoverCard(book)
+            card.clicked.connect(self.book_clicked)
+            card.delete_requested.connect(self.delete_requested)
+            idx = start + offset
+            self._grid.addWidget(card, idx // self._cols, idx % self._cols)
+            self._cards.append(card)
+            offset += 1
+
+    def clear(self):
+        self.set_books([])
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# READER PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+
+READER_SETTINGS_PATH = os.path.expanduser("~/.config/great_sage/reader_settings.json")
+READER_FONT_DEFAULT  = 17
+READER_FONT_MIN      = 11
+READER_FONT_MAX      = 32
+
+
+def _load_reader_settings() -> dict:
+    try:
+        if os.path.exists(READER_SETTINGS_PATH):
+            with open(READER_SETTINGS_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"font_size": READER_FONT_DEFAULT}
+
+
+def _save_reader_settings(data: dict):
+    try:
+        os.makedirs(os.path.dirname(READER_SETTINGS_PATH), exist_ok=True)
+        with open(READER_SETTINGS_PATH, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOCAL FILE PARSING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_epub(path: str) -> tuple:
+    """Parse an EPUB file. Returns (paragraphs, cover_bytes). cover_bytes is None if no cover found."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    paragraphs: list = []
+    cover_bytes = None
+
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            names = z.namelist()
+
+            # Find container.xml -> rootfile path
+            container_xml = z.read("META-INF/container.xml")
+            container = ET.fromstring(container_xml)
+            rootfile_el = container.find(".//{urn:oasis:names:tc:opf:2.0:container}rootfile")
+            if rootfile_el is None:
+                return paragraphs, cover_bytes
+            opf_path = rootfile_el.attrib.get("full-path", "")
+            if not opf_path:
+                return paragraphs, cover_bytes
+
+            opf_dir = opf_path.rsplit("/", 1)[0] + "/" if "/" in opf_path else ""
+            opf_xml = z.read(opf_path)
+            opf = ET.fromstring(opf_xml)
+
+            # Try to find cover image — method 1: meta name="cover"
+            cover_id = None
+            for meta in opf.findall(".//{http://www.idpf.org/2007/opf}meta"):
+                if meta.attrib.get("name") == "cover":
+                    cover_id = meta.attrib.get("content")
+                    break
+            if cover_id:
+                for item in opf.findall(".//{http://www.idpf.org/2007/opf}item"):
+                    if item.attrib.get("id") == cover_id:
+                        href = item.attrib.get("href", "")
+                        cover_path = opf_dir + href
+                        if cover_path in names:
+                            cover_bytes = z.read(cover_path)
+                        break
+
+            # Method 2: properties="cover-image"
+            if not cover_bytes:
+                for item in opf.findall(".//{http://www.idpf.org/2007/opf}item"):
+                    if "cover-image" in item.attrib.get("properties", ""):
+                        href = item.attrib.get("href", "")
+                        cover_path = opf_dir + href
+                        if cover_path in names:
+                            cover_bytes = z.read(cover_path)
+                        break
+
+            # Method 3: filename contains "cover"
+            if not cover_bytes:
+                for name in names:
+                    low = name.lower()
+                    if "cover" in low and any(low.endswith(ext) for ext in (".jpg", ".jpeg", ".png")):
+                        cover_bytes = z.read(name)
+                        break
+
+            # Build spine order
+            spine_ids = [
+                itemref.attrib.get("idref", "")
+                for itemref in opf.findall(".//{http://www.idpf.org/2007/opf}itemref")
+            ]
+            id_to_href: dict = {}
+            for item in opf.findall(".//{http://www.idpf.org/2007/opf}item"):
+                item_id = item.attrib.get("id", "")
+                href    = item.attrib.get("href", "")
+                media   = item.attrib.get("media-type", "")
+                if "html" in media or "xhtml" in media or href.endswith((".html", ".xhtml", ".htm")):
+                    id_to_href[item_id] = opf_dir + href
+
+            ordered = [id_to_href[sid] for sid in spine_ids if sid in id_to_href]
+
+            for item_path in ordered:
+                if item_path not in names:
+                    continue
+                html_bytes = z.read(item_path)
+                html_text = html_bytes.decode("utf-8", errors="replace")
+                soup = BeautifulSoup(html_text, "html.parser")
+                for tag in soup.find_all(["p", "div"]):
+                    if tag.find(["p", "div"]):
+                        continue
+                    text = tag.get_text(" ", strip=True)
+                    if text and len(text) > 8:
+                        paragraphs.append(text)
+
+    except Exception:
+        pass
+
+    return paragraphs, cover_bytes
+
+
+def _parse_pdf(path: str) -> list:
+    """Parse a PDF and return list of paragraph strings."""
+    paragraphs: list = []
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(path)
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            for line in text.split("\n"):
+                line = line.strip()
+                if line and len(line) > 8:
+                    paragraphs.append(line)
+    except Exception as e:
+        paragraphs.append(f"Could not read PDF: {e}")
+    return paragraphs
+
+
+def _parse_txt(path: str) -> list:
+    """Parse a plain text file and return list of paragraph strings."""
+    paragraphs: list = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        for para in content.split("\n\n"):
+            para = para.strip()
+            if para and len(para) > 4:
+                paragraphs.append(para)
+        if not paragraphs:
+            for line in content.split("\n"):
+                line = line.strip()
+                if line:
+                    paragraphs.append(line)
+    except Exception as e:
+        paragraphs.append(f"Could not read file: {e}")
+    return paragraphs
+
+
+class LocalFileWorker(QThread):
+    """Parses a local EPUB/PDF/TXT file in a background thread."""
+    done = pyqtSignal(list, object)  # (paragraphs, cover_bytes_or_None)
+
+    def __init__(self, book, parent=None):
+        super().__init__(parent)
+        self._book      = book
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            ft = self._book.file_type.upper()
+            if ft == "EPUB":
+                paragraphs, cover_bytes = _parse_epub(self._book.local_path)
+            elif ft == "PDF":
+                paragraphs = _parse_pdf(self._book.local_path)
+                cover_bytes = None
+            else:
+                paragraphs = _parse_txt(self._book.local_path)
+                cover_bytes = None
+
+            if not self._cancelled:
+                self.done.emit(paragraphs, cover_bytes)
+        except Exception as e:
+            if not self._cancelled:
+                self.done.emit([f"Error reading file: {e}"], None)
+
+
+
+class ChapterFetchWorker(QThread):
+    """Fetches a chapter in a background thread."""
+    done = pyqtSignal(str, list, object, object, object)  # title, paragraphs, next_url, prev_url, error
+
+    def __init__(self, url: str, book_name: str = "", parent=None):
+        super().__init__(parent)
+        self._url       = url
+        self._book_name = book_name
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            title, paragraphs, next_url, prev_url, error = self._fetch()
+            if not self._cancelled:
+                self.done.emit(title, paragraphs or [], next_url, prev_url, error)
+        except Exception as e:
+            if not self._cancelled:
+                self.done.emit("Error", [], None, None, str(e))
+
+    def _fetch(self):
+        url = self._url
+
+        # ── Local disk sentinel ───────────────────────────────────────────────
+        # URL format: local-disk://chapter/{num}/{book_title}
+        # Serves directly from the downloaded .txt file — zero network.
+        if url.startswith("local-disk://chapter/"):
+            return self._fetch_from_disk(url)
+
+        # ── Local cache check ────────────────────────────────────────────────
+        # If this chapter was already downloaded, serve it from disk.
+        # We need the chapter number — extract it from LEGION_PROGRESS.
+        if self._book_name:
+            try:
+                from great_sage_core import legion_mod
+                mod, err = legion_mod()
+                if mod and not err:
+                    data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                    entry = data.get("books", {}).get(self._book_name, {})
+                    # reader_chapter is the title string; we need the number.
+                    # Derive chapter number from current reader position stored
+                    # as reader_url — compare against url to get chapter index.
+                    # Simpler: scan the file for this url is complex, so instead
+                    # we check if a chapter exists at the current_chapter index.
+                    ch_num = entry.get("current_chapter", 0)
+                    if ch_num and ch_num > 0:
+                        local_title, local_paragraphs = mod.get_chapter_from_file(
+                            self._book_name, ch_num)
+                        if local_title and local_paragraphs:
+                            # We have it locally — but we still need next/prev URLs.
+                            # Derive them from progress; next chapter may also be local.
+                            # Return with next/prev as None so reader re-fetches nav
+                            # on demand — this is safe, nav buttons will still work
+                            # because _on_chapter_loaded handles None gracefully.
+                            # For a proper next_url, peek at ch_num+1:
+                            next_title, next_paras = mod.get_chapter_from_file(
+                                self._book_name, ch_num + 1)
+                            # We can't reconstruct the URL from file alone, so fall
+                            # through to network for URL resolution — but only if
+                            # the current chapter is not already loaded from disk.
+                            # Serve from disk to avoid the network round-trip.
+                            return local_title, local_paragraphs, None, None, None
+            except Exception:
+                pass
+
+        # ── Network fetch ────────────────────────────────────────────────────
+        # LibRead: use proven selectors directly
+        if "libread.com" in url:
+            return self._fetch_libread(url)
+        # All other sources: delegate to legion.fetch_chapter
+        from great_sage_core import legion_mod
+        mod, err = legion_mod()
+        if err or not mod:
+            return "Error", [], None, None, f"Legion module unavailable: {err}"
+        title, paragraphs, next_url, prev_url, error, _ = mod.fetch_chapter(
+            url, self._book_name)
+        return title or "Chapter", paragraphs or [], next_url, prev_url, error
+
+    def _fetch_libread(self, url: str):
+        """Fetch a libread chapter using the proven m-read selector."""
+        import re as _re
+        s = _libread_scraper()
+        r = s.get(url, timeout=12)
+        if r.status_code != 200:
+            return "Error", [], None, None, f"HTTP {r.status_code}"
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Chapter title
+        title_span = soup.find("span", class_="chapter")
+        title = title_span.get_text(strip=True) if title_span else "Chapter"
+
+        # Content
+        container = soup.find("div", class_="m-read")
+        if not container:
+            # Fallback to generic selectors
+            for sel in ["chr-content", "chapter-content", "chp_raw"]:
+                container = soup.find("div", id=sel) or soup.find("div", class_=sel)
+                if container:
+                    break
+
+        paragraphs = []
+        if container:
+            skip = {"Prev Chapter", "Next Chapter", "Font size", "Report"}
+            for p in container.find_all("p"):
+                text = p.get_text(strip=True)
+                if text and not any(s in text for s in skip):
+                    paragraphs.append(text)
+
+        # Next / prev nav — only trust hrefs that contain /libread/ (with slug+ID)
+        parsed = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url)
+        base   = f"{parsed.scheme}://{parsed.netloc}"
+
+        next_url = prev_url = None
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            # Skip nav links that don't have the full slug (missing numeric ID suffix)
+            if "/libread/" not in href:
+                continue
+            full = (base + href) if href.startswith("/") else href
+            txt  = a.get_text(strip=True).lower()
+            if "next" in txt:
+                next_url = full
+            elif "prev" in txt:
+                prev_url = full
+
+        # Arithmetic fallback — always used for libread since nav links are unreliable
+        # LibRead URL padding: chapters 1-9 → 2 digits, chapters 10+ → 5 digits
+        m = _re.search(r"/chapter-(\d+)$", url)
+        if m:
+            n   = int(m.group(1))
+            # Derive base_url from the book's canonical landing-page URL stored in
+            # LEGION_PROGRESS, NOT from the current chapter URL.  A chapter URL can
+            # drift (e.g. truncated book ID) and corrupt every subsequent arithmetic URL.
+            # Fall back to the chapter URL's directory only if no landing page is stored.
+            try:
+                _prog_data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                _book_entry = _prog_data.get("books", {}).get(self._book_name, {})
+                _lp         = _book_entry.get("url", "")
+                # Landing page ends with the slug+ID, e.g. /libread/<slug>-<id>
+                # Strip any trailing slash then that is our base_url for chapters.
+                base_url = _lp.rstrip("/") if (_lp and "/libread/" in _lp) else url[:url.rfind("/")]
+            except Exception:
+                base_url = url[:url.rfind("/")]
+            def _lr_pad(num):
+                return f"{num:02d}" if num < 10 else f"{num:05d}"
+            if not next_url:
+                candidate = f"{base_url}/chapter-{_lr_pad(n + 1)}"
+                # Validate the candidate exists before returning it — this prevents
+                # ghost chapters being downloaded past the real end of the book.
+                try:
+                    head = s.head(candidate, timeout=6)
+                    if head.status_code < 400:
+                        next_url = candidate
+                    # 404/403 → next_url stays None → downloader enters polling loop
+                except Exception:
+                    # Network error during validation — conservative: don't set next_url
+                    # so the downloader retries the current chapter rather than advancing.
+                    pass
+            if not prev_url and n > 1:
+                prev_url = f"{base_url}/chapter-{_lr_pad(n - 1)}"
+
+        return title, paragraphs, next_url, prev_url, None if paragraphs else "No content found"
+
+    def _fetch_from_disk(self, url: str):
+        """
+        Serve a chapter from the locally downloaded .txt file.
+        URL format: local-disk://chapter/{num}/{book_title}
+        Prev/next URLs are also local-disk sentinels so navigation never hits the network.
+        """
+        import re as _re, os
+        # Parse sentinel
+        m = _re.match(r"local-disk://chapter/(\d+)/(.+)$", url)
+        if not m:
+            return "Error", [], None, None, f"Bad local-disk URL: {url}"
+        ch_num    = int(m.group(1))
+        book_name = m.group(2)
+
+        # Locate the file
+        from great_sage_core import SCRIPT_DIR
+        safe     = _re.sub(r"[^\w\-_\. ]", "_", book_name)
+        txt_path = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
+        if not os.path.exists(txt_path):
+            return "Error", [], None, None, f"Book file not found: {txt_path}"
+
+        try:
+            with open(txt_path, "r", encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+        except Exception as e:
+            return "Error", [], None, None, str(e)
+
+        # Split on chapter separators and find the target chapter
+        blocks = _re.split(r"={50,}", raw)
+        total_chapters = 0
+        title      = f"Chapter {ch_num}"
+        paragraphs = []
+
+        for i in range(len(blocks) - 1):
+            header = blocks[i].strip()
+            body   = blocks[i + 1].strip() if i + 1 < len(blocks) else ""
+            hm = _re.match(r"Chapter\s+(\d+)\s*[:\-]?\s*(.*)", header, _re.IGNORECASE)
+            if hm:
+                total_chapters = max(total_chapters, int(hm.group(1)))
+                if int(hm.group(1)) == ch_num:
+                    title      = hm.group(2).strip() or f"Chapter {ch_num}"
+                    paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+
+        if not paragraphs:
+            return "Error", [], None, None, f"Chapter {ch_num} not found in downloaded file."
+
+        # Build prev/next as local-disk sentinels — no network
+        def _sentinel(n):
+            return f"local-disk://chapter/{n}/{book_name}"
+
+        prev_url = _sentinel(ch_num - 1) if ch_num > 1 else None
+        next_url = _sentinel(ch_num + 1) if ch_num < total_chapters else None
+
+        return title, paragraphs, next_url, prev_url, None
+
+class LocalDetailPanel(QWidget):
+    """
+    Detail panel for local files (EPUB/PDF/TXT).
+    Shows cover (extracted if EPUB), title, file type, file size, and Read button.
+    Emits read_requested(BookItem) when the user clicks Read Now.
+    """
+    closed        = pyqtSignal()
+    read_requested = pyqtSignal(object)  # BookItem
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background:{BG2}; border-left:1px solid {BORDER};")
+        self._book: "BookItem | None" = None
+        self._build()
+        self.hide()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Top bar
+        topbar = QWidget()
+        topbar.setStyleSheet(f"background:{BG3}; border-bottom:1px solid {BORDER};")
+        topbar.setFixedHeight(44)
+        tb = QHBoxLayout(topbar)
+        tb.setContentsMargins(14, 0, 14, 0)
+        back_btn = QPushButton("← Back")
+        back_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:none; color:{MUTED}; "
+            f"font-size:11px; letter-spacing:0.5px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.clicked.connect(self._on_close)
+        tb.addWidget(back_btn)
+        tb.addStretch()
+        root.addWidget(topbar)
+
+        # Scrollable content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+
+        inner = QWidget()
+        inner.setStyleSheet("background:transparent;")
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(24, 24, 24, 24)
+        iv.setSpacing(20)
+
+        # Cover + meta
+        meta_row = QHBoxLayout()
+        meta_row.setSpacing(20)
+        meta_row.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._cover_lbl = QLabel()
+        self._cover_lbl.setFixedSize(180, 270)
+        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cover_lbl.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:48px;")
+        self._cover_lbl.setText("📄")
+        meta_row.addWidget(self._cover_lbl)
+
+        meta_col = QVBoxLayout()
+        meta_col.setSpacing(10)
+        meta_col.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # Source badge
+        src_lbl = QLabel("LOCAL LIBRARY")
+        src_lbl.setStyleSheet(
+            f"color:{ACCENT}; font-size:9px; letter-spacing:3px; font-weight:bold; background:transparent;")
+        meta_col.addWidget(src_lbl)
+
+        # Title
+        self._title_lbl = QLabel()
+        self._title_lbl.setWordWrap(True)
+        self._title_lbl.setStyleSheet(
+            f"color:{TEXT}; font-size:20px; font-weight:bold; line-height:1.3; background:transparent;")
+        meta_col.addWidget(self._title_lbl)
+
+        # File type badge + size on same row
+        info_row = QHBoxLayout()
+        info_row.setSpacing(10)
+        self._type_badge = QLabel()
+        self._type_badge.setStyleSheet(
+            f"background:{BG3}; color:{ACCENT}; border:1px solid {ACCENT}44; "
+            f"border-radius:3px; font-size:9px; letter-spacing:2px; padding:2px 8px;")
+        info_row.addWidget(self._type_badge)
+        self._size_lbl = QLabel()
+        self._size_lbl.setStyleSheet(f"color:{MUTED}; font-size:11px; background:transparent;")
+        info_row.addWidget(self._size_lbl)
+        info_row.addStretch()
+        meta_col.addLayout(info_row)
+
+        meta_col.addSpacing(8)
+
+        # Read Now button
+        self._read_btn = QPushButton("▶  Read Now")
+        self._read_btn.setFixedWidth(160)
+        self._read_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._read_btn.setStyleSheet(
+            f"QPushButton{{background:{ACCENT}; border:none; color:{BG}; "
+            f"font-size:10px; font-weight:700; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 16px;}}"
+            f"QPushButton:hover{{background:#D4B460;}}")
+        self._read_btn.clicked.connect(self._on_read)
+        meta_col.addWidget(self._read_btn)
+
+        meta_row.addLayout(meta_col, 1)
+        iv.addLayout(meta_row)
+
+        # Path info
+        path_hdr = QLabel("FILE PATH")
+        path_hdr.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+        iv.addWidget(path_hdr)
+
+        self._path_lbl = QLabel()
+        self._path_lbl.setWordWrap(True)
+        self._path_lbl.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
+            f"color:{TEXT2}; font-size:11px; padding:10px 14px; font-family:monospace;")
+        iv.addWidget(self._path_lbl)
+
+        iv.addStretch()
+        scroll.setWidget(inner)
+        root.addWidget(scroll, 1)
+
+    def show_book(self, book: "BookItem"):
+        self._book = book
+        self._title_lbl.setText(book.title)
+        self._type_badge.setText(book.file_type)
+        self._path_lbl.setText(book.local_path)
+
+        # File size
+        try:
+            size = Path(book.local_path).stat().st_size
+            if size >= 1_048_576:
+                size_str = f"{size / 1_048_576:.1f} MB"
+            else:
+                size_str = f"{size / 1024:.0f} KB"
+        except Exception:
+            size_str = ""
+        self._size_lbl.setText(size_str)
+
+        # Cover placeholder — EPUB cover extracted on read, show emoji for now
+        icon = {"EPUB": "📖", "PDF": "📄", "TXT": "📝"}.get(book.file_type, "📄")
+        self._cover_lbl.setText(icon)
+        self._cover_lbl.setStyleSheet(
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:48px;")
+        self._cover_lbl.setPixmap(QPixmap())  # clear any previous pixmap
+
+        self.show()
+
+    def set_cover(self, pixmap: QPixmap):
+        """Called after EPUB cover is extracted to update the cover image."""
+        if pixmap.isNull():
+            return
+        scaled = pixmap.scaled(
+            180, 270,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        result = QPixmap(180, 270)
+        result.fill(Qt.GlobalColor.transparent)
+        p = QPainter(result)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, 180, 270, 8, 8)
+        p.setClipPath(path)
+        sx = (scaled.width()  - 180) // 2
+        sy = (scaled.height() - 270) // 2
+        p.drawPixmap(0, 0, scaled, sx, sy, 180, 270)
+        p.end()
+        self._cover_lbl.setText("")
+        self._cover_lbl.setStyleSheet("background:transparent; border:none;")
+        self._cover_lbl.setPixmap(result)
+
+    def _on_read(self):
+        if self._book:
+            self.read_requested.emit(self._book)
+
+    def _on_close(self):
+        self.hide()
+        self.closed.emit()
+
+    def close_panel(self):
+        self._on_close()
+
+
+class ReaderSageWorker(QThread):
+    """
+    Background worker for the reader Sage sidebar.
+
+    Two modes
+    ---------
+    web_search=False  (default)
+        Scans all downloaded chapter text up to `current_chapter` for
+        mentions of `term`, builds a prompt from the excerpts, and
+        streams the Groq answer back chunk by chunk.
+
+    web_search=True
+        Runs a Tavily search for `term` and streams the answer.
+        Used by the Browse button.
+
+    Signals
+    -------
+    chunk   — emitted for every streamed text fragment
+    done    — emitted with the full assembled response when complete
+    error   — emitted with an error string on failure
+    """
+    chunk  = pyqtSignal(str)
+    done   = pyqtSignal(str)
+    error  = pyqtSignal(str)
+
+    def __init__(self, term: str, book: str,
+                 current_chapter: int = 0,
+                 web_search: bool = False,
+                 parent=None):
+        super().__init__(parent)
+        self.term            = term.strip()
+        self.book            = book
+        self.current_chapter = current_chapter
+        self.web_search      = web_search
+        self._stop           = False
+
+    def stop(self):
+        self._stop = True
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _apply_settings(self, mod):
+        """Push API key / model overrides from settings into the sage module."""
+        try:
+            settings = get_matrix_data().get("settings", {})
+            if settings.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
+                mod.GROQ_API_KEY = settings["groq_api_key"]
+            active = get_session_groq_model() or settings.get("groq_model")
+            if active and hasattr(mod, "GROQ_MODEL"):
+                mod.GROQ_MODEL = active
+        except Exception:
+            pass
+
+    def _stream(self, mod, prompt: str, system: str = None):
+        """Stream groq_stream_chat chunks through the chunk signal."""
+        full = []
+        if not hasattr(mod, "groq_stream_chat"):
+            # Fallback: blocking call
+            resp, err = mod.groq_chat(prompt, system=system)
+            if err:
+                self.error.emit(err)
+            else:
+                self.chunk.emit(resp)
+                self.done.emit(resp)
+            return
+
+        for text, err in mod.groq_stream_chat(prompt, system=system):
+            if self._stop:
+                break
+            if err:
+                self.error.emit(err)
+                return
+            if text:
+                full.append(text)
+                self.chunk.emit(text)
+
+        self.done.emit("".join(full))
+
+    # ── run ───────────────────────────────────────────────────────────────────
+
+    def run(self):
+        mod, err = sage_mod()
+        if err or not mod:
+            self.error.emit(f"Sage unavailable: {err or 'sage.py not loaded'}")
+            return
+
+        self._apply_settings(mod)
+        q = self.term
+
+        # ── WEB BROWSE MODE ───────────────────────────────────────────────────
+        if self.web_search:
+            search_ctx = ""
+            if hasattr(mod, "tavily_search"):
+                try:
+                    search_ctx = mod.tavily_search(q)
+                except Exception:
+                    pass
+
+            if search_ctx:
+                prompt = (
+                    f"You are a knowledgeable assistant helping a reader.\n"
+                    f"The reader is currently reading '{self.book}' "
+                    f"(chapter {self.current_chapter}).\n\n"
+                    f"[Live web search results for: \"{q}\"]\n"
+                    f"{search_ctx}\n\n---\n"
+                    f"Using the search results above, answer the reader's question "
+                    f"clearly and concisely. Cite sources where relevant.\n\n"
+                    f"Question: {q}"
+                )
+            else:
+                prompt = (
+                    f"You are a knowledgeable assistant. "
+                    f"Answer the following question as accurately as possible. "
+                    f"If the answer requires very recent information you may not have, "
+                    f"say so clearly.\n\nQuestion: {q}"
+                )
+            self._stream(mod, prompt)
+            return
+
+        # ── BOOK COMPANION MODE ───────────────────────────────────────────────
+        import re as _re
+        lookup = _re.match(
+            r"^(?:who\s+is|what\s+is|tell\s+me\s+about|describe|explain)\s+(.+)$",
+            q, _re.IGNORECASE,
+        )
+        term_to_grep = lookup.group(1).strip().rstrip("?.") if lookup else q
+
+        excerpts = ""
+        if self.current_chapter > 0:
+            try:
+                excerpts = _grep_book_for_term(
+                    self.book, term_to_grep, self.current_chapter)
+            except Exception:
+                pass
+
+        if self._stop:
+            return
+
+        if excerpts:
+            is_who = bool(_re.match(r"who\s+is", q, _re.IGNORECASE))
+            if is_who:
+                prompt = (
+                    f"You are a reading companion for '{self.book}'.\n"
+                    f"The reader is on chapter {self.current_chapter} "
+                    f"and wants to know about '{term_to_grep}'.\n"
+                    f"Using ONLY the excerpts below (no outside knowledge), "
+                    f"write a detailed character dossier: "
+                    f"appearance, personality, role, relationships, notable moments.\n\n"
+                    f"EXCERPTS:\n{excerpts}"
+                )
+            else:
+                prompt = (
+                    f"You are a reading companion for '{self.book}'.\n"
+                    f"The reader is on chapter {self.current_chapter} "
+                    f"and wants to know about '{term_to_grep}'.\n"
+                    f"Using ONLY the excerpts below (no outside knowledge), "
+                    f"write a clear, detailed entry: what it is, why it matters, "
+                    f"how it fits into the story so far.\n\n"
+                    f"EXCERPTS:\n{excerpts}"
+                )
+        else:
+            prompt = (
+                f"You are a reading companion for '{self.book}' "
+                f"(chapter {self.current_chapter}).\n"
+                f"The reader asks: '{q}'\n\n"
+                f"No local chapter text was found for this term. "
+                f"Answer based on general knowledge if the title is well-known, "
+                f"otherwise say the term hasn't appeared yet in the chapters read."
+            )
+
+        self._stream(mod, prompt)
+
+
+class ReaderPanel(QWidget):
+    """
+    Full-screen reading panel.
+    Opens a chapter URL, renders paragraphs in a scrollable QTextEdit,
+    and provides prev/next navigation + persistent font-size control.
+    Right side: collapsible Sage sidebar (320 px fixed).
+    """
+    closed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background:{BG};")
+        self._settings        = _load_reader_settings()
+        self._font_size       = self._settings.get("font_size", READER_FONT_DEFAULT)
+        self._book: BookItem | None  = None
+        self._current_url: str | None = None
+        self._next_url:    str | None = None
+        self._prev_url:    str | None = None
+        self._paragraphs:  list       = []
+        self._current_chapter_num: int = 0
+        self._worker: ChapterFetchWorker | None = None
+        self._sage_worker: ReaderSageWorker | None = None
+        self._sidebar_visible: bool = True
+        self._sage_full_text:  str  = ""
+        self._build()
+        self.hide()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Top bar ──────────────────────────────────────────────────────────
+        bar = QWidget()
+        bar.setFixedHeight(48)
+        bar.setStyleSheet(
+            f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        bar_lay = QHBoxLayout(bar)
+        bar_lay.setContentsMargins(16, 0, 16, 0)
+        bar_lay.setSpacing(12)
+
+        back_btn = QPushButton("← Back")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:none; color:{TEXT2}; "
+            f"font-size:11px; letter-spacing:1px; padding:4px 10px;}}"
+            f"QPushButton:hover{{color:{ACCENT};}}")
+        back_btn.clicked.connect(self._on_close)
+        bar_lay.addWidget(back_btn)
+
+        self._chapter_title = QLabel()
+        self._chapter_title.setStyleSheet(
+            f"color:{TEXT}; font-size:12px; letter-spacing:1px; background:transparent;")
+        self._chapter_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_lay.addWidget(self._chapter_title, 1)
+
+        # Font size controls
+        font_lbl = QLabel("A")
+        font_lbl.setStyleSheet(f"color:{MUTED}; font-size:10px; background:transparent;")
+        bar_lay.addWidget(font_lbl)
+
+        self._font_dec = QPushButton("−")
+        self._font_dec.setFixedSize(28, 28)
+        self._font_dec.setCursor(Qt.CursorShape.PointingHandCursor)
+        _font_btn_ss = (
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER}; "
+            f"color:{TEXT2}; border-radius:4px; font-size:14px; padding:0;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+        self._font_dec.setStyleSheet(_font_btn_ss)
+        self._font_dec.clicked.connect(self._decrease_font)
+        bar_lay.addWidget(self._font_dec)
+
+        self._font_lbl = QLabel(str(self._font_size))
+        self._font_lbl.setFixedWidth(28)
+        self._font_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._font_lbl.setStyleSheet(
+            f"color:{TEXT2}; font-size:11px; background:transparent;")
+        bar_lay.addWidget(self._font_lbl)
+
+        self._font_inc = QPushButton("+")
+        self._font_inc.setFixedSize(28, 28)
+        self._font_inc.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._font_inc.setStyleSheet(_font_btn_ss)
+        self._font_inc.clicked.connect(self._increase_font)
+        bar_lay.addWidget(self._font_inc)
+
+        # Sage toggle button
+        self._sage_toggle_btn = QPushButton("✦ Sage")
+        self._sage_toggle_btn.setFixedHeight(28)
+        self._sage_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sage_toggle_btn.setCheckable(True)
+        self._sage_toggle_btn.setChecked(True)
+        self._sage_toggle_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER}; "
+            f"color:{MUTED}; border-radius:4px; font-size:10px; "
+            f"letter-spacing:1px; padding:0 10px;}}"
+            f"QPushButton:checked{{background:#0D0A18; border-color:{ACCENT}; color:{ACCENT};}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+        self._sage_toggle_btn.clicked.connect(self._toggle_sidebar)
+        bar_lay.addWidget(self._sage_toggle_btn)
+
+        root.addWidget(bar)
+
+        # ── Horizontal body (reading area + sidebar) ──────────────────────────
+        body = QWidget()
+        body.setStyleSheet(f"background:{BG};")
+        body_lay = QHBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+
+        # Reading area
+        self._text = QTextEdit()
+        self._text.setReadOnly(True)
+        self._text.setFrameShape(QFrame.Shape.NoFrame)
+        self._text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._text.setStyleSheet(
+            f"QTextEdit{{"
+            f"  background:{BG}; color:{TEXT}; border:none; padding:0;"
+            f"}}"
+            f"QScrollBar:vertical{{"
+            f"  background:{BG2}; width:8px; border:none; margin:0;"
+            f"}}"
+            f"QScrollBar::handle:vertical{{"
+            f"  background:{BORDER2}; border-radius:4px; min-height:40px;"
+            f"}}"
+            f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
+        self._apply_font()
+        body_lay.addWidget(self._text, 1)
+
+        # ── Sage sidebar ──────────────────────────────────────────────────────
+        self._sidebar = QFrame()
+        self._sidebar.setFixedWidth(400)
+        self._sidebar.setStyleSheet(
+            f"QFrame{{background:#09080F; border-left:1px solid {BORDER};}}")
+        sb = QVBoxLayout(self._sidebar)
+        sb.setContentsMargins(0, 0, 0, 0)
+        sb.setSpacing(0)
+
+
+        # Template buttons row
+        tpl_row = QWidget()
+        tpl_row.setStyleSheet("background:transparent;")
+        tpl_lay = QHBoxLayout(tpl_row)
+        tpl_lay.setContentsMargins(12, 10, 12, 0)
+        tpl_lay.setSpacing(8)
+
+        _tpl_ss = (
+            f"QPushButton{{background:#0F0D1A; border:1px solid #2A2040; "
+            f"color:#7060A0; border-radius:3px; font-size:9px; "
+            f"letter-spacing:1px; padding:5px 8px; font-family:{FONT_UI};}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+
+        self._tpl_who_btn = QPushButton("Who is…")
+        self._tpl_who_btn.setStyleSheet(_tpl_ss)
+        self._tpl_who_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tpl_who_btn.clicked.connect(lambda: self._apply_template("Who is "))
+        tpl_lay.addWidget(self._tpl_who_btn)
+
+        self._tpl_what_btn = QPushButton("What is…")
+        self._tpl_what_btn.setStyleSheet(_tpl_ss)
+        self._tpl_what_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tpl_what_btn.clicked.connect(lambda: self._apply_template("What is "))
+        tpl_lay.addWidget(self._tpl_what_btn)
+
+        tpl_lay.addStretch()
+        sb.addWidget(tpl_row)
+
+        # Term input row
+        input_row = QWidget()
+        input_row.setStyleSheet("background:transparent;")
+        input_lay = QHBoxLayout(input_row)
+        input_lay.setContentsMargins(12, 8, 12, 0)
+        input_lay.setSpacing(6)
+
+        self._sage_input = QLineEdit()
+        self._sage_input.setPlaceholderText("Character, place, power…")
+        self._sage_input.setStyleSheet(
+            f"QLineEdit{{background:#0F0D1A; border:1px solid #2A2040; "
+            f"border-radius:3px; color:{TEXT}; font-size:12px; "
+            f"padding:6px 10px; font-family:{FONT_UI};}}"
+            f"QLineEdit:focus{{border-color:{ACCENT};}}")
+        self._sage_input.returnPressed.connect(self._ask_sage)
+        input_lay.addWidget(self._sage_input, 1)
+        sb.addWidget(input_row)
+
+        # Action buttons row
+        action_row = QWidget()
+        action_row.setStyleSheet("background:transparent;")
+        action_lay = QHBoxLayout(action_row)
+        action_lay.setContentsMargins(12, 8, 12, 10)
+        action_lay.setSpacing(8)
+
+        self._browse_btn = QPushButton("⌕  Browse")
+        self._browse_btn.setFixedHeight(30)
+        self._browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._browse_btn.setStyleSheet(
+            f"QPushButton{{background:#0F0D1A; border:1px solid #2A2040; "
+            f"color:#7060A0; border-radius:3px; font-size:10px; "
+            f"letter-spacing:0.5px; padding:0 12px; font-family:{FONT_UI};}}"
+            f"QPushButton:hover{{border-color:#5040A0; color:#A090E0;}}"
+            f"QPushButton:disabled{{color:#302840; border-color:#1A1628;}}")
+        self._browse_btn.clicked.connect(self._browse_term)
+        action_lay.addWidget(self._browse_btn)
+
+        self._ask_btn = QPushButton("✦  Ask Sage")
+        self._ask_btn.setFixedHeight(30)
+        self._ask_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ask_btn.setStyleSheet(
+            f"QPushButton{{background:#1A0F2E; border:1px solid {ACCENT}; "
+            f"color:{ACCENT}; border-radius:3px; font-size:10px; "
+            f"letter-spacing:0.5px; padding:0 12px; font-family:{FONT_UI};}}"
+            f"QPushButton:hover{{background:#220F3E; border-color:#D4B870;}}"
+            f"QPushButton:disabled{{background:#0D0A18; border-color:#2A2040; "
+            f"color:#3A3050;}}")
+        self._ask_btn.clicked.connect(self._ask_sage)
+        action_lay.addWidget(self._ask_btn, 1)
+        sb.addWidget(action_row)
+
+        # Divider
+        div = QFrame()
+        div.setFrameShape(QFrame.Shape.HLine)
+        div.setStyleSheet(f"border:none; border-top:1px solid {BORDER}; margin:0;")
+        div.setFixedHeight(1)
+        sb.addWidget(div)
+
+        # Output area
+        self._sage_output = QTextEdit()
+        self._sage_output.setReadOnly(True)
+        self._sage_output.setFrameShape(QFrame.Shape.NoFrame)
+        self._sage_output.setStyleSheet(
+            f"QTextEdit{{background:transparent; color:{TEXT}; border:none; "
+            f"font-size:12px; font-family:{FONT_UI}; padding:14px 14px;}}"
+            f"QScrollBar:vertical{{background:#0D0B18; width:6px; border:none; margin:0;}}"
+            f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:3px; min-height:30px;}}"
+            f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
+        self._sage_output.setPlaceholderText(
+            "Ask Sage anything about this book.\n\n"
+            "Use the templates above or type freely.\n\n"
+            "Sage reads only chapters you've already reached.")
+        sb.addWidget(self._sage_output, 1)
+
+        # Sage status bar (spinner / word count)
+        self._sage_status = QLabel()
+        self._sage_status.setFixedHeight(24)
+        self._sage_status.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:1px; "
+            f"background:#0D0B18; border-top:1px solid {BORDER}; "
+            f"padding:0 14px; font-family:{FONT_UI};")
+        sb.addWidget(self._sage_status)
+
+        body_lay.addWidget(self._sidebar)
+        root.addWidget(body, 1)
+
+        # ── Loading overlay ────────────────────────────────────────────────────
+        self._loading_lbl = QLabel("Loading chapter…")
+        self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:13px; background:{BG};")
+        self._loading_lbl.hide()
+
+        # ── Bottom nav bar ─────────────────────────────────────────────────────
+        nav = QWidget()
+        nav.setFixedHeight(52)
+        nav.setStyleSheet(
+            f"background:{BG2}; border-top:1px solid {BORDER};")
+        nav_lay = QHBoxLayout(nav)
+        nav_lay.setContentsMargins(24, 0, 24, 0)
+        nav_lay.setSpacing(12)
+
+        self._prev_btn = QPushButton("← Previous")
+        self._prev_btn.setFixedHeight(34)
+        self._prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        _nav_btn_ss = (
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; border-radius:4px; padding:0 20px; font-size:11px; letter-spacing:1px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
+            f"QPushButton:disabled{{color:{MUTED}; border-color:{BORDER};}}")
+        self._prev_btn.setStyleSheet(_nav_btn_ss)
+        self._prev_btn.clicked.connect(self._on_prev)
+        nav_lay.addWidget(self._prev_btn)
+
+        nav_lay.addStretch()
+
+        self._nav_label = QLabel()
+        self._nav_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._nav_label.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; letter-spacing:1px; background:transparent;")
+        nav_lay.addWidget(self._nav_label)
+
+        nav_lay.addStretch()
+
+        self._next_btn = QPushButton("Next →")
+        self._next_btn.setFixedHeight(34)
+        self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._next_btn.setStyleSheet(_nav_btn_ss)
+        self._next_btn.clicked.connect(self._on_next)
+        nav_lay.addWidget(self._next_btn)
+
+        root.addWidget(nav)
+
+    # ── Font ──────────────────────────────────────────────────────────────────
+
+    def _apply_font(self):
+        self._text.setStyleSheet(
+            f"QTextEdit{{"
+            f"  background:{BG}; color:{TEXT}; border:none;"
+            f"  font-family:{FONT_BODY}; font-size:{self._font_size}px; padding:0;"
+            f"}}"
+            f"QScrollBar:vertical{{"
+            f"  background:{BG2}; width:8px; border:none; margin:0;"
+            f"}}"
+            f"QScrollBar::handle:vertical{{"
+            f"  background:{BORDER2}; border-radius:4px; min-height:40px;"
+            f"}}"
+            f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
+
+    def _increase_font(self):
+        if self._font_size < READER_FONT_MAX:
+            self._font_size += 1
+            self._font_lbl.setText(str(self._font_size))
+            self._rerender()
+            self._persist_font()
+
+    def _decrease_font(self):
+        if self._font_size > READER_FONT_MIN:
+            self._font_size -= 1
+            self._font_lbl.setText(str(self._font_size))
+            self._rerender()
+            self._persist_font()
+
+    def _rerender(self):
+        """Re-render current paragraphs with updated font size, preserving scroll position."""
+        if not self._paragraphs:
+            return
+        pos = self._text.verticalScrollBar().value()
+        self._text.setHtml(self._build_html(self._paragraphs))
+        self._text.verticalScrollBar().setValue(pos)
+
+    def _persist_font(self):
+        self._settings["font_size"] = self._font_size
+        _save_reader_settings(self._settings)
+
+    # ── Sidebar ───────────────────────────────────────────────────────────────
+
+    def _toggle_sidebar(self):
+        """Show/hide the 320-px Sage sidebar."""
+        self._sidebar_visible = self._sage_toggle_btn.isChecked()
+        self._sidebar.setVisible(self._sidebar_visible)
+
+    def _apply_template(self, prefix: str):
+        """Pre-fill the input with a template prefix and focus it."""
+        current = self._sage_input.text().strip()
+        # If input already starts with a template prefix, replace it
+        import re as _re
+        cleaned = _re.sub(r"^(Who is |What is )", "", current, flags=_re.IGNORECASE).strip()
+        self._sage_input.setText(prefix + cleaned)
+        self._sage_input.setFocus()
+        self._sage_input.setCursorPosition(len(self._sage_input.text()))
+
+    def _sage_set_busy(self, busy: bool):
+        self._ask_btn.setEnabled(not busy)
+        self._browse_btn.setEnabled(not busy)
+        self._sage_input.setEnabled(not busy)
+        self._tpl_who_btn.setEnabled(not busy)
+        self._tpl_what_btn.setEnabled(not busy)
+        if busy:
+            self._sage_status.setText("  ◌  Asking Sage…")
+        else:
+            words = len(self._sage_full_text.split()) if self._sage_full_text else 0
+            self._sage_status.setText(f"  {words} words" if words else "")
+
+    def _stop_sage_worker(self):
+        if self._sage_worker and self._sage_worker.isRunning():
+            self._sage_worker.stop()
+            self._sage_worker.blockSignals(True)
+            self._sage_worker.wait(800)
+
+    def _ask_sage(self):
+        term = self._sage_input.text().strip()
+        if not term:
+            return
+        if not self._book:
+            self._sage_output.setPlainText("No book open.")
+            return
+
+        self._stop_sage_worker()
+        self._sage_full_text = ""
+        self._sage_output.clear()
+        self._sage_set_busy(True)
+
+        self._sage_worker = ReaderSageWorker(
+            term=term,
+            book=self._book.title,
+            current_chapter=self._current_chapter_num,
+            web_search=False,
+        )
+        self._sage_worker.chunk.connect(self._on_sage_chunk)
+        self._sage_worker.done.connect(self._on_sage_done)
+        self._sage_worker.error.connect(self._on_sage_error)
+        self._sage_worker.start()
+
+    def _browse_term(self):
+        term = self._sage_input.text().strip()
+        if not term:
+            return
+        if not self._book:
+            self._sage_output.setPlainText("No book open.")
+            return
+
+        self._stop_sage_worker()
+        self._sage_full_text = ""
+        self._sage_output.clear()
+        self._sage_set_busy(True)
+        self._sage_status.setText("  ◌  Browsing the web…")
+
+        self._sage_worker = ReaderSageWorker(
+            term=term,
+            book=self._book.title,
+            current_chapter=self._current_chapter_num,
+            web_search=True,
+        )
+        self._sage_worker.chunk.connect(self._on_sage_chunk)
+        self._sage_worker.done.connect(self._on_sage_done)
+        self._sage_worker.error.connect(self._on_sage_error)
+        self._sage_worker.start()
+
+    def _on_sage_chunk(self, text: str):
+        """Append a streamed chunk to the output area."""
+        self._sage_full_text += text
+        cursor = self._sage_output.textCursor()
+        from PyQt6.QtGui import QTextCursor
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        self._sage_output.setTextCursor(cursor)
+        self._sage_output.ensureCursorVisible()
+
+    def _on_sage_done(self, _full_text: str):
+        self._sage_set_busy(False)
+
+    def _on_sage_error(self, msg: str):
+        self._sage_output.setPlainText(f"Error: {msg}")
+        self._sage_set_busy(False)
+
+    def _build_html(self, paragraphs: list) -> str:
+        body = "".join(
+            f"<p>{p.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</p>"
+            for p in paragraphs
+        )
+        return (
+            f"<style>"
+            f"body{{font-family:{FONT_BODY}; font-size:{self._font_size}px; "
+            f"color:{TEXT}; line-height:1.8; margin:40px 60px;}}"
+            f"p{{margin:0 0 1.1em 0;}}"
+            f"</style><body>{body}</body>"
+        )
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    def open_book(self, book: BookItem, start_url: str):
+        """Open the reader, resuming from saved progress if available."""
+        self._book = book
+        self._prev_url = None
+
+        # Check for saved reading progress
+        resume_url = self._load_progress(book.title)
+        self._load_chapter(resume_url if resume_url else start_url)
+        self.show()
+
+    def open_local_book(self, book: BookItem):
+        """Open a local EPUB/PDF/TXT file directly in the reader."""
+        self._book     = book
+        self._prev_url = None
+        self._next_url = None
+
+        self._paragraphs = []
+        self._text.clear()
+        self._chapter_title.setText("Loading…")
+        self._nav_label.setText(book.title[:48] + "…" if len(book.title) > 48 else book.title)
+        self._prev_btn.setEnabled(False)
+        self._next_btn.setEnabled(False)
+
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self._worker.blockSignals(True)
+
+        self._worker = LocalFileWorker(book)
+        self._worker.done.connect(self._on_local_file_loaded)
+        self._worker.start()
+        self.show()
+
+    def _on_local_file_loaded(self, paragraphs: list, cover_bytes):
+        """Called when LocalFileWorker finishes parsing the file."""
+        if not paragraphs:
+            self._chapter_title.setText("Empty file")
+            self._text.setPlainText("No readable content found in this file.")
+            return
+
+        self._paragraphs = paragraphs
+        self._chapter_title.setText(self._book.title if self._book else "")
+        self._text.setHtml(self._build_html(paragraphs))
+        self._text.verticalScrollBar().setValue(0)
+        self._prev_btn.setEnabled(False)
+        self._next_btn.setEnabled(False)
+
+    # ── Progress persistence ──────────────────────────────────────────────────
+
+    def _load_progress(self, title: str) -> str | None:
+        """Return saved chapter URL for this book, or None."""
+        try:
+            data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            book = data.get("books", {}).get(title, {})
+            return book.get("reader_url") or None
+        except Exception:
+            return None
+
+    def _save_progress(self, title: str, url: str, chapter_title: str):
+        """Persist current chapter URL into LEGION_PROGRESS."""
+        try:
+            import time as _time
+            data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            data.setdefault("books", {}).setdefault(title, {})
+            data["books"][title]["reader_url"]     = url
+            data["books"][title]["reader_chapter"]  = chapter_title
+            data["books"][title]["last_read"]       = _time.time()
+            save_json(LEGION_PROGRESS, data)
+        except Exception:
+            pass
+
+    # ── Chapter loading ───────────────────────────────────────────────────────
+
+    def _load_chapter(self, url: str):
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self._worker.blockSignals(True)
+
+        self._current_url = url
+        self._paragraphs  = []
+        self._text.clear()
+        self._chapter_title.setText("Loading…")
+        self._nav_label.setText("")
+        self._prev_btn.setEnabled(False)
+        self._next_btn.setEnabled(False)
+
+        book_name = self._book.title if self._book else ""
+        self._worker = ChapterFetchWorker(url, book_name)
+        self._worker.done.connect(self._on_chapter_loaded)
+        self._worker.start()
+
+    def _on_chapter_loaded(self, title: str, paragraphs: list,
+                           next_url, prev_url, error):
+        self._next_url = next_url
+        self._prev_url = prev_url
+
+        if error or not paragraphs:
+            self._chapter_title.setText("Failed to load")
+            self._text.setPlainText(
+                f"Could not load chapter.\n\n{error or 'No content returned.'}\n\n"
+                f"URL: {self._current_url}")
+            return
+
+        self._chapter_title.setText(title)
+        self._paragraphs = paragraphs
+
+        # Extract chapter number from URL sentinel or title — used by Sage
+        import re as _re
+        if self._current_url and self._current_url.startswith("local-disk://chapter/"):
+            m = _re.match(r"local-disk://chapter/(\d+)/", self._current_url)
+            if m:
+                self._current_chapter_num = int(m.group(1))
+        else:
+            m = _re.search(r"chapter\s+(\d+)", title, _re.IGNORECASE)
+            if not m and self._current_url:
+                m = _re.search(r"[/-](\d+)(?:[/-]|$)", self._current_url)
+            if m:
+                self._current_chapter_num = int(m.group(1))
+
+        self._text.setHtml(self._build_html(paragraphs))
+        self._text.verticalScrollBar().setValue(0)
+
+        # Persist reading position
+        if self._book:
+            self._save_progress(self._book.title, self._current_url, title)
+
+        # Nav state
+        self._prev_btn.setEnabled(bool(prev_url))
+        self._next_btn.setEnabled(bool(next_url))
+        book_title = self._book.title if self._book else ""
+        self._nav_label.setText(book_title[:48] + "…" if len(book_title) > 48 else book_title)
+
+    def _on_prev(self):
+        if self._prev_url:
+            self._load_chapter(self._prev_url)
+
+    def _on_next(self):
+        if self._next_url:
+            self._load_chapter(self._next_url)
+
+    def _on_close(self):
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self._worker.blockSignals(True)
+        self._stop_sage_worker()
+        self.hide()
+        self.closed.emit()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN LEGION PAGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+class LegionPage(QWidget):
+    """
+    Top-level Legion Discovery tab widget.
+    Drop this into the Great Sage nav stack as the Legion page.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background:{BG};")
+        self._search_timer = QTimer()
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._do_search)
+        self._workers: list[QThread] = []
+        self._active_tab = 0   # 0=discover, 1=jump_in, 2=library, 3=local
+        self._current_page = 1  # pagination state for discover/search
+        self._build()
+        QTimer.singleShot(100, self._load_trending)
+        QTimer.singleShot(500, self._resume_downloads)
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _build(self):
+        # Outer: sidebar + main area side by side
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ── Sidebar ───────────────────────────────────────────────────────────
+        sidebar = QFrame()
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet(
+            f"QFrame{{background:{BG2}; border-right:1px solid {BORDER};}}")
         sv = QVBoxLayout(sidebar)
-        sv.setContentsMargins(0,0,0,12)
+        sv.setContentsMargins(0, 0, 0, 12)
         sv.setSpacing(0)
 
-        hdr_w = QWidget()
-        hdr_w.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
-        hdr_w.setFixedHeight(52)
-        hw = QHBoxLayout(hdr_w)
-        hw.setContentsMargins(16,0,12,0)
-        self._menu_btn = QPushButton("☰")
-        self._menu_btn.setFixedSize(28, 28)
-        self._menu_btn.setStyleSheet(
-            f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:16px;padding:0;")
-        self._menu_btn.clicked.connect(self._toggle_menu)
-        hw.addStretch()
-        hw.addWidget(self._menu_btn)
-        sv.addWidget(hdr_w); sv.addWidget(hline())
+        # Sidebar header
+        sb_hdr = QWidget()
+        sb_hdr.setFixedHeight(52)
+        sb_hdr.setStyleSheet(
+            f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        sh = QHBoxLayout(sb_hdr)
+        sh.setContentsMargins(16, 0, 16, 0)
+        module_lbl = QLabel("LEGION")
+        module_lbl.setStyleSheet(
+            f"color:{ACCENT}; font-size:10px; letter-spacing:3px; "
+            f"background:transparent;")
+        sh.addWidget(module_lbl)
+        sh.addStretch()
+        sv.addWidget(sb_hdr)
 
-        # Tab buttons — control the right-panel stack
-        _tab_btn_style_active = (
-            f"background:{BG3};color:{ACCENT};border:none;border-left:2px solid {ACCENT};"
-            f"font-size:12px;padding:12px 16px;text-align:left;border-radius:0;")
-        _tab_btn_style_idle = (
-            f"background:transparent;color:{MUTED};border:none;"
-            f"font-size:12px;padding:12px 16px;text-align:left;border-radius:0;"
-            f"border-left:2px solid transparent;")
+        # Tab buttons
+        _active_style = (
+            f"background:{BG3}; color:{ACCENT}; border:none; "
+            f"border-left:2px solid {ACCENT}; font-size:12px; "
+            f"padding:12px 16px; text-align:left; border-radius:0;")
+        _idle_style = (
+            f"background:transparent; color:{MUTED}; border:none; "
+            f"border-left:2px solid transparent; font-size:12px; "
+            f"padding:12px 16px; text-align:left; border-radius:0;")
+        self._tab_style_active = _active_style
+        self._tab_style_idle   = _idle_style
 
         self._tab_btns = []
-        tab_labels = [("Jump In", 0), ("Bookmarks", 1)]
-        for label, idx in tab_labels:
+        for label, idx in [("Discover", 0), ("Jump In", 1), ("Library", 2), ("Local", 3)]:
             b = QPushButton(label)
-            b.setStyleSheet(_tab_btn_style_idle)
+            b.setStyleSheet(_active_style if idx == 0 else _idle_style)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _, i=idx: self._switch_tab(i))
             sv.addWidget(b)
             self._tab_btns.append(b)
 
-        self._tab_btn_style_active = _tab_btn_style_active
-        self._tab_btn_style_idle   = _tab_btn_style_idle
-
         sv.addStretch(1)
-        sv.addWidget(hline())
 
-        btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(12,8,12,0)
-        btn_row.setSpacing(6)
-        add_b = QPushButton("+ ADD BOOK"); add_b.setStyleSheet(accent_btn_style())
-        add_b.setStyleSheet(f"font-size:10px;letter-spacing:1px;padding:8px;")
-        add_b.clicked.connect(self._add_book)
-        ref_b = QPushButton("↻"); ref_b.setFixedWidth(34)
+        # Refresh button at bottom of sidebar
+        ref_b = QPushButton("↻  Refresh")
         ref_b.setStyleSheet(
-            f"font-size:14px;padding:6px;border:1px solid {BORDER};"
-            f"border-radius:4px;color:{MUTED};background:transparent;")
+            f"background:transparent; border:none; color:{MUTED}; "
+            f"font-size:11px; padding:10px 16px; text-align:left;")
+        ref_b.setCursor(Qt.CursorShape.PointingHandCursor)
         ref_b.clicked.connect(self.refresh)
-        btn_row.addWidget(add_b, 1); btn_row.addWidget(ref_b)
-        sv.addLayout(btn_row)
+        sv.addWidget(ref_b)
 
-        root.addWidget(sidebar)
+        outer.addWidget(sidebar)
 
-        # ── Right panel: stacked content area ─────────────────────────────────
-        right = QWidget()
-        rv = QVBoxLayout(right)
-        rv.setContentsMargins(0,0,0,0)
-        rv.setSpacing(0)
+        # ── Main area ─────────────────────────────────────────────────────────
+        main_w = QWidget()
+        main_w.setStyleSheet("background:transparent;")
+        main_lay = QVBoxLayout(main_w)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(0)
 
-        self._right_stack = QStackedWidget()
+        # Header bar (search + source dropdown)
+        header = QWidget()
+        header.setFixedHeight(52)
+        header.setStyleSheet(
+            f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        hh = QHBoxLayout(header)
+        hh.setContentsMargins(20, 0, 20, 0)
+        hh.setSpacing(12)
 
-        # ── Right panel: stacked content area (continued from sidebar build above)
-        rv.addWidget(self._right_stack, 1)
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText("Search novels, books, authors…")
+        self._search_box.setStyleSheet(
+            f"QLineEdit{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"border-radius:5px; color:{TEXT}; font-size:12px; padding:6px 12px;}}"
+            f"QLineEdit:focus{{border-color:{ACCENT};}}")
+        self._search_box.textChanged.connect(self._on_search_changed)
+        self._search_box.returnPressed.connect(self._on_search_commit)
+        hh.addWidget(self._search_box, 1)
 
-        # ── Stack page 0: Jump In ──────────────────────────────────────────────
-        jumpin_w = QWidget()
-        jumpin_w.setStyleSheet(f"background:{BG};")
-        ji_v = QVBoxLayout(jumpin_w)
-        ji_v.setContentsMargins(0,0,0,0)
-        ji_v.setSpacing(0)
+        self._search_btn = QPushButton("Search")
+        self._search_btn.setFixedHeight(34)
+        self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._search_btn.setStyleSheet(
+            f"QPushButton{{background:{ACCENT}; color:{BG}; border:none; "
+            f"border-radius:5px; font-size:12px; font-weight:bold; padding:0 18px;}}"
+            f"QPushButton:hover{{background:{ACCENT}dd;}}"
+            f"QPushButton:pressed{{background:{ACCENT}aa;}}")
+        self._search_btn.clicked.connect(self._on_search_commit)
+        hh.addWidget(self._search_btn)
 
-        # Jump In header bar
-        ji_hdr = QWidget()
-        ji_hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
-        ji_hdr.setFixedHeight(44)
-        ji_hdr_l = QHBoxLayout(ji_hdr)
-        ji_hdr_l.setContentsMargins(20,0,20,0)
-        ji_hdr_l.addWidget(lbl("JUMP IN", ACCENT, 11, True))
-        ji_hdr_l.addStretch()
-        ji_v.addWidget(ji_hdr)
+        self._source_combo = QComboBox()
+        self._source_combo.addItems(
+            ["All Sources", "Royal Road", "LibRead", "Gutenberg"])
+        self._source_combo.setFixedWidth(140)
+        self._source_combo.setStyleSheet(
+            f"QComboBox{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"border-radius:5px; color:{TEXT2}; font-size:11px; padding:5px 10px;}}"
+            f"QComboBox:hover{{border-color:{ACCENT};}}"
+            f"QComboBox::drop-down{{border:none; width:20px;}}"
+            f"QComboBox QAbstractItemView{{background:{BG2}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; selection-background-color:{ACCENT}; "
+            f"selection-color:{BG};}}")
+        self._source_combo.currentIndexChanged.connect(self._on_source_changed)
+        hh.addWidget(self._source_combo)
+        main_lay.addWidget(header)
 
-        self.jumpin_list = self._make_icon_list()
-        self.jumpin_list.itemClicked.connect(self._book_clicked)
-        ji_v.addWidget(self.jumpin_list, 1)
-        self._right_stack.addWidget(jumpin_w)   # index 0
+        # Status bar
+        self._status_bar = QLabel("Loading…")
+        self._status_bar.setFixedHeight(24)
+        self._status_bar.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:1px; "
+            f"padding:0 20px; background:{BG2}; border-bottom:1px solid {BORDER};")
+        main_lay.addWidget(self._status_bar)
 
-        # ── Stack page 1: Bookmarks ────────────────────────────────────────────
-        bm_w = QWidget()
-        bm_w.setStyleSheet(f"background:{BG};")
-        bm_v = QVBoxLayout(bm_w)
-        bm_v.setContentsMargins(0,0,0,0)
-        bm_v.setSpacing(0)
+        # Content stack: 0=discover grid, 1=jump in, 2=bookmarks, 3=detail
+        self._content_stack = QStackedWidget()
+        self._content_stack.setStyleSheet("background:transparent;")
 
-        bm_hdr = QWidget()
-        bm_hdr.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};")
-        bm_hdr.setFixedHeight(44)
-        bm_hdr_l = QHBoxLayout(bm_hdr)
-        bm_hdr_l.setContentsMargins(20,0,20,0)
-        bm_hdr_l.addWidget(lbl("BOOKMARKS", ACCENT, 11, True))
-        bm_hdr_l.addStretch()
-        bm_v.addWidget(bm_hdr)
+        # ── Page 0: Discover grid ─────────────────────────────────────────────
+        disc_page = QWidget()
+        disc_page.setStyleSheet("background:transparent;")
+        dp_lay = QVBoxLayout(disc_page)
+        dp_lay.setContentsMargins(0, 0, 0, 0)
+        dp_lay.setSpacing(0)
 
-        self._bm_tabs = QTabWidget()
-        self._bm_tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:none;background:transparent;}}"
-            f"QTabBar::tab{{background:transparent;color:{MUTED};border:none;"
-            f"padding:8px 14px;font-size:12px;}}"
-            f"QTabBar::tab:selected{{color:{ACCENT};border-bottom:2px solid {ACCENT};}}")
-        self._bm_lists = {}
-        for n in ("planning","reading","dropped","completed"):
-            lw = QListWidget()
-            lw.setStyleSheet(
-                f"QListWidget{{background:transparent;border:none;padding:8px;}}"
-                f"QListWidget::item{{background:{BG2};border-radius:6px;color:{TEXT};"
-                f"font-size:12px;padding:10px 14px;margin:3px 0;}}"
-                f"QListWidget::item:hover{{background:{BG3};}}"
-                f"QListWidget::item:selected{{background:{BG3};color:{ACCENT};}}")
-            lw.itemClicked.connect(lambda item, nm=n: self._bm_clicked(item, nm))
-            lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            lw.customContextMenuRequested.connect(
-                lambda pos, lw_=lw, nm=n: self._bm_context(pos, lw_, nm))
-            self._bm_lists[n] = lw
-            self._bm_tabs.addTab(lw, n.capitalize())
-        bm_v.addWidget(self._bm_tabs, 1)
-        self._right_stack.addWidget(bm_w)   # index 1
+        self._section_label = QLabel("TRENDING")
+        self._section_label.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; "
+            f"padding:12px 20px 4px; background:transparent;")
+        dp_lay.addWidget(self._section_label)
 
+        self._grid = BooksGrid()
+        self._grid.book_clicked.connect(self._on_book_clicked)
+        # Make scrollbar visible
+        self._grid._scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._grid._scroll.setStyleSheet(
+            "QScrollArea{background:transparent; border:none;}"
+            "QScrollBar:vertical{"
+            f"  background:{BG2}; width:8px; border-radius:4px; margin:0;}}"
+            "QScrollBar::handle:vertical{"
+            f"  background:{BORDER2}; border-radius:4px; min-height:30px;}}"
+            "QScrollBar::handle:vertical:hover{"
+            f"  background:{ACCENT};}}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{height:0;}")
+        self._touch_filter = _TouchScrollFilter(
+            self._grid._scroll.verticalScrollBar(), self._grid._scroll)
+        self._grid._scroll.installEventFilter(self._touch_filter)
+        dp_lay.addWidget(self._grid, 1)
 
-        # Stack indices: jumpin=0, bookmarks=1, reader=2, downloads=3
+        # ── Pagination bar ────────────────────────────────────────────────────
+        pag_bar = QWidget()
+        pag_bar.setFixedHeight(48)
+        pag_bar.setStyleSheet(f"background:{BG2}; border-top:1px solid {BORDER};")
+        pag_lay = QHBoxLayout(pag_bar)
+        pag_lay.setContentsMargins(20, 0, 20, 0)
+        pag_lay.setSpacing(12)
 
-        # We keep _detail_* attributes as no-ops so nothing else breaks
-        self._detail_title     = QLabel()
-        self._detail_meta      = QLabel()
-        self._detail_synopsis  = QTextEdit()
-        self._detail_progress  = QLabel()
-        self._detail_dl_status = QLabel()
+        btn_style = (
+            f"QPushButton{{background:{BG3}; color:{TEXT2}; border:1px solid {BORDER2}; "
+            f"border-radius:5px; font-size:12px; padding:4px 18px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
+            f"QPushButton:disabled{{color:{MUTED}; border-color:{BORDER};}}")
 
-        def _noop_btn(text):
-            b = QPushButton(text); b.setVisible(False); return b
-        self._btn_read      = _noop_btn("▶  READ")
-        self._btn_download  = _noop_btn("↓  DOWNLOAD")
-        self._btn_dl_pause  = _noop_btn("⏸  PAUSE")
-        self._btn_dl_resume = _noop_btn("▶  RESUME")
-        self._btn_dl_cancel = _noop_btn("✕  CANCEL")
-        self._btn_refresh   = _noop_btn("↺  INFO")
-        self._btn_new_chs   = _noop_btn("↓  NEW CH")
-        self._btn_delete    = _noop_btn("REMOVE")
-        self._btn_reset_time= _noop_btn("↺  RESET TIME")
+        self._prev_btn = QPushButton("← Prev")
+        self._prev_btn.setFixedHeight(32)
+        self._prev_btn.setStyleSheet(btn_style)
+        self._prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._prev_btn.clicked.connect(self._on_prev_page)
+        self._prev_btn.setEnabled(False)
+        pag_lay.addWidget(self._prev_btn)
 
-        # ── 1: Reader view ────────────────────────────────────────────────────
-        reader_w = QWidget()
-        reader_w.setStyleSheet(f"background:{BG};")
-        rw = QVBoxLayout(reader_w)
-        rw.setContentsMargins(0,0,0,0)
-        rw.setSpacing(0)
+        self._page_label = QLabel("Page 1")
+        self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._page_label.setStyleSheet(
+            f"color:{TEXT2}; font-size:12px; background:transparent;")
+        pag_lay.addWidget(self._page_label, 1)
 
-        # Reader top bar
-        top_bar_w = QWidget()
-        top_bar_w.setStyleSheet(f"background:{BG2};border-bottom:1px solid {BORDER};border-radius:0;")
-        top_bar_w.setFixedHeight(44)
-        tb = QHBoxLayout(top_bar_w)
-        tb.setContentsMargins(16,0,16,0)
-        tb.setSpacing(10)
-        self._back_btn = QPushButton("← INFO")
-        self._back_btn.setStyleSheet(
-            f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 6px;")
-        self._back_btn.clicked.connect(lambda: (self._save_reading_time(), self._right_stack.setCurrentIndex(getattr(self, "_current_tab_idx", 0)))[-1])
-        tb.addWidget(self._back_btn)
-        sep = QLabel("│"); sep.setStyleSheet(f"color:{BORDER};")
-        tb.addWidget(sep)
-        self.chapter_title = QLabel("")
-        self.chapter_title.setStyleSheet(f"color:{TEXT2};font-size:12px;letter-spacing:1px;")
-        tb.addWidget(self.chapter_title, 1)
-        self._prev_btn = QPushButton("←"); self._prev_btn.setFixedWidth(30)
-        self._prev_btn.setStyleSheet(f"background:transparent;border:1px solid {BORDER};color:{MUTED};border-radius:3px;font-size:14px;padding:2px;")
-        self._prev_btn.clicked.connect(self._prev_chapter)
-        self._next_btn = QPushButton("→"); self._next_btn.setFixedWidth(30)
-        self._next_btn.setStyleSheet(f"background:transparent;border:1px solid {BORDER};color:{MUTED};border-radius:3px;font-size:14px;padding:2px;")
-        self._next_btn.clicked.connect(self._next_chapter)
-        self._fa_btn = QPushButton("A−"); self._fa_btn.setFixedWidth(32)
-        self._fa_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:11px;")
-        self._fa_btn.clicked.connect(lambda: self._font_delta(-1))
-        self._fb_btn = QPushButton("A+"); self._fb_btn.setFixedWidth(32)
-        self._fb_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:11px;")
-        self._fb_btn.clicked.connect(lambda: self._font_delta(+1))
+        self._next_btn = QPushButton("Next →")
+        self._next_btn.setFixedHeight(32)
+        self._next_btn.setStyleSheet(btn_style)
+        self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._next_btn.clicked.connect(self._on_next_page)
+        pag_lay.addWidget(self._next_btn)
 
+        dp_lay.addWidget(pag_bar)
+        self._content_stack.addWidget(disc_page)       # index 0
 
-        self._sage_top_btn = QPushButton("\u2736 SAGE")
-        self._sage_top_btn.setFixedWidth(68)
-        self._sage_top_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{ACCENT};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._sage_top_btn.setToolTip("Toggle Sage AI panel")
-        self._sage_top_btn.clicked.connect(self._toggle_sage_panel)
+        # ── Page 1: Jump In ───────────────────────────────────────────────────
+        ji_page = QWidget()
+        ji_page.setStyleSheet("background:transparent;")
+        ji_lay = QVBoxLayout(ji_page)
+        ji_lay.setContentsMargins(20, 16, 20, 16)
+        ji_lay.setSpacing(10)
 
-        self._lens_top_btn = QPushButton("◈ LENS")
-        self._lens_top_btn.setFixedWidth(68)
-        self._lens_top_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:9px;letter-spacing:1px;padding:5px 10px;border-radius:3px;")
-        self._lens_top_btn.setToolTip("Toggle Lens — paste a description to visualize it")
-        self._lens_top_btn.clicked.connect(self._toggle_lens_panel)
+        ji_top = QHBoxLayout()
+        ji_top.setContentsMargins(0, 0, 0, 0)
+        ji_hdr = QLabel("CONTINUE READING")
+        ji_hdr.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+        ji_top.addWidget(ji_hdr)
+        ji_top.addStretch()
+        self._ji_edit_btn = QPushButton("Edit")
+        self._ji_edit_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:1px solid {BORDER2}; "
+            f"color:{MUTED}; font-size:9px; letter-spacing:1px; padding:3px 10px; "
+            f"border-radius:3px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+        self._ji_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ji_edit_btn.setCheckable(True)
+        self._ji_edit_btn.toggled.connect(self._toggle_ji_edit_mode)
+        ji_top.addWidget(self._ji_edit_btn)
+        ji_lay.addLayout(ji_top)
 
-        self._notes_top_btn = QPushButton("\u270e NOTES")
-        self._notes_top_btn.setFixedWidth(72)
-        self._notes_top_btn.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{ACCENT2};"
-            f"font-size:8px;letter-spacing:1px;padding:3px;border-radius:3px;")
-        self._notes_top_btn.setToolTip("Toggle chapter notes panel")
-        self._notes_top_btn.clicked.connect(self._toggle_notes_panel)
-        
-        for b_ in (self._prev_btn, self._next_btn, self._fa_btn, self._fb_btn,
-                   self._sage_top_btn, self._lens_top_btn, self._notes_top_btn):
-            tb.addWidget(b_)
-        rw.addWidget(top_bar_w)
+        self._ji_grid = BooksGrid()
+        self._ji_grid.book_clicked.connect(self._on_book_clicked)
+        self._ji_grid.delete_requested.connect(self._delete_ji_book)
+        # Install touch scroll filter on the ji grid too
+        self._ji_touch_filter = _TouchScrollFilter(
+            self._ji_grid._scroll.verticalScrollBar(), self._ji_grid._scroll)
+        self._ji_grid._scroll.installEventFilter(self._ji_touch_filter)
+        ji_lay.addWidget(self._ji_grid, 1)
 
-        # Thin reading-progress bar — fills as you scroll through the chapter
-        self._read_progress = QProgressBar()
-        self._read_progress.setRange(0, 1000)
-        self._read_progress.setValue(0)
-        self._read_progress.setTextVisible(False)
-        self._read_progress.setFixedHeight(3)
-        self._read_progress.setStyleSheet(
-            f"QProgressBar{{background:{BG2};border:none;border-radius:0;}}"
-            f"QProgressBar::chunk{{background:{ACCENT};border-radius:0;}}")
-        rw.addWidget(self._read_progress)
-        rw.addWidget(hline())
+        self._ji_empty = QLabel("No books in progress yet.\nDiscover a book and start reading!")
+        self._ji_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ji_empty.setStyleSheet(
+            f"color:{MUTED}; font-size:12px; background:transparent;")
+        self._ji_empty.hide()
+        ji_lay.addWidget(self._ji_empty)
+        self._content_stack.addWidget(ji_page)         # index 1
 
-        # Reader + Sage sidebar split
-        reader_body = QSplitter(Qt.Orientation.Horizontal)
-        reader_body.setHandleWidth(2)
-        reader_body.setStyleSheet(f"QSplitter::handle{{background:{BORDER};}}")
+        # ── Page 2: Library (categorised) ────────────────────────────────────
+        lib_page = QWidget()
+        lib_page.setStyleSheet("background:transparent;")
+        lib_lay = QVBoxLayout(lib_page)
+        lib_lay.setContentsMargins(0, 0, 0, 0)
+        lib_lay.setSpacing(0)
 
-        self.reader = QTextEdit()
-        self.reader.setReadOnly(True)
-        self.reader.setWordWrapMode(QTextOption.WrapMode.WordWrap)
-        self.reader.setStyleSheet(
-            f"background:{BG};border:none;padding:36px 80px;"
-            f"font-family:{FONT_BODY};font-size:18px;color:{TEXT};"
-            f"selection-background-color:#1E3020;")
-        self.reader.document().setDocumentMargin(0)
-        self._apply_font()
-        self.reader.verticalScrollBar().valueChanged.connect(self._on_scroll)
-        # Touch scroll filter — prevents selection on swipe, converts to scroll
-        self.reader.setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
-        self._touch_filter = _TouchScrollFilter(self.reader, self.reader)
-        self.reader.installEventFilter(self._touch_filter)
-        reader_body.addWidget(self.reader)
+        # Category tab bar
+        lib_tab_bar = QWidget()
+        lib_tab_bar.setFixedHeight(44)
+        lib_tab_bar.setStyleSheet(
+            f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        ltb = QHBoxLayout(lib_tab_bar)
+        ltb.setContentsMargins(16, 0, 16, 0)
+        ltb.setSpacing(0)
 
-        # Sage reading companion panel
-        self._sage_panel = QFrame()
-        self._sage_panel.setFixedWidth(540)
-        self._sage_panel.setStyleSheet(f"background:{BG2};border-left:1px solid {BORDER};")
-        self._sage_panel.setVisible(False)
-        sp = QVBoxLayout(self._sage_panel)
-        sp.setContentsMargins(10,10,10,10)
-        sp.setSpacing(8)
-        sp.addWidget(lbl("✦  SAGE", ACCENT, 13, True))
-        sp.addWidget(hline())
+        self._lib_cat_btns = []
+        self._lib_active_cat = 0
+        _cat_active = (
+            f"QPushButton{{background:transparent; color:{ACCENT}; border:none; "
+            f"border-bottom:2px solid {ACCENT}; font-size:11px; "
+            f"letter-spacing:1px; padding:0 16px;}}")
+        _cat_idle = (
+            f"QPushButton{{background:transparent; color:{MUTED}; border:none; "
+            f"border-bottom:2px solid transparent; font-size:11px; "
+            f"letter-spacing:1px; padding:0 16px;}}"
+            f"QPushButton:hover{{color:{TEXT2};}}")
+        self._lib_cat_active_style = _cat_active
+        self._lib_cat_idle_style   = _cat_idle
 
-        # Model switcher chips
-        model_row = QHBoxLayout()
-        model_row.setSpacing(4)
-
-        def _model_chip_style(active: bool) -> str:
-            if active:
-                return (f"background:{ACCENT};border:1px solid {ACCENT};color:{BG};"
-                        f"font-size:9px;letter-spacing:0.5px;padding:3px 8px;border-radius:10px;font-weight:bold;")
-            return (f"background:{BG3};border:1px solid {BORDER};color:{TEXT2};"
-                    f"font-size:9px;letter-spacing:0.5px;padding:3px 8px;border-radius:10px;")
-
-        self._sage_model_versatile_btn = QPushButton("Versatile")
-        self._sage_model_instant_btn   = QPushButton("Instant")
-
-        def _set_model(model: str):
-            set_session_groq_model(model)
-            self._sage_model_versatile_btn.setStyleSheet(
-                _model_chip_style(model == GROQ_MODEL_VERSATILE))
-            self._sage_model_instant_btn.setStyleSheet(
-                _model_chip_style(model == GROQ_MODEL_INSTANT))
-
-        self._sage_model_versatile_btn.clicked.connect(lambda: _set_model(GROQ_MODEL_VERSATILE))
-        self._sage_model_instant_btn.clicked.connect(lambda: _set_model(GROQ_MODEL_INSTANT))
-
-        # Default: highlight whichever matches saved settings (or versatile)
-        _saved_model = matrix_data().get("settings", {}).get("groq_model", GROQ_MODEL_VERSATILE)
-        _active_start = GROQ_MODEL_INSTANT if "instant" in _saved_model else GROQ_MODEL_VERSATILE
-        self._sage_model_versatile_btn.setStyleSheet(_model_chip_style(_active_start == GROQ_MODEL_VERSATILE))
-        self._sage_model_instant_btn.setStyleSheet(_model_chip_style(_active_start == GROQ_MODEL_INSTANT))
-
-        model_row.addWidget(self._sage_model_versatile_btn)
-        model_row.addWidget(self._sage_model_instant_btn)
-        model_row.addStretch()
-        sp.addLayout(model_row)
-
-        # ── Template chips: Who is / What is / Ask ────────────────────────
-        _tpl_base = (
-            f"font-size:9px;letter-spacing:0.5px;padding:3px 10px;border-radius:10px;"
-            f"border:1px solid {BORDER};background:#1e1915;color:#8a6d35;"
-        )
-        _tpl_hover_chapter = f"border-color:{ACCENT};color:{ACCENT};"
-        _tpl_sel_chapter   = f"border-color:#8a6d35;color:{TEXT};background:#261f18;"
-        _tpl_base_web      = (
-            f"font-size:9px;letter-spacing:0.5px;padding:3px 10px;border-radius:10px;"
-            f"border:1px solid #2a3a45;background:#151c22;color:#6ab0d4;"
-        )
-        _tpl_sel_web = f"border-color:#4a8aaa;color:#9dd0f0;background:#1a2830;"
-
-        def _tpl_style(kind: str, selected: bool) -> str:
-            if kind == "web":
-                base = _tpl_base_web
-                return base + (_tpl_sel_web if selected else "")
-            base = _tpl_base
-            return base + (_tpl_sel_chapter if selected else "")
-
-        self._sage_tpl_whois  = QPushButton("Who is")
-        self._sage_tpl_whatis = QPushButton("What is")
-        self._sage_tpl_ask    = QPushButton("Ask")
-        self._sage_active_tpl: str | None = None  # "whois" | "whatis" | "ask" | None
-
-        def _apply_tpl_styles():
-            t = self._sage_active_tpl
-            self._sage_tpl_whois.setStyleSheet(_tpl_style("chapter", t == "whois"))
-            self._sage_tpl_whatis.setStyleSheet(_tpl_style("chapter", t == "whatis"))
-            self._sage_tpl_ask.setStyleSheet(_tpl_style("web", t == "ask"))
-
-        def _set_tpl(name: str, prefix: str):
-            if self._sage_active_tpl == name:
-                # toggle off
-                self._sage_active_tpl = None
-                _apply_tpl_styles()
-                self._sage_q.setPlaceholderText("Who is Feng Yuan?  /  What is the Spirit Sea?")
-                return
-            self._sage_active_tpl = name
-            _apply_tpl_styles()
-            current = self._sage_q.text().strip()
-            # Strip any previous prefix before applying new one
-            for p in ("Who is ", "What is ", ""):
-                if current.lower().startswith(p.lower()) and p:
-                    current = current[len(p):].lstrip()
-                    break
-            self._sage_q.setText(prefix + current)
-            self._sage_q.setFocus()
-            self._sage_q.setCursorPosition(len(self._sage_q.text()))
-            if name == "ask":
-                self._sage_q.setPlaceholderText("Ask anything… (web search)")
-            elif name == "whois":
-                self._sage_q.setPlaceholderText("Who is Feng Yuan?")
-            else:
-                self._sage_q.setPlaceholderText("What is the Spirit Sea?")
-
-        self._sage_tpl_whois.clicked.connect(lambda: _set_tpl("whois",  "Who is "))
-        self._sage_tpl_whatis.clicked.connect(lambda: _set_tpl("whatis", "What is "))
-        self._sage_tpl_ask.clicked.connect(lambda: _set_tpl("ask",    ""))
-
-        _apply_tpl_styles()
-
-        tpl_row = QHBoxLayout()
-        tpl_row.setSpacing(4)
-        tpl_row.addWidget(self._sage_tpl_whois)
-        tpl_row.addWidget(self._sage_tpl_whatis)
-        tpl_row.addWidget(self._sage_tpl_ask)
-        tpl_row.addStretch()
-        sp.addLayout(tpl_row)
-
-        self._sage_q = QLineEdit()
-        self._sage_q.setPlaceholderText("Who is Feng Yuan?  /  What is the Spirit Sea?")
-        self._sage_q.setStyleSheet(
-            f"background:{BG3};border:1px solid {BORDER};color:{TEXT};"
-            f"font-size:13px;padding:8px;border-radius:4px;")
-        self._sage_q.returnPressed.connect(self._sage_ask)
-        sp.addWidget(self._sage_q)
-        self._sage_ask_btn = btn("Ask Sage", "accent", self._sage_ask)
-        sp.addWidget(self._sage_ask_btn)
-
-        # Web label — shown above answer box for Ask (web) queries
-        self._sage_web_label = QLabel("🌐  WEB RESULT")
-        self._sage_web_label.setStyleSheet(
-            f"background:#151c22;border:1px solid #2a3a45;border-bottom:none;"
-            f"color:#6ab0d4;font-size:9px;letter-spacing:1px;padding:4px 8px;"
-            f"border-radius:4px 4px 0 0;")
-        self._sage_web_label.setVisible(False)
-        sp.addWidget(self._sage_web_label)
-
-        self._sage_answer = QTextEdit()
-        self._sage_answer.setReadOnly(True)
-        self._sage_answer.setStyleSheet(
-            f"background:{BG3};border:none;padding:12px;"
-            f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;")
-        sp.addWidget(self._sage_answer, 1)
-        self._sage_busy = QProgressBar()
-        self._sage_busy.setRange(0,0)
-        self._sage_busy.setVisible(False); self._sage_busy.setFixedHeight(3)
-        sp.addWidget(self._sage_busy)
-        reader_body.addWidget(self._sage_panel)
-
-        # ── Lens panel ────────────────────────────────────────────────────────
-        self._lens_panel = QFrame()
-        self._lens_panel.setFixedWidth(540)
-        self._lens_panel.setStyleSheet(f"background:{BG2};border-left:1px solid {BORDER};")
-        self._lens_panel.setVisible(False)
-        lp = QVBoxLayout(self._lens_panel)
-        lp.setContentsMargins(14, 14, 14, 14)
-        lp.setSpacing(10)
-
-        # Header
-        lens_hdr = QHBoxLayout()
-        lens_hdr.addWidget(lbl("◈  LENS", ACCENT, 10, True))
-        lens_close = QPushButton("✕")
-        lens_close.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:12px;")
-        lens_close.clicked.connect(self._toggle_lens_panel)
-        lens_hdr.addStretch(); lens_hdr.addWidget(lens_close)
-        lp.addLayout(lens_hdr)
-        lp.addWidget(hline())
-
-        # Paste area
-        lens_hint = QLabel("Paste a character or place description:")
-        lens_hint.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:0.5px;")
-        lp.addWidget(lens_hint)
-
-        self._lens_input = QTextEdit()
-        self._lens_input.setPlaceholderText(
-            'e.g. She had silver hair that fell to her waist, eyes like shards of moonstone...')
-        self._lens_input.setFixedHeight(110)
-        self._lens_input.setStyleSheet(
-            f"background:{BG3};border:1px solid {BORDER};color:{TEXT};"
-            f"font-family:{FONT_BODY};font-size:12px;padding:8px;border-radius:3px;")
-        lp.addWidget(self._lens_input)
-
-        # Source selector
-        src_row = QHBoxLayout()
-        src_lbl = QLabel("SOURCE")
-        src_lbl.setStyleSheet(f"color:{MUTED};font-size:9px;letter-spacing:1px;")
-        src_row.addWidget(src_lbl)
-        self._lens_src_btns = {}
-        for src_id, src_label in [("flux", "FLUX"), ("anime", "ANIME")]:
-            b = QPushButton(src_label)
-            b.setCheckable(True)
+        for i, label in enumerate(["Planning", "Reading", "Dropped", "Completed"]):
+            b = QPushButton(label)
+            b.setStyleSheet(_cat_active if i == 0 else _cat_idle)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setStyleSheet(
-                f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{MUTED};"
-                f"font-size:9px;letter-spacing:1px;padding:4px 10px;border-radius:3px;}}"
-                f"QPushButton:checked{{background:{ACCENT};color:{BG};border-color:{ACCENT};}}"
-                f"QPushButton:hover:!checked{{color:{TEXT};}}"
-            )
-            b.clicked.connect(lambda checked, sid=src_id: self._lens_set_source(sid))
-            src_row.addWidget(b)
-            self._lens_src_btns[src_id] = b
-        src_row.addStretch()
-        lp.addLayout(src_row)
-        self._lens_source = "flux"
-        self._lens_src_btns["flux"].setChecked(True)
+            b.clicked.connect(lambda _, idx=i: self._switch_lib_cat(idx))
+            ltb.addWidget(b)
+            self._lib_cat_btns.append(b)
+        ltb.addStretch()
+        lib_lay.addWidget(lib_tab_bar)
 
-        # Generate button
-        self._lens_btn = QPushButton("◈  VISUALIZE")
-        self._lens_btn.setStyleSheet(
-            f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
-            f"font-size:9px;letter-spacing:1.5px;padding:9px;border-radius:3px;")
-        self._lens_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._lens_btn.clicked.connect(self._lens_generate)
-        lp.addWidget(self._lens_btn)
+        # Grid area
+        lib_content = QWidget()
+        lib_content.setStyleSheet("background:transparent;")
+        lc_lay = QVBoxLayout(lib_content)
+        lc_lay.setContentsMargins(20, 16, 20, 16)
+        lc_lay.setSpacing(10)
 
-        # Status label
-        self._lens_status = QLabel("")
-        self._lens_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lens_status.setStyleSheet(f"color:{MUTED};font-size:10px;")
-        lp.addWidget(self._lens_status)
+        self._lib_grid = BooksGrid()
+        self._lib_grid.book_clicked.connect(self._on_book_clicked)
+        self._lib_grid.delete_requested.connect(self._on_lib_remove)
+        lc_lay.addWidget(self._lib_grid, 1)
 
-        # Image display
-        self._lens_image_lbl = QLabel()
-        self._lens_image_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lens_image_lbl.setMinimumHeight(200)
-        self._lens_image_lbl.setStyleSheet(
-            f"background:{BG3};border-radius:4px;color:{MUTED};font-size:11px;")
-        self._lens_image_lbl.setText("Image will appear here")
-        lp.addWidget(self._lens_image_lbl, 1)
+        self._lib_empty = QLabel("Nothing here yet.")
+        self._lib_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lib_empty.setStyleSheet(
+            f"color:{MUTED}; font-size:12px; background:transparent;")
+        self._lib_empty.hide()
+        lc_lay.addWidget(self._lib_empty)
 
-        # Catalogue notes panel
-        _CatPanel = _catalogue_panel_class()
-        if _CatPanel:
-            self._catalogue_panel = _CatPanel()
-            reader_body.addWidget(self._catalogue_panel)
+        lib_lay.addWidget(lib_content, 1)
+        self._content_stack.addWidget(lib_page)        # index 2
+
+        # ── Page 3: Local books ───────────────────────────────────────────────
+        local_page = QWidget()
+        local_page.setStyleSheet("background:transparent;")
+        loc_lay = QVBoxLayout(local_page)
+        loc_lay.setContentsMargins(20, 16, 20, 16)
+        loc_lay.setSpacing(10)
+
+        loc_hdr = QLabel("LOCAL BOOKS")
+        loc_hdr.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+        loc_lay.addWidget(loc_hdr)
+
+        self._local_grid = BooksGrid()
+        self._local_grid.book_clicked.connect(self._on_local_book_clicked)
+        self._local_touch_filter = _TouchScrollFilter(
+            self._local_grid._scroll.verticalScrollBar(), self._local_grid._scroll)
+        self._local_grid._scroll.installEventFilter(self._local_touch_filter)
+        loc_lay.addWidget(self._local_grid, 1)
+
+        self._content_stack.addWidget(local_page)     # index 3
+
+        # ── Page 4: Detail panel ──────────────────────────────────────────────
+        self._detail = DetailPanel()
+        self._detail.closed.connect(lambda: (
+            self._status_bar.show(),
+            self._content_stack.setCurrentIndex(self._active_tab),
+        ))
+        self._detail.book_action.connect(self._on_detail_book_action)
+        self._content_stack.addWidget(self._detail)    # index 4
+
+        # ── Page 5: Local detail panel ────────────────────────────────────────
+        self._local_detail = LocalDetailPanel()
+        self._local_detail.closed.connect(lambda: (
+            self._status_bar.show(),
+            self._content_stack.setCurrentIndex(3),
+        ))
+        self._local_detail.read_requested.connect(self._on_local_read)
+        self._content_stack.addWidget(self._local_detail)  # index 5
+
+        # ── Page 6: Reader ────────────────────────────────────────────────────
+        self._reader = ReaderPanel()
+        self._reader.closed.connect(self._on_reader_closed)
+        self._content_stack.addWidget(self._reader)    # index 6
+
+        main_lay.addWidget(self._content_stack, 1)
+        outer.addWidget(main_w, 1)
+
+    # ── Loading ───────────────────────────────────────────────────────────────
+
+    def _cancel_workers(self):
+        """Mark all in-flight workers as cancelled and release them — never blocks the UI."""
+        for w in self._workers:
+            w.cancel()          # tells worker to drop its result when done
+            w.blockSignals(True)  # belt-and-suspenders: no signals reach the UI
+        self._workers.clear()
+
+    def _load_trending(self):
+        self._cancel_workers()
+
+        self._status_bar.setText("Loading trending…")
+        self._grid.clear()
+        self._update_page_controls()
+
+        p = self._current_page
+        source_filter = self._source_combo.currentIndex()  # 0 = all
+        source_map    = {1: "royalroad", 2: "libread", 3: "gutenberg"}
+
+        if p == 1:
+            # Page 1: all sources merged
+            tasks = [
+                ("royalroad", lambda p=p: fetch_royalroad_trending(p)),
+                ("libread",   lambda p=p: fetch_libread_popular(p)),
+                ("gutenberg", lambda p=p: fetch_gutenberg_popular(p)),
+            ]
+            if source_filter > 0:
+                key = source_map[source_filter]
+                tasks = [(k, v) for k, v in tasks if k == key]
         else:
-            self._catalogue_panel = None
+            # Page 2+: RoyalRoad best-rated (proper pagination, 20/page)
+            tasks = [("royalroad", lambda p=p: fetch_royalroad_best_rated(p))]
 
-        # ── Plugin slot: reader_sidebar ───────────────────────────────────────
-        try:
-            from plugin_manager import SlotHost as _SH, SlotRegistry as _SR
-            self._reader_slot = _SH("reader_sidebar")
-            self._reader_slot.setMinimumWidth(0)
-            reader_body.addWidget(self._reader_slot)
+        self._pending  = len(tasks)
+        self._all_books: list[BookItem] = []
 
-            def _on_sidebar_changed():
-                """Expand/collapse the sidebar splitter when a plugin registers/unregisters."""
-                has = bool(_SR.instance().entries("reader_sidebar"))
-                sizes = self._reader_body.sizes()
-                if has and sizes[-1] < 50:
-                    # Give sidebar 300px taken from reader
-                    total = sum(sizes)
-                    new_reader = max(300, sizes[0] - 300)
-                    self._reader_body.setSizes([new_reader, sizes[1], sizes[2], 300])
-                elif not has and sizes[-1] > 0:
-                    self._reader_body.setSizes([sizes[0] + sizes[-1], sizes[1], sizes[2], 0])
-            _SR.instance().add_listener("reader_sidebar", _on_sidebar_changed)
-        except Exception:
-            self._reader_slot = None
+        for key, task in tasks:
+            w = FetchWorker(task)
+            w.results.connect(lambda items, k=key: self._on_trending_batch(items))
+            w.error.connect(lambda e, k=key: self._on_fetch_error(k, e))
+            w.start()
+            self._workers.append(w)
 
-        # Lens panel — must be last in splitter so index [-1] is always lens
-        reader_body.addWidget(self._lens_panel)
+    def _update_page_controls(self):
+        self._page_label.setText(f"Page {self._current_page}")
+        self._prev_btn.setEnabled(self._current_page > 1)
 
-        self._reader_body = reader_body  # store ref for notes panel toggle
-        reader_body.setSizes([900, 320, 0, 0, 0])
-        rw.addWidget(reader_body, 1)
+    def _on_prev_page(self):
+        if self._current_page > 1:
+            self._current_page -= 1
+            self._grid._scroll.verticalScrollBar().setValue(0)
+            self._reload_current()
 
-        # ── Bottom chapter navigation bar ────────────────────────────────
-        self._bottom_nav = QFrame()
-        self._bottom_nav.setStyleSheet(
-            f"QFrame{{background:{BG2};border-top:1px solid {BORDER};}}")
-        self._bottom_nav.setVisible(False)
-        bnv = QHBoxLayout(self._bottom_nav)
-        bnv.setContentsMargins(20, 10, 20, 10); bnv.setSpacing(10)
+    def _on_next_page(self):
+        self._current_page += 1
+        self._grid._scroll.verticalScrollBar().setValue(0)
+        self._reload_current()
 
-        self._bn_prev = QPushButton("← PREV")
-        self._bn_prev.setFixedHeight(34)
-        self._bn_prev.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{MUTED};border:1px solid {BORDER};"
-            f"border-radius:3px;font-size:9px;letter-spacing:1px;padding:0 16px;}}"
-            f"QPushButton:hover{{background:{BG3};color:{TEXT};border-color:{ACCENT};}}"
-            f"QPushButton:disabled{{color:{BORDER};border-color:{BG2};}}")
-        self._bn_prev.clicked.connect(self._prev_chapter)
+    def _reload_current(self):
+        """Re-run trending or search for the current page number."""
+        if self._search_box.text().strip():
+            self._do_search()
+        else:
+            self._load_trending()
 
-        self._bn_toc = QPushButton("≡  CHAPTERS")
-        self._bn_toc.setFixedHeight(34)
-        self._bn_toc.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{MUTED};border:1px solid {BORDER};"
-            f"border-radius:3px;font-size:9px;letter-spacing:1px;padding:0 14px;}}"
-            f"QPushButton:hover{{background:{BG3};color:{TEXT};}}")
-        self._bn_toc.clicked.connect(self._show_chapter_list)
+    def _on_trending_batch(self, items: list[BookItem]):
+        self._all_books.extend(items)
+        self._pending -= 1
+        query = self._search_box.text().strip()
+        if self._pending <= 0:
+            # Deduplicate by URL, then by normalised title as fallback
+            seen_urls   = set()
+            seen_titles = set()
+            deduped     = []
+            for b in self._all_books:
+                url_key   = b.url.strip().rstrip("/").lower()
+                title_key = b.title.strip().lower()
+                if url_key in seen_urls or title_key in seen_titles:
+                    continue
+                seen_urls.add(url_key)
+                seen_titles.add(title_key)
+                deduped.append(b)
 
-        self._bn_next = QPushButton("NEXT →")
-        self._bn_next.setFixedHeight(34)
-        self._bn_next.setStyleSheet(
-            f"QPushButton{{background:{ACCENT};color:{BG};border:none;"
-            f"border-radius:3px;font-size:9px;font-weight:bold;letter-spacing:1px;padding:0 20px;}}"
-            f"QPushButton:hover{{background:#F0D98A;color:{BG};}}"
-            f"QPushButton:disabled{{background:{BG3};color:{MUTED};}}")
-        self._bn_next.clicked.connect(self._next_chapter)
+            if query:
+                q_words = query.lower().split()
+                ranked  = [b for b in deduped
+                           if all(w in b.title.lower() for w in q_words)]
+                ranked.sort(key=lambda b: _title_score(b.title, query), reverse=True)
+                self._grid.set_books(ranked)
+                self._status_bar.setText(f"{len(ranked)} results")
+            else:
+                self._grid.set_books(deduped)
+                self._status_bar.setText(f"{len(deduped)} titles loaded")
+            self._section_label.setText(
+                "TRENDING" if not query else "RESULTS FOR  " + query.upper())
+        else:
+            if not query:
+                self._grid.add_books(items)
+            self._status_bar.setText(f"Loading… ({len(self._all_books)} so far)")
 
-        self.reader_status = QLabel("")
-        self.reader_status.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:1px;")
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0,0)
-        self.progress_bar.setVisible(False); self.progress_bar.setFixedHeight(2)
-        bnv.addWidget(self._bn_prev)
-        bnv.addWidget(self._bn_toc)
-        bnv.addStretch()
-        bnv.addWidget(self.reader_status)
-        bnv.addWidget(self.progress_bar)
-        bnv.addStretch()
-        bnv.addWidget(self._bn_next)
-        rw.addWidget(self._bottom_nav)
+    def _on_fetch_error(self, source: str, err: str):
+        self._pending -= 1
+        self._status_bar.setText(f"Error loading {source}: {err[:60]}")
 
-        status_row = QHBoxLayout()
-        rw.addLayout(status_row)
-        self._right_stack.addWidget(reader_w)   # index 3
+    # ── Search ────────────────────────────────────────────────────────────────
 
-        # ── 2: Downloads panel ────────────────────────────────────────────────
-        dl_w = QWidget()
-        dl_w.setStyleSheet(f"background:{BG};")
-        dlv = QVBoxLayout(dl_w)
-        dlv.setContentsMargins(20, 16, 20, 16)
-        dlv.setSpacing(12)
+    def _on_search_changed(self, text: str):
+        if not text.strip():
+            self._search_timer.stop()
+            self._current_page = 1
+            self._load_trending()
 
-        dl_hdr = QHBoxLayout()
-        dl_title = QLabel("↓  DOWNLOADS")
-        dl_title.setStyleSheet(
-            f"font-size:13px;font-weight:bold;color:{ACCENT};"
-            f"letter-spacing:2px;font-family:{FONT_DISPLAY};")
-        self._dl_badge = QLabel("")
-        self._dl_badge.setStyleSheet(f"color:{MUTED};font-size:10px;margin-left:8px;")
-        dl_close = QPushButton("✕  CLOSE")
-        dl_close.setStyleSheet(
-            f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:8px;letter-spacing:1px;padding:3px 8px;border-radius:3px;")
-        dl_close.clicked.connect(lambda: self._right_stack.setCurrentIndex(getattr(self, "_current_tab_idx", 0)))
-        dl_hdr.addWidget(dl_title); dl_hdr.addWidget(self._dl_badge); dl_hdr.addStretch(); dl_hdr.addWidget(dl_close)
-        dlv.addLayout(dl_hdr)
-        dlv.addWidget(hline())
+    def _on_search_commit(self):
+        self._search_timer.stop()
+        self._current_page = 1
+        self._do_search()
 
-        self._dl_panel_list = QWidget()
-        self._dl_panel_list.setLayout(QVBoxLayout())
-        self._dl_panel_list.layout().setContentsMargins(0, 0, 0, 0)
-        self._dl_panel_list.layout().setSpacing(8)
+    def _do_search(self):
+        query = self._search_box.text().strip()
+        if not query:
+            return
+        self._cancel_workers()
+        self._status_bar.setText(f"Searching '{query}'…")
+        self._grid.clear()
+        self._section_label.setText("RESULTS FOR  " + query.upper())
+        self._update_page_controls()
 
-        dl_scroll = QScrollArea()
-        dl_scroll.setWidget(self._dl_panel_list)
-        dl_scroll.setWidgetResizable(True)
-        dl_scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
-        dlv.addWidget(dl_scroll, 1)
+        source_filter = self._source_combo.currentIndex()
+        p = self._current_page
+        tasks = []
+        if source_filter in (0, 1):
+            tasks.append(("royalroad", lambda q=query, p=p: search_royalroad(q, p)))
+        if source_filter in (0, 2):
+            tasks.append(("libread",   lambda q=query, p=p: search_libread(q, p)))
+        if source_filter in (0, 3):
+            tasks.append(("gutenberg", lambda q=query, p=p: search_gutenberg(q, p)))
 
-        self._right_stack.addWidget(dl_w)   # index 4
+        self._pending = len(tasks)
+        self._all_books = []
+        for key, task in tasks:
+            w = FetchWorker(task)
+            w.results.connect(lambda items, k=key: self._on_trending_batch(items))
+            w.error.connect(lambda e, k=key: self._on_fetch_error(k, e))
+            w.start()
+            self._workers.append(w)
 
-        rv.addWidget(self._right_stack, 1)
-        root.addWidget(right, 1)
+    def _on_source_changed(self, _):
+        if self._search_box.text().strip():
+            self._do_search()
+        else:
+            self._load_trending()
 
-        # Start on Jump In tab
-        self._switch_tab(0)
+    # ── Tab switching ─────────────────────────────────────────────────────────
 
-
-    # ── Tab switching ──────────────────────────────────────────────────────────
     def _switch_tab(self, idx: int):
-        self._current_tab_idx = idx
-        self._right_stack.setCurrentIndex(idx)
+        self._active_tab = idx
         for i, b in enumerate(self._tab_btns):
             b.setStyleSheet(
-                self._tab_btn_style_active if i == idx else self._tab_btn_style_idle)
+                self._tab_style_active if i == idx else self._tab_style_idle)
+        self._content_stack.setCurrentIndex(idx)
+        show_search = (idx == 0)
+        self._search_box.setVisible(show_search)
+        self._search_btn.setVisible(show_search)
+        self._source_combo.setVisible(show_search)
+        if idx == 1:
+            self._load_jump_in()
+        elif idx == 2:
+            self._load_library()
+        elif idx == 3:
+            self._load_local()
 
-    # ── BookDetailDialog signal handlers ───────────────────────────────────────
-    def _detail_delete_name(self, name: str):
-        """Delete a book by name — called from BookDetailDialog signal."""
-        self._detail_book_name = name
-        self._detail_book      = legion_data().get("books", {}).get(name, {})
-        self._detail_from_list = "jumpin"
-        self._detail_delete()
+    # ── Jump In ───────────────────────────────────────────────────────────────
 
-    def _detail_reset_time_name(self, name: str):
-        self._detail_book_name = name
-        self._detail_reset_time()
-
-    def _detail_download_name(self, name: str):
-        ld   = legion_data()
-        book = ld.get("books", {}).get(name, {})
-        self._detail_book_name = name
-        self._detail_book      = book
-        self._detail_from_list = "jumpin"
-        self._detail_download()
-
-    def _detail_move_to_bookmarks(self, name: str):
-        """Move a book from Jump In to Bookmarks (completed by default)."""
-        from PyQt6.QtWidgets import QInputDialog
-        statuses = ["Completed", "Reading", "Plan to Read", "Dropped"]
-        status, ok = QInputDialog.getItem(
-            self, "Move to Bookmarks",
-            f"Move '{name}' to Bookmarks as:",
-            statuses, 0, False
-        )
-        if not ok:
-            return
-        # Add to bookmarks
-        bm = bookmarks_data()
-        bm.setdefault("bookmarks", {})
-        ld   = legion_data()
-        book = ld.get("books", {}).get(name, {})
-        bm["bookmarks"][name] = {
-            "title":    name,
-            "url":      book.get("current_url", "") or book.get("url", ""),
-            "status":   status,
-            "metadata": book.get("metadata", {}),
-        }
-        save_json(LEGION_BOOKMARKS, bm)
-        # Remove from Jump In
-        ld["books"].pop(name, None)
-        save_json(LEGION_PROGRESS, ld)
-        # Refresh both lists
-        self.refresh()
-        log.legion.info("Book moved to bookmarks", book=name, status=status)
-
-    # ── Discovery — source / browse / search ───────────────────────────────────
-
-    def _on_rs_changed(self, key, value):
-        self._rs[key] = value
-        
-        # Update UI labels
-        if key == "font_size":
-            self._rs_fs_val.setText(f"{value}px")
-            self._font_size = value
-        elif key == "line_height":
-            self._rs_lh_val.setText(f"{value:.1f}")
-        elif key == "padding_h":
-            self._rs_hm_val.setText(f"{value}px")
-        elif key == "padding_v":
-            self._rs_vp_val.setText(f"{value}px")
-        elif key == "bg_mode":
-            self._update_bg_btn_styles()
-            
-        self._apply_font()
-        
-        # Debounced save
-        if not hasattr(self, "_rs_save_timer"):
-            self._rs_save_timer = QTimer(self)
-            self._rs_save_timer.setSingleShot(True)
-            self._rs_save_timer.setInterval(500)
-            self._rs_save_timer.timeout.connect(self._save_rs)
-        self._rs_save_timer.start()
-
-    def _update_bg_btn_styles(self):
-        for mode, btn in self._bg_btns.items():
-            active = (self._rs["bg_mode"] == mode)
-            btn.setChecked(active)
-            if active:
-                btn.setStyleSheet(f"background:{ACCENT}; color:{BG}; font-size:9px; border-radius:3px;")
-            else:
-                btn.setStyleSheet(f"background:{BG3}; color:{TEXT2}; border:1px solid {BORDER}; font-size:9px; border-radius:3px;")
-
-    def _reset_rs(self):
-        self._rs = dict(self._rs_defaults)
-        self._font_size = self._rs["font_size"]
-        
-        # Sync sliders
-        self._rs_fs_slider.setValue(self._rs["font_size"])
-        self._rs_lh_slider.setValue(int(self._rs["line_height"] * 100))
-        self._rs_hm_slider.setValue(self._rs["padding_h"])
-        self._rs_vp_slider.setValue(self._rs["padding_v"])
-        
-        self._update_bg_btn_styles()
-        self._apply_font()
-        self._save_rs()
-
-    def _save_rs(self):
-        ld = legion_data()
-        ld["reader_settings"] = dict(self._rs)
-        save_json(LEGION_PROGRESS, ld)
-
-    def _toggle_sage_panel(self):
-        visible = self._sage_panel.isVisible()
-        sizes = self._reader_body.sizes()  # [rs_panel, reader, sage, notes/slot]
-        if visible:
-            self._sage_panel.setVisible(False)
-            # Return sage width to reader; leave rs_panel and notes untouched
-            self._reader_body.setSizes([sizes[0], sizes[1] + sizes[2], 0, sizes[3]])
-            self._sage_top_btn.setText("✦ SAGE")
-        else:
-            self._sage_panel.setVisible(True)
-            sage_w  = 420
-            reader_w = max(200, sizes[1] - sage_w)
-            self._reader_body.setSizes([sizes[0], reader_w, sage_w, sizes[3]])
-            self._sage_top_btn.setText("✕ SAGE")
-
-    def _toggle_lens_panel(self):
-        visible = self._lens_panel.isVisible()
-        sizes = list(self._reader_body.sizes())  # lens is always last
-        if visible:
-            self._lens_panel.setVisible(False)
-            sizes[1] += sizes[-1]
-            sizes[-1] = 0
-            self._reader_body.setSizes(sizes)
-            self._lens_top_btn.setText("◈ LENS")
-        else:
-            self._lens_panel.setVisible(True)
-            lens_w   = 540
-            sizes[1] = max(300, sizes[1] - lens_w)
-            sizes[-1] = lens_w
-            self._reader_body.setSizes(sizes)
-            self._lens_top_btn.setText("✕ LENS")
-
-    def _lens_set_source(self, src_id: str):
-        self._lens_source = src_id
-        for sid, btn in self._lens_src_btns.items():
-            btn.setChecked(sid == src_id)
-        # Show cached result for this source immediately if available
-        desc = self._lens_input.toPlainText().strip()
-        cache = getattr(self, "_lens_cache", {})
-        cached_px = cache.get((desc, src_id))
-        if cached_px:
-            self._lens_status.setText("")
-            scaled = cached_px.scaled(
-                512, 768,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+    def _load_jump_in(self):
+        try:
+            ld = get_legion_data()
+            books = ld.get("books", {})
+            sorted_books = sorted(
+                books.items(),
+                key=lambda x: x[1].get("last_read", x[1].get("chapters_read", 0)),
+                reverse=True,
             )
-            self._lens_image_lbl.setPixmap(scaled)
-        else:
-            self._lens_image_lbl.setText("Image will appear here")
-            self._lens_status.setText("")
+            items = [
+                BookItem(
+                    title     = name,
+                    cover_url = book.get("cover_url", ""),
+                    url       = book.get("current_url", book.get("url", "")),
+                    source    = book.get("source", "local"),
+                    synopsis  = book.get("synopsis", ""),
+                    author    = book.get("author", ""),
+                )
+                for name, book in sorted_books
+            ]
+            self._ji_grid.set_books(items)
+            self._ji_empty.setVisible(len(items) == 0)
+            self._ji_grid.setVisible(len(items) > 0)
+        except Exception as e:
+            self._status_bar.setText(f"Jump In load error: {e}")
 
-    def _lens_generate(self):
-        desc = self._lens_input.toPlainText().strip()
-        if not desc:
-            self._lens_status.setText("Paste a description first.")
+    def _toggle_ji_edit_mode(self, enabled: bool):
+        self._ji_edit_btn.setText("Done" if enabled else "Edit")
+        for card in self._ji_grid._cards:
+            card.set_delete_mode(enabled)
+
+    def _delete_ji_book(self, book: BookItem):
+        jump_in_remove(book.title, delete_files=False)
+        self._status_bar.setText(f'Removed "{book.title}" from Jump In')
+        self._ji_edit_btn.setChecked(False)
+        self._load_jump_in()
+
+    # ── Library ───────────────────────────────────────────────────────────────
+
+    def _switch_lib_cat(self, idx: int):
+        self._lib_active_cat = idx
+        for i, b in enumerate(self._lib_cat_btns):
+            b.setStyleSheet(
+                self._lib_cat_active_style if i == idx
+                else self._lib_cat_idle_style)
+        self._load_library()
+
+    def _load_library(self):
+        try:
+            cat_names = ("planning", "reading", "dropped", "completed")
+            cat = cat_names[self._lib_active_cat]
+            data = _load_library()
+            entries = data.get(cat, [])
+            items = [
+                BookItem(
+                    title     = e.get("title", "?"),
+                    author    = e.get("author", ""),
+                    cover_url = e.get("cover_url", ""),
+                    url       = e.get("url", ""),
+                    source    = e.get("source", "local"),
+                    synopsis  = e.get("synopsis", ""),
+                )
+                for e in entries if isinstance(e, dict)
+            ]
+            self._lib_grid.set_books(items)
+            # Always show remove button on library cards — no edit mode needed
+            QTimer.singleShot(50, self._show_lib_remove_btns)
+            self._lib_empty.setVisible(len(items) == 0)
+            self._lib_grid.setVisible(len(items) > 0)
+            empty_labels = {
+                "planning":  "Nothing planned yet.\nAdd books from Discover.",
+                "reading":   "Not reading anything.\nHit Read Now on a book to start.",
+                "dropped":   "No dropped books.",
+                "completed": "No completed books yet.",
+            }
+            self._lib_empty.setText(empty_labels[cat])
+        except Exception as e:
+            self._status_bar.setText(f"Library load error: {e}")
+
+    def _show_lib_remove_btns(self):
+        for card in self._lib_grid._cards:
+            card.set_delete_mode(True)
+
+    def _on_lib_remove(self, book: BookItem):
+        """Remove button pressed on a library card — absolute removal."""
+        library_remove(book.title)
+        jump_in_remove(book.title, delete_files=True)
+        self._status_bar.setText(f'Removed "{book.title}" from library')
+        self._load_library()
+
+    # ── Detail actions ────────────────────────────────────────────────────────
+
+    def _on_book_clicked(self, book: BookItem):
+        self._detail.show_book(book)
+        self._status_bar.hide()
+        self._content_stack.setCurrentIndex(4)
+
+    def _on_detail_book_action(self, action: str, book: BookItem):
+        """Triggered by DetailPanel after read/add/remove — refresh affected tabs."""
+        if action == "read":
+            # Need the first chapter URL — get it from the detail worker's last result
+            # or fall back to fetching chapters list on the fly
+            self._open_reader(book)
             return
-        src = getattr(self, "_lens_source", "flux")
-        # Return cached result instantly if prompt+source already generated
-        cache = getattr(self, "_lens_cache", {})
-        if (desc, src) in cache:
-            self._lens_on_result(cache[(desc, src)])
+
+        if action in ("library_add", "library_remove"):
+            self._load_jump_in()
+            self._load_library()
+            msgs = {
+                "library_add":    f'"{book.title}" saved to library',
+                "library_remove": f'"{book.title}" removed from library',
+            }
+            self._status_bar.setText(msgs.get(action, ""))
+
+    def _enter_reader(self):
+        """Switch to the reader panel and hide the status bar."""
+        self._status_bar.hide()
+        self._content_stack.setCurrentIndex(6)
+
+    def _open_reader(self, book: BookItem):
+        """Open ReaderPanel — use saved reading position or chapter 1 from disk if available."""
+        # ── Priority 1: resume from saved reader URL
+        try:
+            from great_sage_core import load_json_cached
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(book.title, {})
+            saved_url = entry.get("reader_url", "")
+            if saved_url:
+                self._reader.open_book(book, saved_url)
+                self._enter_reader()
+                return
+        except Exception:
+            pass
+
+        # ── Priority 2: _first_chapter_url already fetched by DetailPanel worker
+        first_url = getattr(self._detail, "_first_chapter_url", None)
+        if first_url:
+            self._reader.open_book(book, first_url)
+            self._enter_reader()
             return
-        # Cancel any running worker before starting a new one
-        if getattr(self, "_lens_worker", None) is not None:
+
+        # ── Priority 3: book has downloaded chapters — open ch 1 from disk via sentinel
+        try:
+            import os, re as _re
+            from great_sage_core import SCRIPT_DIR
+            safe      = _re.sub(r"[^\w\-_\. ]", "_", book.title)
+            txt_path  = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
+            if os.path.exists(txt_path):
+                self._reader.open_book(book, f"local-disk://chapter/1/{book.title}")
+                self._enter_reader()
+                return
+        except Exception:
+            pass
+
+        # ── Priority 4: fetch detail page in background to get chapter 1 URL
+        self._status_bar.setText("Fetching first chapter…")
+        def _task():
+            if book.source == "royalroad":
+                return fetch_royalroad_detail(book.url)
+            elif book.source == "libread":
+                return fetch_libread_detail(book.url)
+            return {}
+
+        w = FetchWorker(_task)
+        w.detail.connect(lambda data: self._on_first_chapter_fetched(data, book))
+        w.error.connect(lambda e: self._status_bar.setText(f"Could not open reader: {e}"))
+        w.start()
+        self._workers.append(w)
+
+    def _on_first_chapter_fetched(self, data: dict, book: BookItem):
+        chapters = data.get("chapters", [])
+        if not chapters:
+            self._status_bar.setText("No chapters found — cannot open reader.")
+            return
+        first_url = chapters[0].get("url", "")
+        if not first_url:
+            self._status_bar.setText("First chapter URL missing.")
+            return
+        self._reader.open_book(book, first_url)
+        self._enter_reader()
+
+    def _on_reader_closed(self):
+        """Return to whichever panel launched the reader."""
+        self._status_bar.show()
+        if self._active_tab == 3:
+            self._content_stack.setCurrentIndex(5)
+        else:
+            self._content_stack.setCurrentIndex(4)
+
+    # ── Local tab ─────────────────────────────────────────────────────────────
+
+    def _load_local(self):
+        """Scan LEGION_LIBRARY and populate the local grid."""
+        books = scan_local_library()
+        empty_msg = (
+            "No books found.\n\n"
+            f"Add EPUB, PDF, or TXT files to:\n\n  {LEGION_LIBRARY}\n\nthen hit  ↻ Refresh."
+        ) if not books else ""
+        self._local_grid.set_books(books, empty_message=empty_msg)
+        self._status_bar.setText(f"{len(books)} local file{'s' if len(books) != 1 else ''}")
+
+    def _on_local_book_clicked(self, book: BookItem):
+        self._local_detail.show_book(book)
+        self._content_stack.setCurrentIndex(5)  # local detail
+        self._status_bar.hide()
+
+    def _on_local_read(self, book: BookItem):
+        """Read Now pressed on a local book — open in reader directly."""
+        self._reader.open_local_book(book)
+        self._enter_reader()
+
+    # ── Required by MainWindow ─────────────────────────────────────────────────
+
+    def _resume_downloads(self):
+        """On startup, restart download workers for all existing Jump In books."""
+        try:
+            # ── Orphan cleanup ────────────────────────────────────────────────
+            # Remove any LEGION_PROGRESS entries that have no matching library entry
+            # in LEGION_BOOKMARKS.  These are books that were removed from Jump In
+            # while a download worker was still running — the worker resurrected the
+            # entry via _save_progress before the fix, leaving ghost entries that
+            # reappear in Jump In on every launch with no remove button.
             try:
-                self._lens_worker.done.disconnect()
-                self._lens_worker.error.disconnect()
-                self._lens_worker.finished.disconnect()
+                ld       = get_legion_data()
+                lib_data = get_bookmarks_data()
+                lib_titles: set = set()
+                for cat in ("planning", "reading", "dropped", "completed"):
+                    for e in lib_data.get(cat, []):
+                        if isinstance(e, dict) and e.get("title"):
+                            lib_titles.add(e["title"])
+                orphans = [t for t in ld.get("books", {}) if t not in lib_titles]
+                if orphans:
+                    for t in orphans:
+                        _DownloadRegistry.stop(t)
+                        del ld["books"][t]
+                    save_json(LEGION_PROGRESS, ld)
             except Exception:
                 pass
-            self._lens_worker = None
-        self._lens_btn.setEnabled(False)
-        self._lens_status.setText("Generating…")
-        self._lens_image_lbl.setText("")
-        self._lens_worker = _LensWorker(desc, source=src)
-        self._lens_worker.done.connect(lambda px, d=desc, s=src: self._lens_on_result(px, d, s))
-        self._lens_worker.error.connect(self._lens_on_error)
-        self._lens_worker.finished.connect(lambda: setattr(self, "_lens_worker", None))
-        self._lens_worker.start()
+            # ─────────────────────────────────────────────────────────────────
 
-    def _lens_on_result(self, pixmap, desc=None, src=None):
-        # Store in cache if we know the key
-        if desc is not None and src is not None:
-            if not hasattr(self, "_lens_cache"):
-                self._lens_cache = {}
-            self._lens_cache[(desc, src)] = pixmap
-        self._lens_btn.setEnabled(True)
-        self._lens_status.setText("")
-        scaled = pixmap.scaled(
-            512, 768,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._lens_image_lbl.setPixmap(scaled)
-
-    def _lens_on_error(self, msg: str):
-        self._lens_btn.setEnabled(True)
-        self._lens_status.setText(f"Error: {msg}")
-        self._lens_image_lbl.setText("Could not generate image.")
-
-    def _toggle_notes_panel(self):
-        if not self._catalogue_panel:
-            self._notes_top_btn.setToolTip("catalogue.py not found — place it in the same folder as great_sage_gui.py")
-            self.reader_status.setText("Notes unavailable — catalogue.py missing from app folder.")
-            return
-        visible = self._catalogue_panel.isVisible()
-        sizes = self._reader_body.sizes()  # [rs_panel, reader, sage, notes/slot]
-        if visible:
-            # Collapse notes: return its width to reader
-            self._catalogue_panel.setVisible(False)
-            self._reader_body.setSizes([sizes[0], sizes[1] + sizes[3], sizes[2], 0])
-            self._notes_top_btn.setText("✎ NOTES")
-        else:
-            # Expand notes to 320px, taken from reader (never shrink Sage)
-            self._catalogue_panel.setVisible(True)
-            notes_w  = 320
-            reader_w = max(300, sizes[1] - notes_w)
-            self._reader_body.setSizes([sizes[0], reader_w, sizes[2], notes_w])
-            self._notes_top_btn.setText("✕ NOTES")
-
-    def _sage_ask(self):
-        q = self._sage_q.text().strip()
-        if not q: return
-        book    = self._current_book or "this book"
-        cur_ch  = self._current_ch_num or 0
-        is_web  = getattr(self, "_sage_active_tpl", None) == "ask"
-        self._sage_busy.setVisible(True)
-        self._sage_ask_btn.setEnabled(False)
-        self._sage_web_label.setVisible(False)
-        self._sage_answer.setPlainText("Searching the web…" if is_web else "Scanning chapters…")
-        self._sage_worker = _SageCompanionWorker(
-            q, book, current_chapter=cur_ch, web_search=is_web)
-        self._sage_worker.done.connect(lambda ans, _w=is_web: self._sage_answered(ans, _w))
-        self._sage_worker.start()
-
-    def _sage_answered(self, answer: str, is_web: bool = False):
-        self._sage_busy.setVisible(False)
-        self._sage_ask_btn.setEnabled(True)
-        self._sage_web_label.setVisible(is_web)
-        # Square off top corners of answer box when web label is showing
-        if is_web:
-            from gs_theme import BG3, FONT_BODY, TEXT
-            self._sage_answer.setStyleSheet(
-                f"background:{BG3};border:none;padding:12px;"
-                f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;"
-                f"border-radius:0 0 4px 4px;")
-        else:
-            from gs_theme import BG3, FONT_BODY, TEXT
-            self._sage_answer.setStyleSheet(
-                f"background:{BG3};border:none;padding:12px;"
-                f"font-family:{FONT_BODY};font-size:13px;color:{TEXT};line-height:1.7;")
-        self._sage_answer.setPlainText(answer or "(No response)")
-
-    def _apply_font(self):
-        bg, fg = _BG_MODES.get(self._rs.get("bg_mode", "dark"), (BG3, TEXT))
-        ph = self._rs.get("padding_h", 80)
-        pv = self._rs.get("padding_v", 36)
-        lh = self._rs.get("line_height", 1.9)
-        fs = self._rs.get("font_size", self._font_size)
-        self.reader.setStyleSheet(
-            f"background:{bg};color:{fg};border:none;"
-            f"padding:{pv}px {ph}px;"
-            f"font-family:{FONT_BODY};font-size:{fs}px;line-height:{lh};")
-
-    def _on_scroll(self, value=None):
-        sb  = self.reader.verticalScrollBar()
-        top = sb.minimum()
-        bot = sb.maximum()
-        if bot <= top:
-            frac = 1.0
-        else:
-            v    = sb.value() if value is None else value
-            frac = (v - top) / (bot - top)
-        # Update the reading progress bar
-        self._read_progress.setValue(int(frac * 1000))
-        # Show bottom nav when reader is near the end (>88%)
-        if hasattr(self, "_bottom_nav"):
-            self._bottom_nav.setVisible(frac >= 0.88)
-        # Save scroll position per chapter (not during initial load)
-        if self._current_book and self._current_ch_num > 0 and not self._chapter_loading:
-            self._scroll_positions \
-                .setdefault(self._current_book, {})[self._current_ch_num] = frac
-
-    def _restore_scroll(self, ch_num):
-        """Restore saved scroll position for this chapter, if any."""
-        frac = self._scroll_positions.get(self._current_book, {}).get(ch_num, 0.0)
-        if frac <= 0.0:
-            return
-        sb = self.reader.verticalScrollBar()
-        # Scroll bar range may not be fully set yet right after setPlainText;
-        # defer slightly to let Qt lay out the text
-        def _apply():
-            sb.setValue(int(sb.minimum() + frac * (sb.maximum() - sb.minimum())))
-        QTimer.singleShot(50, _apply)
-
-    def _toggle_menu(self):
-        """Show a small popup menu with Downloads option."""
-        menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: {BG2};
-                border: 1px solid {BORDER};
-                color: {TEXT};
-                font-size: 12px;
-                padding: 4px 0;
-            }}
-            QMenu::item {{
-                padding: 8px 24px 8px 16px;
-                letter-spacing: 0.5px;
-            }}
-            QMenu::item:selected {{
-                background: {BG3};
-                color: {ACCENT};
-            }}
-            QMenu::separator {{
-                height: 1px;
-                background: {BORDER};
-                margin: 4px 0;
-            }}
-        """)
-        dl_action = menu.addAction("↓  Downloads")
-        action = menu.exec(self._menu_btn.mapToGlobal(
-            self._menu_btn.rect().bottomLeft()))
-        if action == dl_action:
-            self._open_downloads_panel()
-
-    def _open_downloads_panel(self):
-        """Switch right panel to downloads view and populate it."""
-        self._refresh_downloads_panel()
-        self._right_stack.setCurrentIndex(4)
-        # Start a refresh timer while panel is visible
-        if not hasattr(self, "_dl_panel_timer"):
-            self._dl_panel_timer = QTimer(self)
-            self._dl_panel_timer.timeout.connect(self._refresh_downloads_panel)
-        self._dl_panel_timer.start(1500)
-
-    def _refresh_downloads_panel(self):
-        """Rebuild the downloads panel content from current legion data."""
-        # Stop if panel not visible
-        if self._right_stack.currentIndex() != 4:
-            if hasattr(self, "_dl_panel_timer"):
-                self._dl_panel_timer.stop()
-            return
-
-        ld  = legion_data()
-        books = ld.get("books", {})
-        mod, _ = _get_legion_mod()
-
-        # Update header count badge
-        count = 0
-        if mod and hasattr(mod, "download_manager"):
-            count = len(mod.download_manager.active_downloads) + \
-                    len(mod.download_manager.get_queue_snapshot())
-        if hasattr(self, "_dl_badge"):
-            self._dl_badge.setText(f"({count})" if count else "")
-        
-        # Find header to insert/update badge
-        # In _build, downloads header is at the top of the layout
-        # We'll just find it by name if possible, or search
-        # Actually I'll just look at _build again to see where it is
-        
-        # Clear existing rows
-        layout = self._dl_panel_list.layout()
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        has_any = False
-        STATUS_ORDER = ["downloading", "queued", "paused", "failed", "completed", "idle"]
-
-        sorted_books = sorted(
-            [(n, b) for n, b in books.items() if b.get("download_state", {}).get("status", "idle") != "idle"],
-            key=lambda x: STATUS_ORDER.index(x[1].get("download_state", {}).get("status", "idle"))
-        )
-
-        for name, book in sorted_books:
-            has_any = True
-            dl   = book.get("download_state", {})
-            stat = dl.get("status", "idle")
-            cnt  = dl.get("total_chapters_downloaded", 0)
-            fails= len(dl.get("failed_chapters", []))
-
-            row = QWidget()
-            row.setStyleSheet(f"background:{BG2};border-radius:6px;")
-            rl  = QVBoxLayout(row)
-            rl.setContentsMargins(14, 10, 14, 10)
-            rl.setSpacing(4)
-
-            # Title + badge
-            top = QHBoxLayout()
-            top.setSpacing(8)
-            name_lbl = QLabel(name)
-            name_lbl.setStyleSheet(f"font-size:13px;font-weight:bold;color:{TEXT};")
-            badge_colors = {
-                "downloading": ("#00C896", "#001A10"),
-                "queued":      ("#A080FF", "#0D0820"),
-                "paused":      ("#FFB020", "#1A0D00"),
-                "failed":      ("#FF4060", "#1A0008"),
-                "completed":   ("#4080FF", "#000D1A"),
-            }
-            bc, b_bg = badge_colors.get(stat, (MUTED, BG3))
-            badge_text = {
-                "downloading": f"⏳ Downloading",
-                "queued":      "⏸ Queued",
-                "paused":      "⏸ Paused",
-                "failed":      "❌ Failed",
-                "completed":   "✅ Complete",
-            }.get(stat, stat)
-            badge = QLabel(badge_text)
-            badge.setStyleSheet(
-                f"background:{b_bg};color:{bc};border:1px solid {bc};"
-                f"font-size:9px;letter-spacing:1px;padding:2px 8px;border-radius:3px;")
-            top.addWidget(name_lbl); top.addStretch(); top.addWidget(badge)
-            rl.addLayout(top)
-
-            # Chapter count / Queue position
-            if stat == "queued":
-                position = 1
-                if mod and hasattr(mod, "download_manager"):
-                    snapshot = mod.download_manager.get_queue_snapshot()
-                    if name in snapshot:
-                        position = snapshot.index(name) + 1
-                info_lbl = QLabel(f"Position {position} in queue  ·  {cnt} chapters downloaded")
-            else:
-                info_parts = [f"{cnt} chapters downloaded"]
-                if fails:
-                    info_parts.append(f"{fails} failed")
-                info_lbl = QLabel("  ·  ".join(info_parts))
-            
-            info_lbl.setStyleSheet(f"font-size:10px;color:{MUTED};letter-spacing:0.5px;")
-            rl.addWidget(info_lbl)
-
-            # Progress bar for downloading
-            if stat == "downloading":
-                pbar = QProgressBar()
-                known_total = book.get("total_chapters")
-                if known_total and known_total > 0:
-                    pbar.setRange(0, known_total)
-                    pbar.setValue(cnt)
-                else:
-                    pbar.setRange(0, 0)
-                pbar.setFixedHeight(3)
-                pbar.setTextVisible(False)
-                pbar.setStyleSheet(
-                    f"QProgressBar{{background:{BG3};border:none;border-radius:0;}}"
-                    f"QProgressBar::chunk{{background:{ACCENT};border-radius:0;}}")
-                rl.addWidget(pbar)
-                
-                # ETA
-                eta_text = ""
-                if mod and hasattr(mod, "download_manager"):
-                    rate = mod.download_manager.get_chapter_rate(name)
-                    if rate > 0 and known_total and known_total > cnt:
-                        remaining = known_total - cnt
-                        minutes   = remaining / rate
-                        if minutes < 60:
-                            eta_text = f"~{int(minutes)}m remaining"
-                        else:
-                            eta_text = f"~{int(minutes/60)}h {int(minutes%60)}m remaining"
-                if eta_text:
-                    eta_lbl = QLabel(eta_text)
-                    eta_lbl.setStyleSheet(f"font-size:9px;color:{MUTED};letter-spacing:0.5px;")
-                    rl.addWidget(eta_lbl)
-
-            # Action buttons row
-            if stat in ("downloading", "queued", "paused"):
-                btn_rl = QHBoxLayout()
-                btn_rl.setSpacing(6)
-                if stat == "downloading":
-                    pb = QPushButton("⏸ Pause")
-                    pb.setStyleSheet(
-                        f"background:transparent;border:1px solid {BORDER};color:{TEXT2};"
-                        f"font-size:9px;letter-spacing:1px;padding:4px 12px;border-radius:3px;")
-                    pb.clicked.connect(lambda _, n=name: self._dl_panel_pause(n))
-                    btn_rl.addWidget(pb)
-                elif stat == "paused":
-                    rb = QPushButton("▶ Resume")
-                    rb.setStyleSheet(
-                        f"background:transparent;border:1px solid {BORDER};color:{TEXT2};"
-                        f"font-size:9px;letter-spacing:1px;padding:4px 12px;border-radius:3px;")
-                    rb.clicked.connect(lambda _, n=name: self._dl_panel_resume(n))
-                    btn_rl.addWidget(rb)
-                cb = QPushButton("✕ Cancel")
-                cb.setStyleSheet(
-                    f"background:transparent;border:1px solid #2A1018;color:{RED};"
-                    f"font-size:9px;letter-spacing:1px;padding:4px 12px;border-radius:3px;")
-                cb.clicked.connect(lambda _, n=name: self._dl_panel_cancel(n))
-                btn_rl.addWidget(cb); btn_rl.addStretch()
-                rl.addLayout(btn_rl)
-
-            layout.addWidget(row)
-
-        if not has_any:
-            empty = QLabel("No active downloads.")
-            empty.setStyleSheet(f"color:{MUTED};font-size:13px;padding:20px;")
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(empty)
-
-        layout.addStretch()
-
-    def _dl_panel_pause(self, name):
-        mod, _ = _get_legion_mod()
-        if mod and hasattr(mod, "download_manager"):
-            mod.download_manager.pause_download(name)
-
-    def _dl_panel_resume(self, name):
-        mod, _ = _get_legion_mod()
-        if not mod: return
-        ld = legion_data()
-        book_data = ld.get("books", {}).get(name)
-        if book_data:
-            book_data["download_state"]["status"] = "queued"
-            book_data["download_state"]["pause_requested"] = False
-            save_json(LEGION_PROGRESS, ld)
-            if hasattr(mod, "download_manager"):
-                mod.download_manager.queue_download(name, book_data, ld)
-
-    def _dl_panel_cancel(self, name):
-        ld = legion_data()
-        book_data = ld.get("books", {}).get(name)
-        if book_data:
-            book_data["download_state"]["status"] = "cancelled"
-            save_json(LEGION_PROGRESS, ld)
-        self._refresh_downloads_panel()
-
-    def _show_toast(self, message):
-        """Sync notification — just refresh downloads panel if it's open."""
-        if self._right_stack.currentIndex() == 4:
-            self._refresh_downloads_panel()
+            ld = get_legion_data()
+            for title, entry in ld.get("books", {}).items():
+                source = entry.get("source", "")
+                if source not in ("royalroad", "libread", "gutenberg"):
+                    continue
+                if _DownloadRegistry.is_running(title):
+                    continue
+                book = BookItem(
+                    title     = title,
+                    author    = entry.get("author", ""),
+                    cover_url = entry.get("cover_url", ""),
+                    url       = entry.get("url", ""),
+                    source    = source,
+                    synopsis  = entry.get("synopsis", ""),
+                )
+                _DownloadRegistry.start(book)
+        except Exception:
+            pass
 
     def refresh(self):
-        ld = legion_data(); books = ld.get("books",{})
-        self.jumpin_list.clear()
-        self._book_data = {}
-        sorted_books = sorted(books.items(),
-            key=lambda x: x[1].get("last_read", x[1].get("chapters_read", 0)),
-            reverse=True)
-        for name, book in sorted_books:
-            ch = book.get("chapters_read", 0); w = book.get("words_read", 0)
-            display = name if len(name) <= 20 else name[:18] + "…"
-            item = QListWidgetItem(display)
-            item.setToolTip(f"{name}\nChapter {ch} · {w:,} words read")
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
-            cover_set = False
-            try:
-                from plugins.book_covers import get_cover
-                from PyQt6.QtGui import QIcon
-                source_url = book.get("current_url", "") or book.get("url", "")
-                px = get_cover(name, source_url)
-                if px and not px.isNull():
-                    item.setIcon(QIcon(px))
-                    cover_set = True
-            except Exception:
-                pass
-            if not cover_set:
-                from PyQt6.QtGui import QIcon
-                item.setIcon(QIcon(self._make_placeholder_cover(name, 100, 140)))
-            self.jumpin_list.addItem(item)
-            self._book_data[name] = book
-        bm = bookmarks_data()
-        for lst_name, lw in self._bm_lists.items():
-            lw.clear()
-            for e in bm.get(lst_name,[]):
-                t = e.get("title","?") if isinstance(e,dict) else str(e)
-                item = QListWidgetItem(f"  {t}")
-                item.setData(Qt.ItemDataRole.UserRole, e)
-                item.setForeground(QColor(TEXT)); lw.addItem(item)
-
-        # If HTML Legion requested to open a specific book in the native UI, do it once.
-        try:
-            mw = self.window()
-            pending = getattr(mw, "_pending_legion_book", "") if mw else ""
-        except Exception:
-            pending = ""
-        if pending:
-            try:
-                mw._pending_legion_book = ""
-            except Exception:
-                pass
-            for i in range(self.jumpin_list.count()):
-                it = self.jumpin_list.item(i)
-                if it and it.data(Qt.ItemDataRole.UserRole) == pending:
-                    self.jumpin_list.setCurrentItem(it)
-                    self._book_clicked(it)
-                    break
-
-    def _book_clicked(self, item):
-        name = item.data(Qt.ItemDataRole.UserRole)
-        if not name: return
-        b = self._book_data.get(name, {})
-        self._current_book = name
-        self._current_ch_num = 0
-        self._total_ch_local = 0
-        self._reading_local  = False
-        self._next_url = ""; self._prev_url = ""
-        # Auto-fetch metadata if missing
-        url = b.get("current_url","") or b.get("url","")
-        if url and not b.get("metadata"):
-            self._refresh_meta_silent(name, url)
-        dlg = BookDetailDialog(name, b, from_list="jumpin", parent=self)
-        dlg.read_requested.connect(self._detail_read)
-        dlg.delete_requested.connect(self._detail_delete_name)
-        dlg.reset_time_requested.connect(self._detail_reset_time_name)
-        dlg.download_requested.connect(self._detail_download_name)
-        dlg.bookmark_requested.connect(self._detail_move_to_bookmarks)
-        dlg.exec()
-
-    def _bm_clicked(self, item, list_name):
-        e = item.data(Qt.ItemDataRole.UserRole)
-        if not e: return
-        title = e.get("title","?") if isinstance(e,dict) else str(e)
-        ld    = legion_data()
-        prog  = ld.get("books",{}).get(title, {})
-        entry = dict(e) if isinstance(e,dict) else {"title":title}
-        for k in ("chapters_read","words_read","current_url","last_title",
-                  "metadata","minutes_read","download_state"):
-            if k in prog: entry.setdefault(k, prog[k])
-        # Normalise: bookmark entries store the url under "url"; ensure
-        # "current_url" is always populated so BookDetailDialog and
-        # _detail_read can find it regardless of which key was used.
-        if not entry.get("current_url"):
-            entry["current_url"] = entry.get("url", "")
-        self._current_book = title
-        self._current_ch_num = 0
-        self._total_ch_local = 0
-        self._reading_local  = False
-        self._next_url = ""; self._prev_url = ""
-        dlg = BookDetailDialog(title, entry, self)
-        dlg.read_requested.connect(self._detail_read)
-        dlg.delete_requested.connect(self._detail_delete_name)
-        dlg.reset_time_requested.connect(self._detail_reset_time_name)
-        dlg.download_requested.connect(self._detail_download_name)
-        dlg.exec()
-
-    def _bm_double(self, item, list_name):
-        """Keep for backward compat — delegates to _bm_clicked."""
-        self._bm_clicked(item, list_name)
-
-    def _refresh_meta_silent(self, name, url):
-        """Silently fetch and cache metadata for a book without user interaction."""
-        # self._meta_workers is already initialized in __init__
-        w = _MetaRefreshWorker(url)
-        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
-        
-        # Connect finished signal to cleanup method
-        w.finished.connect(lambda: self._cleanup_worker(w))
-        
-        # Modify the existing _done handler
-        def _done(meta, err): # Removed worker=w from args since it's now handled by the outer scope lambda
-            if not err and meta:
-                ld = legion_data()
-                if name in ld.get("books", {}):
-                    ld["books"][name].setdefault("metadata", {}).update(meta)
-                    save_json(LEGION_PROGRESS, ld)
-                    if getattr(self, "_detail_book_name", "") == name:
-                        self._detail_book = ld["books"][name]
-                        self._book_data[name] = ld["books"][name]
-                        self._show_detail(name, ld["books"][name],
-                                          from_list=getattr(self, "_detail_from_list", "jumpin"))
-            # Original cleanup removed, now handled by w.finished.connect(lambda: self._cleanup_worker(w))
-        
-        w.done.connect(_done)
-        w.start()
-        
-        self._meta_workers.append(w)  # keep reference so GC doesn't destroy running thread
-
-    def _show_detail(self, name, book, from_list="jumpin"):
-        """Populate the detail panel and switch to it."""
-        # Always refresh from disk so progress shown is current
-        ld = legion_data()
-        fresh = ld.get("books", {}).get(name)
-        if fresh:
-            book = fresh
-            self._book_data[name] = book
-        self._detail_book_name  = name
-        self._detail_book       = book
-        self._detail_from_list  = from_list
-
-        meta     = book.get("metadata", {})
-        ch_read  = book.get("chapters_read", 0)
-        words    = book.get("words_read", 0)
-        mins     = book.get("minutes_read", 0)
-        last_ch  = book.get("last_title", "Not started")
-        dl_state = book.get("download_state", {})
-        dl_status= dl_state.get("status", "idle")
-        dl_count = dl_state.get("total_chapters_downloaded", 0)
-
-        self._detail_title.setText(name)
-
-        # Metadata line
-        meta_parts = []
-        if meta.get("author"):  meta_parts.append(f"Author: {meta['author']}")
-        if meta.get("genres"):  meta_parts.append(f"Genres: {meta['genres']}")
-        if meta.get("status"):  meta_parts.append(f"Status: {meta['status']}")
-        if meta.get("year"):    meta_parts.append(f"Year: {meta['year']}")
-        if meta and not meta_parts:
-            meta_parts.append("Info loaded")
-        self._detail_meta.setText("   ·   ".join(meta_parts) if meta_parts else "No metadata yet — click ↻ Refresh Info")
-
-        # Synopsis
-        syn = (meta.get("synopsis","") or meta.get("description","")
-               or meta.get("summary","") or meta.get("overview",""))
-        if syn:
-            self._detail_synopsis.setPlainText(syn[:2000] + ("..." if len(syn)>2000 else ""))
-        elif meta:
-            # We have metadata but no synopsis — show whatever text fields we have
-            extra = " | ".join(f"{k}: {v}" for k,v in meta.items()
-                               if isinstance(v,str) and len(v) > 10
-                               and k not in ("url","image","cover","thumbnail"))
-            self._detail_synopsis.setPlainText(extra[:1000] if extra else "No synopsis available.")
+        """Called by MainWindow._navigate() every time Legion is opened."""
+        if self._active_tab == 1:
+            self._load_jump_in()
+        elif self._active_tab == 2:
+            self._load_library()
+        elif self._active_tab == 3:
+            self._load_local()
         else:
-            self._detail_synopsis.setPlainText("No synopsis available.")
-
-        # Progress — derive last chapter title from local file using chapters_read (authoritative)
-        # last_title in JSON may be stale from old web scrapes at a lower chapter number
-        prog_parts = []
-        if ch_read:  prog_parts.append(f"{ch_read} chapters read")
-        if words:    prog_parts.append(f"{words:,} words")
-        mins_i = int(round(mins))
-        if mins_i >= 60: prog_parts.append(f"{mins_i//60}h {mins_i%60}m")
-        elif mins_i:     prog_parts.append(f"{mins_i}m")
-
-        # Show the chapter the user is currently on using current_chapter (story number)
-        last_label = ""
-        cur_ch = book.get("current_chapter")
-        if cur_ch:
-            mod, _ = _get_legion_mod()
-            if mod and hasattr(mod, "get_chapter_from_file"):
-                try:
-                    t, _ = mod.get_chapter_from_file(name, int(cur_ch))
-                    if t:
-                        last_label = f"Last: Ch.{cur_ch} — {t[:55]}"
-                except Exception:
-                    pass
-            if not last_label:
-                last_label = f"Last: Ch.{cur_ch}"
-        if last_label:
-            prog_parts.append(last_label)
-
-        # "Not started yet" only when truly nothing has happened —
-        # current_chapter > 0 means user has opened at least one chapter
-        if not prog_parts:
-            if cur_ch and int(cur_ch) > 0:
-                prog_parts.append(f"Ch.{cur_ch} opened")
-            else:
-                prog_parts.append("Not started yet")
-
-        self._detail_progress.setText("  ·  ".join(prog_parts))
-
-        # Download status
-        _last_err = dl_state.get('last_error', '')
-        _fail_msg = f"❌ {_last_err}" if _last_err else f"❌ Failed ({len(dl_state.get('failed_chapters', []))} chapters failed)"
-        dl_labels = {
-            "downloading": f"⏳ Downloading... ({dl_count} chapters)",
-            "completed":   f"✅ Downloaded ({dl_count} chapters)",
-            "paused":      f"⏸ Paused ({dl_count} chapters downloaded)",
-            "failed":      _fail_msg,
-            "queued":      f"⏳ Queued ({dl_count} chapters so far)",
-            "cancelled":   "✕ Download cancelled",
-        }
-        self._detail_dl_status.setText(dl_labels.get(dl_status, ""))
-
-        self._update_detail_buttons(book)
-        # _show_detail no longer drives the right stack; BookDetailDialog handles display
-
-    def _update_detail_buttons(self, book):
-        self._btn_read.setVisible(bool(book))
-        self._btn_delete.setVisible(bool(book))
-        self._btn_reset_time.setVisible(bool(book))
-
-    def _detail_read(self):
-        """Open the book at the last chapter the user was on."""
-        # When called via signal from BookDetailDialog, _current_book is already set.
-        # Fall back to _detail_book_name for legacy call paths.
-        name = self._current_book or getattr(self, "_detail_book_name", None)
-        if not name: return
-        self._detail_book_name = name
-
-        # Always read fresh from disk
-        ld   = legion_data()
-        book = ld.get("books", {}).get(name, {})
-        self._book_data[name] = book
-        self._detail_book     = book
-
-        url = book.get("current_url", "") or book.get("url", "")
-
-        # Auto-bookmark
-        bm = bookmarks_data()
-
-        # If legion_data has no URL (book lives only in Bookmarks, never added
-        # to Jump In), fall back to whichever bookmark list has it.
-        if not url:
-            for _lst in bm.values():
-                for _bm_e in _lst:
-                    if isinstance(_bm_e, dict) and                             _bm_e.get("title", "").lower() == name.lower():
-                        url = (_bm_e.get("current_url", "")
-                               or _bm_e.get("url", ""))
-                        if url:
-                            break
-                if url:
-                    break
-
-        already = any(
-            (e.get("title", "") if isinstance(e, dict) else str(e)).lower() == name.lower()
-            for lst in bm.values() for e in lst
-        )
-        if not already:
-            bm.setdefault("reading", []).append({
-                "title": name, "url": url,
-                "metadata": book.get("metadata", {}),
-                "added": time.time()
-            })
-            save_json(LEGION_BOOKMARKS, bm)
-
-        # Get the real chapter list from the file (story numbers, e.g. [549, 550, ...])
-        ch_list = []
-        mod2, _ = _get_legion_mod()
-        if mod2 and hasattr(mod2, "_get_chapter_list_from_file"):
-            try:
-                ch_list = mod2._get_chapter_list_from_file(name)
-            except Exception:
-                pass
-
-        valid_nums = [n for n, _ in ch_list]  # ordered list of story chapter numbers
-
-        if not valid_nums:
-            # No local file — just open via URL
-            self._load_chapter(1, url)
-            return
-
-        # Try to find the best chapter to resume from:
-        # 1. saved current_chapter if it's a valid story number
-        # 2. extract from last_title (e.g. "Ch.552 — Chapter 552 552: ...")
-        # 3. fall back to the first downloaded chapter
-        resume_ch = None
-
-        saved = book.get("current_chapter")
-        if saved and int(saved) in valid_nums:
-            resume_ch = int(saved)
-
-        if resume_ch is None:
-            # Try to extract from last_title
-            last_title = book.get("last_title", "")
-            if last_title:
-                m = re.search(r'[Cc]hapter\s+(\d+)', last_title)
-                if m:
-                    n = int(m.group(1))
-                    if n in valid_nums:
-                        resume_ch = n
-
-        if resume_ch is None:
-            resume_ch = valid_nums[0]  # first downloaded chapter
-
-        # Fix the stale current_chapter in JSON right now so next time it's correct
-        if book.get("current_chapter") != resume_ch:
-            book["current_chapter"] = resume_ch
-            save_json(LEGION_PROGRESS, ld)
-            self._book_data[name] = book
-
-        self._load_chapter(resume_ch, url)
-
-    def _load_chapter(self, ch_num, fallback_url=""):
-        """
-        Central chapter loader.
-        1. Try local .txt file for ch_num.
-        2. If not found, try fallback_url via web scrape.
-        3. If no url either, tell the user.
-
-        Always updates _current_ch_num, _reading_local, _total_ch_local.
-        """
-        name = self._current_book
-        if not name: return
-        log.legion.info("Loading chapter", book=name, chapter=ch_num, has_url=bool(fallback_url))
-
-        # Count how many chapters are in the local file
-        mod, _ = _get_legion_mod()
-        total_local = 0
-        chapters = []  # always defined — prevents NameError in the body block below
-        if mod and hasattr(mod, "_get_chapter_list_from_file"):
-            try:
-                chapters = mod._get_chapter_list_from_file(name)
-                total_local = len(chapters)
-            except Exception as e:
-                log.legion.exc("Failed to get chapter list from file", e, book=name)
-        self._total_ch_local = total_local
-
-        # Try local file first
-        file_ch = None
-        if mod and hasattr(mod, "get_chapter_from_file") and ch_num >= 1:
-            try:
-                title_f, paras_f = mod.get_chapter_from_file(name, ch_num)
-                if paras_f:
-                    file_ch = (title_f, paras_f)
-            except Exception: pass  # Ignored
-
-        if file_ch:
-            title_f, paras_f = file_ch
-            self._current_ch_num = ch_num
-            self._reading_local  = True
-            self._right_stack.setCurrentIndex(3)
-            self._read_progress.setValue(0)
-            # Show real chapter number from title if available (e.g. "Chapter 549: ...")
-            real_num = ch_num
-            m_real = re.search(r'[Cc]hapter\s+(\d+)', title_f)
-            if m_real:
-                real_num = int(m_real.group(1))
-            self._display_ch_num = real_num  # store for status bar
-            self.chapter_title.setText(f"Ch.{real_num}  {title_f}")
-            text = "\n\n".join(paras_f)
-            # Disconnect scroll handler while loading to prevent it saving a false bottom position
-            try: self.reader.verticalScrollBar().valueChanged.disconnect(self._on_scroll)
-            except (TypeError, RuntimeError): pass  # not connected yet
-            self.reader.setPlainText(text)
-            self._chapter_loading = True
-            self.reader.moveCursor(QTextCursor.MoveOperation.Start)
-            if hasattr(self, '_eye_timer') and not self._eye_timer.isActive():
-                self._eye_timer.start()
-            self.reader.verticalScrollBar().setValue(0)
-
-            def _finish_load():
-                self.reader.moveCursor(QTextCursor.MoveOperation.Start)
-                self.reader.verticalScrollBar().setValue(0)
-                # Clear any stale saved position for this chapter
-                self._scroll_positions.setdefault(self._current_book, {}).pop(ch_num, None)
-                self._chapter_loading = False
-                # Reconnect scroll handler now that we're settled at top
-                try: self.reader.verticalScrollBar().valueChanged.connect(self._on_scroll)
-                except (TypeError, RuntimeError): pass  # already connected
-
-            QTimer.singleShot(200, _finish_load)
-            words = len(text.split())
-
-            # has_prev/has_next based on position in ordered chapter list
-            ch_nums_ordered = [n for n, _ in chapters] if chapters else []
-            try:
-                idx_in_list = ch_nums_ordered.index(ch_num)
-                has_prev = idx_in_list > 0
-                has_next = idx_in_list < len(ch_nums_ordered) - 1
-            except ValueError:
-                has_prev = ch_num > 1
-                has_next = total_local > 0
-
-            display_num = getattr(self, "_display_ch_num", ch_num)
-            pos_str = f"{idx_in_list + 1}/{len(ch_nums_ordered)}" if ch_nums_ordered else f"{ch_num}"
-            nav_str = ""
-            if has_prev: nav_str += "< Prev  "
-            nav_str += f"Ch.{display_num} ({pos_str})"
-            if has_next: nav_str += "  Next >"
-            else:        nav_str += "  (end of downloads)"
-            self.reader_status.setText(f"{words:,} words  ·  {nav_str}")
-            self._prev_btn.setEnabled(has_prev)
-            self._next_btn.setEnabled(has_next or bool(fallback_url))
-            # Sync bottom nav buttons
-            if hasattr(self, "_bn_prev"): self._bn_prev.setEnabled(has_prev)
-            if hasattr(self, "_bn_next"): self._bn_next.setEnabled(has_next or bool(fallback_url))
-            if hasattr(self, "_bottom_nav"): self._bottom_nav.setVisible(False)
-
-            # (chapter_loading released by the scroll timer above)
-
-            # Save current_chapter = open chapter; chapters_read = completed count (unchanged here)
-            ld = legion_data(); book_data = ld.get("books", {}).get(name)
-            if book_data:
-                book_data["current_chapter"] = ch_num
-                book_data["last_title"]      = title_f
-                # words_read accumulated in _next_chapter on completion, not on every open
-                save_json(LEGION_PROGRESS, ld)
-                # Update in-memory cache
-                self._book_data[name] = book_data
-                for i in range(self.jumpin_list.count()):
-                    it = self.jumpin_list.item(i)
-                    if it and it.data(Qt.ItemDataRole.UserRole) == name:
-                        it.setText(f"  {name}")
-                        it.setToolTip(f"Chapter {ch_num} - {book_data.get('words_read',0):,} words read")
-                        break
-            # Record chapter open time for minutes_read tracking
-            self._chapter_open_time = time.time()
-            self._chapter_open_words = words
-            self._words_tracked_this_chapter = False
-            # Update catalogue panel context
-            if self._catalogue_panel:
-                self._catalogue_panel.set_context(name, ch_num)
-            # Start/restart heartbeat timer — saves progress every 2 min while reading
-            if not hasattr(self, "_heartbeat_timer"):
-                self._heartbeat_timer = QTimer(self)
-                self._heartbeat_timer.timeout.connect(self._heartbeat_save)
-            self._heartbeat_timer.start(120_000)  # 2 minutes
-            return
-
-        # No local chapter — fall back to web scrape
-        self._reading_local = False
-        # Update notes panel context even for web-read chapters
-        if self._catalogue_panel:
-            self._catalogue_panel.set_context(name, ch_num)
-        if fallback_url:
-            self._right_stack.setCurrentIndex(3)
-            self._load_url(fallback_url)
-        else:
-            book = self._book_data.get(name, {})
-            saved_url = book.get("current_url","") or book.get("url","")
-            if saved_url:
-                self._right_stack.setCurrentIndex(3)
-                self._load_url(saved_url)
-            else:
-                QMessageBox.information(self, "No Chapter",
-                    f"Chapter {ch_num} not found in downloaded file\n"
-                    f"and no URL is saved for this book.\n\n"
-                    f"Downloaded: {total_local} chapters  |  Requested: Ch.{ch_num}")
-
-    def _detail_download(self):
-        name = getattr(self, "_detail_book_name", None)
-        book = getattr(self, "_detail_book", {})
-        if not name: return
-        url = book.get("current_url","") or book.get("url","")
-        if not url:
-            log.legion.warning("Download attempted with no URL", book=name)
-            QMessageBox.warning(self, "No URL", "No chapter URL saved — can't download."); return
-
-        mod, err = _get_legion_mod()
-        if not mod:
-            log.legion.error("legion.py unavailable for download", error=err, book=name)
-            QMessageBox.warning(self, "Error", f"Can't load legion.py:\n{err}"); return
-        if not hasattr(mod, "download_manager"):
-            QMessageBox.warning(self, "Error",
-                "legion.py doesn't expose a DownloadManager.\n"
-                "Make sure you're using the latest version of legion.py."); return
-
-        # Confirm
-        dl_state = book.get("download_state", {})
-        already  = dl_state.get("total_chapters_downloaded", 0)
-        msg = f"Download all chapters of '{name}' in the background?"
-        if already:
-            msg += f"\n\n{already} chapters already downloaded — will continue from where it stopped."
-        reply = QMessageBox.question(self, "Download", msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes: return
-
-        # Set up download_state and queue
-        ld = legion_data()
-        book_data = ld.get("books", {}).get(name, {})
-        if not book_data:
-            QMessageBox.warning(self, "Error", f"Book '{name}' not found in library."); return
-
-        # Preserve already-downloaded count if resuming
-        existing_state = book_data.get("download_state", {})
-        book_data["download_state"] = {
-            "status":                    "queued",
-            "last_downloaded_chapter":   existing_state.get("last_downloaded_chapter"),
-            "last_downloaded_chapter_num": existing_state.get("last_downloaded_chapter_num", 0),
-            "total_chapters_downloaded": existing_state.get("total_chapters_downloaded", 0),
-            "download_path":             existing_state.get("download_path"),
-            "failed_chapters":           [],
-            "timestamp":                 time.time(),
-            "pause_requested":           False,
-        }
-        ld["books"][name] = book_data
-        save_json(LEGION_PROGRESS, ld)
-        log.legion.info("Download queued", book=name, url=url, already_downloaded=already)
-
-        try:
-            mod.download_manager.queue_download(name, book_data, ld)
-        except Exception as e:
-            log.legion.exc("Failed to queue download", e, book=name)
-            QMessageBox.critical(self, "Queue Failed",
-                f"Failed to start download:\n{str(e)}\n\n"
-                "Check that legion.py loaded correctly and try again.")
-            return
-
-        self._detail_book = book_data
-        self._show_detail(name, book_data, self._detail_from_list)
-
-        # Start live progress polling (every 3s while active)
-        self._start_download_poll(name)
-
-    def _start_download_poll(self, name):
-        """Poll legion_data() every 3 seconds while a download is active, updating the detail view."""
-        if hasattr(self, "_dl_poll_timer") and self._dl_poll_timer.isActive():
-            self._dl_poll_timer.stop()
-        self._dl_poll_name = name
-        self._dl_poll_timer = QTimer(self)
-        self._dl_poll_timer.timeout.connect(self._poll_download_progress)
-        self._dl_poll_timer.start(3000)
-
-    def _poll_download_progress(self):
-        name = getattr(self, "_dl_poll_name", "")
-        if not name:
-            self._dl_poll_timer.stop(); return
-        ld = legion_data()
-        book_data = ld.get("books", {}).get(name)
-        if not book_data:
-            self._dl_poll_timer.stop()
-            self._detail_dl_status.setText("")  # clear stale label
-            return
-        status = book_data.get("download_state", {}).get("status", "idle")
-        # Update detail labels live — but never kick user out of reader
-        if getattr(self, "_detail_book_name", "") == name:
-            self._detail_book = book_data
-            # Only do a full _show_detail refresh if NOT currently reading
-            if self._right_stack.currentIndex() == 3:
-                # User is reading — just silently update the book data and buttons
-                dl_state  = book_data.get("download_state", {})
-                dl_status = dl_state.get("status", "idle")
-                dl_count  = dl_state.get("total_chapters_downloaded", 0)
-                _last_err = dl_state.get('last_error', '')
-                _fail_msg = f"❌ {_last_err}" if _last_err else f"❌ Failed ({len(dl_state.get('failed_chapters', []))} chapters failed)"
-                dl_labels = {
-                    "downloading": f"Downloading... ({dl_count} chapters)",
-                    "completed":   f"✓ Downloaded ({dl_count} chapters)",
-                    "paused":      f"⏸ Paused ({dl_count} chapters)",
-                    "failed":      _fail_msg,
-                    "queued":      f"⏳ Queued ({dl_count} chapters so far)",
-                    "cancelled":   "✕ Download cancelled",
-                }
-                self._detail_dl_status.setText(dl_labels.get(dl_status, ""))
-                self._update_detail_buttons(book_data)
-            else:
-                self._show_detail(name, book_data, getattr(self, "_detail_from_list", "jumpin"))
-        # Stop polling once done
-        if status not in ("queued", "downloading"):
-            self._dl_poll_timer.stop()
-            # If no book currently selected, clear the label
-            if not getattr(self, "_detail_book_name", ""):
-                self._detail_dl_status.setText("")
-
-    def _detail_pause(self):
-        name = getattr(self,"_detail_book_name",None)
-        if not name: return
-        mod, _ = _get_legion_mod()
-        if mod and hasattr(mod,"download_manager"):
-            try: mod.download_manager.pause_download(name)
-            except Exception: pass  # Ignored
-        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
-        book_data.setdefault("download_state",{})["pause_requested"] = True
-        book_data["download_state"]["status"] = "paused"
-        save_json(LEGION_PROGRESS, ld)
-        self._detail_book = book_data
-        self._show_detail(name, book_data, self._detail_from_list)
-
-    def _detail_resume(self):
-        name = getattr(self,"_detail_book_name",None)
-        if not name: return
-        mod, _ = _get_legion_mod()
-        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
-        if not book_data: return
-        book_data.setdefault("download_state",{})["status"] = "queued"
-        book_data["download_state"]["pause_requested"] = False
-        save_json(LEGION_PROGRESS, ld)
-        if mod and hasattr(mod,"download_manager"):
-            try: mod.download_manager.queue_download(name, book_data, ld)
-            except Exception: pass  # Ignored
-        self._detail_book = book_data
-        self._show_detail(name, book_data, self._detail_from_list)
-        self._start_download_poll(name)
-
-    def _detail_cancel(self):
-        name = getattr(self,"_detail_book_name",None)
-        if not name: return
-        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
-        book_data.setdefault("download_state",{})["status"] = "cancelled"
-        book_data["download_state"]["pause_requested"] = True
-        save_json(LEGION_PROGRESS, ld)
-        self._detail_book = book_data
-        self._show_detail(name, book_data, self._detail_from_list)
-
-
-    def _detail_check_new(self):
-        """Check for new chapters online and offer to download them."""
-        name = getattr(self, "_detail_book_name", None)
-        book = getattr(self, "_detail_book", {})
-        if not name: return
-        self._btn_new_chs.setEnabled(False)
-        self._btn_new_chs.setText("⏳ Checking...")
-        w = _NewChaptersWorker(book) # Renamed to 'w' for consistency with prompt
-        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
-
-        # Connect finished signal to cleanup method
-        w.finished.connect(lambda: self._cleanup_worker(w))
-        
-        w.done.connect(
-            lambda count, err: self._on_new_chapters_checked(name, book, count, err))
-        w.start()
-
-        self._meta_workers.append(w)
-
-    def _on_new_chapters_checked(self, name, book, count, err):
-        self._btn_new_chs.setEnabled(True)
-        self._btn_new_chs.setText("⬇  New Chapters")
-        if err:
-            QMessageBox.warning(self, "Check Failed", f"Could not check for new chapters:\n{err}")
-            return
-        if count == 0:
-            QMessageBox.information(self, "Up to Date",
-                f"No new chapters found for '{name}'.\nYou have the latest version.")
-            return
-        reply = QMessageBox.question(self, "New Chapters Found",
-            f"Found {count} new chapter{'s' if count != 1 else ''} for '{name}'.\n\nDownload them now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            self._queue_incremental_download(name, book)
-
-    def _queue_incremental_download(self, name, book):
-        """Queue an incremental download — appends from last downloaded chapter."""
-        mod, err = _get_legion_mod()
-        if not mod:
-            QMessageBox.warning(self, "Error", f"Can't load legion.py:\n{err}"); return
-        if not hasattr(mod, "download_manager"):
-            QMessageBox.warning(self, "Error", "download_manager not found in legion.py"); return
-        ld = legion_data(); book_data = ld.get("books", {}).get(name, {})
-        if not book_data: return
-        existing = book_data.get("download_state", {})
-        # Keep last_downloaded_chapter so it resumes from where it left off
-        book_data["download_state"] = {
-            "status":                      "queued",
-            "last_downloaded_chapter":     existing.get("last_downloaded_chapter"),
-            "last_downloaded_chapter_num": existing.get("last_downloaded_chapter_num", 0),
-            "total_chapters_downloaded":   existing.get("total_chapters_downloaded", 0),
-            "download_path":               existing.get("download_path"),
-            "failed_chapters":             [],
-            "timestamp":                   time.time(),
-            "pause_requested":             False,
-        }
-        ld["books"][name] = book_data
-        save_json(LEGION_PROGRESS, ld)
-        try:
-            mod.download_manager.queue_download(name, book_data, ld)
-        except Exception as e:
-            QMessageBox.critical(self, "Queue Failed", str(e)); return
-        self._detail_book = book_data
-        self._show_detail(name, book_data, self._detail_from_list)
-        self._start_download_poll(name)
-
-    def _detail_refresh_meta(self):
-        name = getattr(self,"_detail_book_name",None)
-        book = getattr(self,"_detail_book",{})
-        if not name: return
-        url = book.get("current_url","") or book.get("url","")
-        if not url:
-            self._detail_meta.setText("No URL saved — can't fetch metadata."); return
-        self._detail_meta.setText("Fetching metadata...  ⏳")
-        w = _MetaRefreshWorker(url) # Renamed to 'w' for consistency with prompt
-        log.debug(f"Adding worker: {type(w).__name__}", worker_id=id(w))
-        
-        # Connect finished signal to cleanup method
-        w.finished.connect(lambda: self._cleanup_worker(w))
-        
-        # Connect done signal (existing)
-        w.done.connect(
-            lambda meta, err: self._on_meta_refreshed(name, meta, err))
-        w.start()
-
-        self._meta_workers.append(w)
-
-    def _on_meta_refreshed(self, name, meta, err):
-        if err:
-            self._detail_meta.setText(f"⚠ {err}"); return
-        ld = legion_data(); book_data = ld.get("books", {}).get(name,{})
-        book_data["metadata"] = meta
-        save_json(LEGION_PROGRESS, ld)
-        self._detail_book["metadata"] = meta
-        self._show_detail(name, self._detail_book, self._detail_from_list)
-
-    def _detail_delete(self):
-        name = getattr(self, "_detail_book_name", None)
-        if not name: return
-        reply = QMessageBox.question(self, "Remove Book",
-            f"Remove '{name}' from your library?\nThis will also delete the downloaded .txt file.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply != QMessageBox.StandardButton.Yes: return
-
-        # 1. Work out where the .txt file is — it always lives next to legion.py
-        txt_path = None
-        mod, _ = _get_legion_mod()
-        if mod and hasattr(mod, "get_book_path"):
-            try:
-                candidate = mod.get_book_path(name)
-                if os.path.exists(candidate):
-                    txt_path = candidate
-                # Also check the parent library dir for cleanup
-                import pathlib
-                lib_dir = pathlib.Path(candidate).parent
-            except Exception:
-                pass
-
-        # 2. Stop any active download for this book
-        if mod and hasattr(mod, "download_manager"):
-            try:
-                mod.download_manager.cancel_book(name)
-            except Exception:
-                pass
-
-        # 3. Remove from JSON and save
-        ld = legion_data()
-        ld.get("books", {}).pop(name, None)
-        save_json(LEGION_PROGRESS, ld)
-
-        # 4. Delete the .txt file
-        if txt_path:
-            try:
-                os.remove(txt_path)
-            except Exception as e:
-                QMessageBox.warning(self, "Could not delete file", str(e))
-
-        # 5. Update UI
-        self._detail_book_name = None
-        self._detail_title.setText("Book removed.")
-        self._detail_synopsis.clear()
-        self._update_detail_buttons(None)
-        self.refresh()
-
-    def _detail_reset_time(self):
-        """Reset the reading time counter for the current book."""
-        name = getattr(self, "_detail_book_name", None)
-        if not name: return
-        try:
-            ld = legion_data()
-            books = ld.get("books", {})
-            if name not in books: return
-            books[name]["minutes_read"] = 0
-            save_json(LEGION_PROGRESS, ld)
-            self._book_data[name] = books[name]
-            self._show_detail(name, books[name], getattr(self, "_detail_from_list", "jumpin"))
-        except Exception:
-            pass
-
-
-    def _bm_context(self, pos, lw, list_name):
-        item = lw.itemAt(pos)
-        if not item: return
-        e = item.data(Qt.ItemDataRole.UserRole)
-        title = e.get("title","") if isinstance(e,dict) else str(e)
-        url   = e.get("url","") if isinstance(e,dict) else ""
-        menu  = QMenu(self)
-        for target in ("planning","reading","dropped","completed"):
-            if target != list_name:
-                act = menu.addAction(f"Move to {target.capitalize()}")
-                act.triggered.connect(lambda _, t=target, ti=title, u=url: self._bm_move(ti,u,t))
-        menu.addSeparator()
-        menu.addAction("Remove").triggered.connect(lambda: self._bm_remove(title))
-        menu.exec(lw.mapToGlobal(pos))
-
-    def _bm_move(self, title, url, target):
-        mod, err = _get_legion_mod()
-        if mod:
-            try: mod.add_to_bookmarks(title, url, target)
-            except Exception: self._bm_move_raw(title, url, target)
-        else: self._bm_move_raw(title, url, target)
-        self.refresh()
-
-    def _bm_move_raw(self, title, url, target):
-        bm = bookmarks_data()
-        for k in bm:
-            bm[k] = [e for e in bm[k]
-                if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
-        bm.setdefault(target,[]).append({"title":title,"url":url,"metadata":{},"added":time.time()})
-        save_json(LEGION_BOOKMARKS, bm)
-
-    def _bm_remove(self, title):
-        mod, err = _get_legion_mod()
-        if mod:
-            try: mod.remove_from_bookmarks(title); self.refresh(); return
-            except Exception: pass  # Ignored
-        bm = bookmarks_data()
-        for k in bm:
-            bm[k] = [e for e in bm[k]
-                if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
-        save_json(LEGION_BOOKMARKS, bm); self.refresh()
-
-    def _load_url(self, url):
-        if not url: return
-        self._current_url = url
-        self.reader.setPlainText("Loading chapter...")
-        self.chapter_title.setText("Loading...")
-        self._read_progress.setValue(0)
-        self.progress_bar.setVisible(True)
-        if self._worker and self._worker.isRunning(): self._worker.terminate()
-        self._worker = FetchChapterWorker(url, self._current_book)
-        self._worker.status.connect(lambda s: self.reader_status.setText(s))
-        self._worker.done.connect(self._chapter_done)
-        self._worker.error.connect(self._chapter_error)
-        self._worker.start()
-
-    def _chapter_done(self, title, paragraphs, next_url, prev_url, url_ch_num=0):
-        self.progress_bar.setVisible(False)
-        self._next_url = next_url
-        self._prev_url = prev_url
-        self._reading_local = False   # came from web scrape
-        self.chapter_title.setText(title)
-        text = "\n\n".join(paragraphs)
-        self.reader.setPlainText(text)
-        self.reader.moveCursor(QTextCursor.MoveOperation.Start)
-        words = len(text.split())
-        nav = ("< prev  " if prev_url else "") + ("next >" if next_url else "end of site")
-        self.reader_status.setText(f"{words:,} words  ·  {nav}  [web]")
-        self._prev_btn.setEnabled(bool(prev_url))
-        self._next_btn.setEnabled(bool(next_url))
-        if self._current_book:
-            ld = legion_data(); book_data = ld.get("books", {}).get(self._current_book)
-            if book_data:
-                book_data["current_url"]     = self._current_url
-                # Extract real chapter number from title e.g. "Chapter 551: ..."
-                m_ch = re.search(r'[Cc]hapter\s+(\d+)', title)
-                if m_ch:
-                    book_data["current_chapter"] = int(m_ch.group(1))
-                    self._current_ch_num = int(m_ch.group(1))
-                elif url_ch_num:
-                    book_data["current_chapter"] = url_ch_num
-                    self._current_ch_num = url_ch_num
-                book_data["last_title"]      = title
-                if next_url: book_data["next_url"] = next_url
-                book_data["words_read"]      = book_data.get("words_read", 0) + words
-                save_json(LEGION_PROGRESS, ld)
-                if self._current_book in self._book_data:
-                    self._book_data[self._current_book] = book_data
-            # Update catalogue panel with resolved chapter number
-            if self._catalogue_panel:
-                self._catalogue_panel.set_context(self._current_book, self._current_ch_num)
-
-    def _chapter_error(self, msg):
-        log.legion.error("Chapter load error", book=getattr(self,"_current_book","?"),
-                         chapter=getattr(self,"_current_ch_num",0), error=msg)
-        self.progress_bar.setVisible(False)
-        if msg.startswith("Cannot load legion.py:"):
-            display_msg = (
-                "Legion module failed to load.\n\n"
-                "Please restart Great Sage. If the problem persists,\n"
-                "run: pip install beautifulsoup4 --break-system-packages")
-        else:
-            display_msg = (
-                f"Error loading chapter:\n\n{msg}\n\n"
-                "Tips:\n- Check the URL is a valid chapter page\n"
-                "- Some sites block scrapers - try opening in browser first\n"
-                "- Try a mirror: novelbin.me or novelfull.com")
-        self.reader.setPlainText(display_msg)
-        self.reader_status.setText("Failed.")
-
-    def _heartbeat_save(self):
-        """Called every 2 minutes while reading — saves scroll position and time."""
-        name = getattr(self, "_current_book", None)
-        if not name or self._right_stack.currentIndex() != 3: return
-        # Save scroll position
-        sb = self.reader.verticalScrollBar()
-        if sb.maximum() > 0:
-            frac = (sb.value() - sb.minimum()) / (sb.maximum() - sb.minimum())
-            self._scroll_positions.setdefault(name, {})[self._current_ch_num] = frac
-            
-            # When a chapter is completed (scroll position >= 95%), track words:
-            if frac >= 0.95 and not getattr(self, "_words_tracked_this_chapter", False):
-                track_event("words_read", {"words": getattr(self, "_chapter_open_words", 0), "book": name})
-                self._words_tracked_this_chapter = True
-        # Save elapsed time
-        self._save_reading_time()
-        # Restart timer for next interval
-        self._chapter_open_time = time.time()
-
-    def _save_reading_time(self):
-        """Save minutes spent on the current chapter before navigating away."""
-        name = getattr(self, "_current_book", None)
-        open_time = getattr(self, "_chapter_open_time", None)
-        if not name or not open_time: return
-        elapsed_mins = (time.time() - open_time) / 60.0
-        # Must have spent at least 30 seconds on the chapter (filters accidental opens)
-        if elapsed_mins < 0.5: return
-        # Cap at 15 min per chapter — a long webnovel chapter takes ~8-12 min to read.
-        # This prevents idle time (left app open, download running) inflating the count.
-        elapsed_mins = min(elapsed_mins, 15.0)
-        try:
-            ld = legion_data(); book_data = ld.get("books", {}).get(name)
-            if book_data:
-                book_data["minutes_read"] = round(book_data.get("minutes_read", 0) + elapsed_mins, 1)
-                save_json(LEGION_PROGRESS, ld)
-                self._book_data[name] = book_data
-        except Exception: pass  # Ignored
-        self._chapter_open_time = None
-
-    def _next_chapter(self):
-        if self._reading_local and self._current_ch_num > 0:
-            self._save_reading_time()
-            # Accumulate words_read on chapter completion (not on open)
-            words_just_read = len(self.reader.toPlainText().split())
-            ld = legion_data(); book_data = ld.get("books", {}).get(self._current_book)
-            if book_data:
-                book_data["chapters_read"] = book_data.get("chapters_read", 0) + 1
-                book_data["words_read"]    = book_data.get("words_read", 0) + words_just_read
-                save_json(LEGION_PROGRESS, ld)
-                self._book_data[self._current_book] = book_data
-            genre = _detect_genre(self._current_book, book_data) if book_data else ""
-            track_event("chapter_finished", {
-                "book": self._current_book, 
-                "ch": self._current_ch_num,
-                "genre": genre
-            })
-
-            # Look up actual next story chapter number from the file
-            next_num = None
-            mod, _ = _get_legion_mod()
-            if mod and hasattr(mod, "_get_chapter_list_from_file"):
-                try:
-                    ch_list = mod._get_chapter_list_from_file(self._current_book)
-                    nums = [n for n, _ in ch_list]
-                    idx = nums.index(self._current_ch_num) if self._current_ch_num in nums else -1
-                    if idx >= 0 and idx + 1 < len(nums):
-                        next_num = nums[idx + 1]
-                except Exception:
-                    pass
-            if next_num is None:
-                next_num = self._current_ch_num + 1  # fallback
-
-            if self._current_book:
-                self._scroll_positions.setdefault(self._current_book, {}).pop(next_num, None)
-            book = self._book_data.get(self._current_book, {})
-            url  = book.get("next_url", "") or book.get("current_url", "") or book.get("url", "")
-            self._load_chapter(next_num, url)
-        elif self._next_url:
-            self._load_url(self._next_url)
-        else:
-            self.reader_status.setText("No next chapter — end of downloads and no web URL saved.")
-
-    def _show_chapter_list(self):
-        """Show a scrollable chapter list dialog so the user can jump to any chapter."""
-        name = getattr(self, "_current_book", None)
-        if not name: return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Chapters — {name}")
-        dlg.setMinimumSize(380, 520)
-        dlg.setStyleSheet(f"background:{BG};color:{TEXT};")
-        vlay = QVBoxLayout(dlg)
-        vlay.setContentsMargins(16, 16, 16, 16); vlay.setSpacing(10)
-
-        # Search filter
-        search = QLineEdit()
-        search.setPlaceholderText("Search chapters...")
-        search.setStyleSheet(
-            f"background:{BG2};color:{TEXT};border:1px solid {BORDER};"
-            f"border-radius:6px;padding:6px 10px;font-size:13px;")
-        vlay.addWidget(search)
-
-        lw = QListWidget()
-        lw.setStyleSheet(
-            f"QListWidget{{background:{BG2};border:1px solid {BORDER};border-radius:8px;"
-            f"padding:4px;outline:none;}}"
-            f"QListWidget::item{{padding:8px 12px;border-radius:5px;color:{TEXT};}}"
-            f"QListWidget::item:hover{{background:{BG3};}}"
-            f"QListWidget::item:selected{{background:{ACCENT};color:{BG};}}")
-        vlay.addWidget(lw, 1)
-
-        current_ch = getattr(self, "_current_ch_num", 0)
-        total      = getattr(self, "_total_ch_local", 0)
-
-        # Build chapter list — local chapters first, then web-based count
-        chapters = []  # list of (story_ch_num, label)
-        mod, _ = _get_legion_mod()
-        if mod and hasattr(mod, "_get_chapter_list_from_file"):
-            try:
-                raw = mod._get_chapter_list_from_file(name)
-                # Returns [(story_num, subtitle), ...] e.g. [(549, "Holy Grail vs Bloodline"), ...]
-                for num, subtitle in raw:
-                    label = f"Chapter {num}" + (f": {subtitle}" if subtitle and subtitle != f"Chapter {num}" else "")
-                    chapters.append((num, label))
-            except Exception: pass  # Ignored
-
-        if not chapters and total > 0:
-            chapters = [(i+1, f"Chapter {i+1}") for i in range(total)]
-        if not chapters:
-            top = max(current_ch + 20, 50)
-            chapters = [(i+1, f"Chapter {i+1}") for i in range(top)]
-
-        def _populate(filter_text=""):
-            lw.clear()
-            ft = filter_text.lower()
-            for num, label in chapters:
-                if ft and ft not in label.lower() and ft not in str(num): continue
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, num)
-                if num == current_ch:
-                    item.setForeground(QColor(ACCENT))
-                    f = item.font()
-                    f.setBold(True)
-                    item.setFont(f)
-                lw.addItem(item)
-            for i in range(lw.count()):
-                if lw.item(i).data(Qt.ItemDataRole.UserRole) == current_ch:
-                    lw.scrollToItem(lw.item(i), QAbstractItemView.ScrollHint.PositionAtCenter)
-                    lw.setCurrentRow(i); break
-
-        _populate()
-        search.textChanged.connect(_populate)
-
-        def _jump():
-            sel = lw.currentItem()
-            if not sel: return
-            ch_num = sel.data(Qt.ItemDataRole.UserRole)
-            dlg.accept()
-            self._load_chapter(ch_num)
-
-        lw.itemDoubleClicked.connect(lambda _: _jump())
-
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet(
-            f"QPushButton{{background:{BG3};color:{TEXT};border:1px solid {BORDER};"
-            f"border-radius:6px;padding:6px 18px;font-size:13px;}}"
-            f"QPushButton:hover{{background:{BORDER};}}")
-        go_btn = QPushButton("Jump to Chapter")
-        go_btn.setStyleSheet(
-            f"QPushButton{{background:{ACCENT};color:{BG};border:none;"
-            f"border-radius:6px;padding:6px 18px;font-size:13px;font-weight:bold;}}"
-            f"QPushButton:hover{{opacity:0.85;}}")
-        cancel_btn.clicked.connect(dlg.reject)
-        go_btn.clicked.connect(_jump)
-        btns.addWidget(cancel_btn); btns.addWidget(go_btn)
-        vlay.addLayout(btns)
-        dlg.exec()
-
-    def _prev_chapter(self):
-        self._save_reading_time()
-        if self._reading_local and self._current_ch_num > 0:
-            # Look up actual previous chapter number from the file (handles gaps)
-            prev_num = None
-            mod, _ = _get_legion_mod()
-            if mod and hasattr(mod, "_get_chapter_list_from_file"):
-                try:
-                    ch_list = mod._get_chapter_list_from_file(self._current_book)
-                    nums = [n for n, _ in ch_list]
-                    idx = nums.index(self._current_ch_num) if self._current_ch_num in nums else -1
-                    if idx > 0:
-                        prev_num = nums[idx - 1]
-                except Exception:
-                    pass
-            if prev_num is None and self._current_ch_num > 1:
-                prev_num = self._current_ch_num - 1  # fallback
-            if prev_num:
-                if self._current_book:
-                    self._scroll_positions.setdefault(self._current_book, {}).pop(prev_num, None)
-                self._load_chapter(prev_num)
-            else:
-                self.reader_status.setText("Already at the first chapter.")
-        elif self._prev_url:
-            self._load_url(self._prev_url)
-        else:
-            self.reader_status.setText("Already at the first chapter.")
-
-    def _font_delta(self, d):
-        self._rs["font_size"] = max(12, min(32, self._rs.get("font_size", 18) + d))
-        self._font_size = self._rs["font_size"]
-        if hasattr(self, "_rs_fs_slider"):
-            self._rs_fs_slider.setValue(self._font_size)
-        self._apply_font()
-        self._save_rs()
-
-
-    def _add_book(self):
-        dlg = AddBookDialog(self)
-        if dlg.exec():
-            title, url = dlg.result_data
-            if title and url:
-                ld = legion_data()
-                ld.setdefault("books", {})[title] = {
-                    "current_url": url, "next_url": None, "last_title": "Not started",
-                    "chapters_read": 0, "words_read": 0, "minutes_read": 0,
-                    "new_chapters_waiting": 0, "metadata": {},
-                    "download_state": {"status": "idle", "last_downloaded_chapter": None,
-                        "last_downloaded_chapter_num": 0, "total_chapters_downloaded": 0,
-                        "download_path": None, "failed_chapters": [], "timestamp": None,
-                        "pause_requested": False}}
-                save_json(LEGION_PROGRESS, ld)
-                self.refresh()
-                # Trigger auto-sync for the new book
-                main_win = self.window()
-                if hasattr(main_win, "_run_auto_sync"):
-                    QTimer.singleShot(500, main_win._run_auto_sync)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BOOK DETAIL DIALOG  (opened when clicking any book in Jump In or Bookmarks)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class BookDetailDialog(QDialog):
-    """Full book detail popup window — title, metadata, synopsis, action buttons."""
-    read_requested       = pyqtSignal()
-    delete_requested     = pyqtSignal(str)
-    reset_time_requested = pyqtSignal(str)
-    download_requested   = pyqtSignal(str)
-    bookmark_requested   = pyqtSignal(str)   # book name
-
-    def __init__(self, name: str, book: dict, from_list: str = "jumpin", parent=None):
-        super().__init__(parent)
-        self._name      = name
-        self._book      = book
-        self._from_list = from_list
-        self.setWindowTitle(name)
-        self.setModal(True)
-        self.setMinimumSize(700, 480)
-        self.setStyleSheet(f"background:{BG}; color:{TEXT};")
-        if parent:
-            pg = parent.window().geometry()
-            w, h = 720, 520
-            self.setGeometry(pg.x() + (pg.width()-w)//2, pg.y() + (pg.height()-h)//2, w, h)
-        self._build()
-
-    def _build(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # ── Left: cover art ────────────────────────────────────────────────────
-        cover_panel = QWidget()
-        cover_panel.setFixedWidth(200)
-        cover_panel.setStyleSheet(f"background:{BG2};")
-        cv = QVBoxLayout(cover_panel)
-        cv.setContentsMargins(16, 20, 16, 20)
-        cv.setSpacing(0)
-
-        self._cover_lbl = QLabel()
-        self._cover_lbl.setFixedSize(168, 236)
-        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cover_lbl.setStyleSheet(
-            f"background:{BG3};border-radius:6px;color:{MUTED};font-size:11px;")
-        self._cover_lbl.setText("Loading\ncover…")
-        cv.addWidget(self._cover_lbl)
-        cv.addStretch()
-
-        # Download status badge (below cover)
-        dl_state  = self._book.get("download_state", {})
-        dl_status = dl_state.get("status", "idle")
-        dl_count  = dl_state.get("total_chapters_downloaded", 0)
-        if dl_status not in ("idle", "cancelled"):
-            badge_map = {
-                "downloading": (f"⏳ Downloading ({dl_count} ch)", ACCENT2),
-                "completed":   (f"✅ Downloaded ({dl_count} ch)",  NEON),
-                "paused":      (f"⏸ Paused ({dl_count} ch)",      ACCENT),
-                "failed":      (f"❌ Failed",                       RED),
-                "queued":      (f"⏳ Queued",                       PURPLE),
-            }
-            badge_text, badge_col = badge_map.get(dl_status, ("", MUTED))
-            if badge_text:
-                dl_badge = QLabel(badge_text)
-                dl_badge.setWordWrap(True)
-                dl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                dl_badge.setStyleSheet(
-                    f"color:{badge_col};font-size:9px;letter-spacing:0.5px;"
-                    f"padding:6px 4px;")
-                cv.addWidget(dl_badge)
-
-        root.addWidget(cover_panel)
-        root.addWidget(vline())
-
-        # ── Right: info + actions ──────────────────────────────────────────────
-        info_panel = QWidget()
-        iv = QVBoxLayout(info_panel)
-        iv.setContentsMargins(24, 20, 24, 16)
-        iv.setSpacing(8)
-
-        # Title
-        title_lbl = QLabel(self._name)
-        title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet(
-            f"font-size:20px;font-weight:bold;color:{ACCENT};"
-            f"font-family:{FONT_BODY};")
-        iv.addWidget(title_lbl)
-
-        # Meta line: author · genres · status
-        meta = self._book.get("metadata", {})
-        meta_parts = []
-        if meta.get("author"):  meta_parts.append(meta["author"])
-        if meta.get("status"):  meta_parts.append(meta["status"])
-        meta_lbl = QLabel("  ·  ".join(meta_parts) if meta_parts else "No metadata yet")
-        meta_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
-        meta_lbl.setWordWrap(True)
-        iv.addWidget(meta_lbl)
-
-        # Genre pills
-        if meta.get("genres"):
-            genre_row = QHBoxLayout()
-            genre_row.setSpacing(6)
-            genre_row.setContentsMargins(0,0,0,0)
-            for g in str(meta["genres"]).split(",")[:6]:
-                g = g.strip()
-                if not g: continue
-                pill = QLabel(g)
-                pill.setStyleSheet(
-                    f"background:{BG3};color:{ACCENT2};border:1px solid {BORDER};"
-                    f"border-radius:10px;font-size:9px;padding:3px 10px;"
-                    f"letter-spacing:0.5px;")
-                genre_row.addWidget(pill)
-            genre_row.addStretch()
-            iv.addLayout(genre_row)
-
-        iv.addWidget(hline())
-
-        # Progress stats
-        ch_read = self._book.get("chapters_read", 0)
-        words   = self._book.get("words_read", 0)
-        mins    = int(round(self._book.get("minutes_read", 0)))
-        cur_ch  = self._book.get("current_chapter")
-        last_t  = self._book.get("last_title", "")
-        dl_total= self._book.get("total_chapters")
-
-        stat_parts = []
-        if ch_read:  stat_parts.append(f"📖  {ch_read} chapters read")
-        if words:    stat_parts.append(f"📝  {words:,} words")
-        if mins >= 60: stat_parts.append(f"⏱  {mins//60}h {mins%60}m")
-        elif mins:     stat_parts.append(f"⏱  {mins}m")
-        if cur_ch:   stat_parts.append(f"📌  Ch.{cur_ch}")
-        if dl_total: stat_parts.append(f"📚  {dl_total} chapters total")
-
-        for s in stat_parts:
-            sl = QLabel(s)
-            sl.setStyleSheet(f"color:{TEXT2};font-size:11px;letter-spacing:0.3px;")
-            iv.addWidget(sl)
-
-        if last_t and last_t != "Not started":
-            ll = QLabel(f"Last: {last_t[:80]}")
-            ll.setStyleSheet(f"color:{MUTED};font-size:10px;")
-            ll.setWordWrap(True)
-            iv.addWidget(ll)
-
-        iv.addWidget(hline())
-
-        # Synopsis
-        syn = (meta.get("synopsis","") or meta.get("description","")
-               or meta.get("summary","") or meta.get("overview",""))
-        if not syn and not ch_read:
-            syn = "No synopsis available — click ↻ Refresh Info to fetch it."
-        syn_box = QTextEdit()
-        syn_box.setReadOnly(True)
-        syn_box.setPlainText(syn or "No synopsis available.")
-        syn_box.setStyleSheet(
-            f"background:{BG3};border:none;padding:12px;color:{TEXT};"
-            f"font-family:{FONT_BODY};font-size:13px;")
-        iv.addWidget(syn_box, 1)
-
-        iv.addWidget(hline())
-
-        # Action buttons
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        def _mk(text, style="", cb=None):
-            b = QPushButton(text)
-            if style == "accent":
-                b.setStyleSheet(
-                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
-                    f"font-size:9px;letter-spacing:1.2px;padding:8px 18px;border-radius:3px;")
-            elif style == "danger":
-                b.setStyleSheet(
-                    f"background:transparent;color:{RED};border:1px solid #2A1018;"
-                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
-            else:
-                b.setStyleSheet(
-                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
-                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            if cb: b.clicked.connect(cb)
-            return b
-
-        def _read():
-            self.read_requested.emit()
-            self.accept()
-
-        def _delete():
-            reply = QMessageBox.question(self, "Remove Book",
-                f"Remove '{self._name}' from your library?\n"
-                "This will also delete the downloaded .txt file.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.delete_requested.emit(self._name)
-                self.accept()
-
-        def _reset():
-            self.reset_time_requested.emit(self._name)
-            self.accept()
-
-        def _preview():
-            self.accept()
-            dlg = BookPreviewDialog(self._name, self._book, self.parent())
-            dlg.exec()
-
-        def _bookmark():
-            self.bookmark_requested.emit(self._name)
-            self.accept()
-
-        btn_row.addWidget(_mk("▶  READ",        "accent", _read))
-        btn_row.addWidget(_mk("REMOVE",          "danger", _delete))
-        if ch_read == 0:
-            btn_row.addWidget(_mk("PREVIEW",     "",       _preview))
-        else:
-            btn_row.addWidget(_mk("↺  RESET TIME", "",    _reset))
-        if self._from_list == "jumpin":
-            btn_row.addWidget(_mk("☆  BOOKMARK", "",      _bookmark))
-        btn_row.addStretch()
-        btn_row.addWidget(_mk("✕  CLOSE",        "",       self.reject))
-        iv.addLayout(btn_row)
-
-        root.addWidget(info_panel, 1)
-
-        # Load cover art in background
-        QTimer.singleShot(0, self._load_cover)
-
-    def _load_cover(self):
-        try:
-            from plugins.book_covers import get_cover
-            src = self._book.get("current_url","") or self._book.get("url","")
-            px  = get_cover(self._name, src)
-            if px and not px.isNull():
-                scaled = px.scaled(168, 236,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation)
-                self._cover_lbl.setPixmap(scaled)
-                self._cover_lbl.setText("")
-        except Exception:
-            self._cover_lbl.setText("No cover")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BOOK PREVIEW  — worker + dialog
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class BookPreviewWorker(QThread):
-    """
-    Reads the first ~20 local chapters, samples the text, sends it to Groq,
-    and emits a structured result dict (or an error string).
-    """
-    done  = pyqtSignal(object)   # dict on success, str on error
-
-    # Groq prompt — asks for exactly the three sections we display
-    _PROMPT = """\
-You are analysing the opening of a web novel. Below are excerpts from the first chapters.
-Respond with ONLY a JSON object — no markdown, no extra text — in this exact shape:
-
-{{
-  "facts": {{
-    "main_character": "...",
-    "setting": "...",
-    "power_system": "...",
-    "protagonist_type": "...",
-    "tone": "...",
-    "early_cast": "..."
-  }},
-  "vibe": "One paragraph (4-6 sentences) written like a friend describing what the novel actually feels like to read — pacing, emotional hook, world-building style.",
-  "score": 4,
-  "verdict": "One punchy sentence summarising the first impression."
-}}
-
-score must be an integer 1-5.
-verdict must be under 15 words.
-
-NOVEL EXCERPTS:
-{excerpts}"""
-
-    def __init__(self, book_name: str, book: dict, parent=None):
-        super().__init__(parent)
-        self._name = book_name
-        self._book = book
-
-    def run(self):
-        try:
-            excerpts = self._gather_excerpts()
-            if not excerpts:
-                self.done.emit("No downloaded chapters found for this book.")
-                return
-
-            result = self._call_groq(excerpts)
-            self.done.emit(result)
-        except Exception as e:
-            self.done.emit(f"Preview failed: {e}")
-
-    # ── helpers ──────────────────────────────────────────────────────────────
-
-    def _gather_excerpts(self) -> str:
-        """
-        Returns sampled text from chapters 1-3 (full-ish) + ch 10 + ch 20.
-        Falls back to reading directly from the .txt file via legion helpers.
-        """
-        from great_sage_core import legion_mod
-        mod, _ = legion_mod()
-        if not mod:
-            return ""
-
-        get_ch   = getattr(mod, "get_chapter_from_file", None)
-        get_path = getattr(mod, "get_book_path", None)
-        if not (get_ch and get_path):
-            return ""
-
-        parts = []
-        # First 3 chapters in full (up to 4 000 chars each)
-        for n in range(1, 4):
-            title, paras = get_ch(self._name, n)
-            if paras:
-                body = "\n\n".join(paras)[:4000]
-                parts.append(f"--- Chapter {n}: {title} ---\n{body}")
-
-        # Chapter 10 and 20 as mid/late samples (up to 2 000 chars each)
-        for n in (10, 20):
-            title, paras = get_ch(self._name, n)
-            if paras:
-                body = "\n\n".join(paras)[:2000]
-                parts.append(f"--- Chapter {n}: {title} ---\n{body}")
-
-        return "\n\n".join(parts)
-
-    def _call_groq(self, excerpts: str) -> dict:
-        import json as _json
-        from great_sage_core import sage_mod, matrix_data, get_session_groq_model
-
-        mod, err = sage_mod()
-        if not mod or not hasattr(mod, "groq_chat"):
-            return f"Sage unavailable: {err or 'sage.py not loaded'}"
-
-        _s = matrix_data().get("settings", {})
-        if _s.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
-            mod.GROQ_API_KEY = _s["groq_api_key"]
-        active_model = get_session_groq_model() or _s.get("groq_model")
-        if active_model and hasattr(mod, "GROQ_MODEL"):
-            mod.GROQ_MODEL = active_model
-
-        prompt = self._PROMPT.format(excerpts=excerpts)
-        resp, error = mod.groq_chat(prompt)
-        if error:
-            return f"Groq error: {error}"
-
-        # Strip accidental markdown fences
-        text = resp.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"```$", "", text).strip()
-
-        try:
-            return _json.loads(text)
-        except Exception:
-            return f"Could not parse Groq response:\n{text[:400]}"
-
-
-class BookPreviewDialog(QDialog):
-    """Full-page preview dialog — extracted facts, vibe summary, first impression."""
-
-    def __init__(self, name: str, book: dict, parent=None):
-        super().__init__(parent)
-        self._name = name
-        self._book = book
-        self.setWindowTitle(f"Preview — {name}")
-        self.setModal(True)
-        self.setMinimumSize(700, 520)
-        self.setStyleSheet(f"background:{BG}; color:{TEXT};")
-        if parent:
-            pg = parent.window().geometry()
-            w, h = 720, 540
-            self.setGeometry(
-                pg.x() + (pg.width() - w) // 2,
-                pg.y() + (pg.height() - h) // 2,
-                w, h,
-            )
-        self._build()
-        self._start_worker()
-
-    # ── layout ───────────────────────────────────────────────────────────────
-
-    def _build(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # ── Left cover panel (mirrors BookDetailDialog) ───────────────────
-        cover_panel = QWidget()
-        cover_panel.setFixedWidth(200)
-        cover_panel.setStyleSheet(f"background:{BG2};")
-        cv = QVBoxLayout(cover_panel)
-        cv.setContentsMargins(16, 20, 16, 20)
-        cv.setSpacing(0)
-
-        self._cover_lbl = QLabel()
-        self._cover_lbl.setFixedSize(168, 236)
-        self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cover_lbl.setStyleSheet(
-            f"background:{BG3};border-radius:6px;color:{MUTED};font-size:11px;")
-        self._cover_lbl.setText("Loading\ncover…")
-        cv.addWidget(self._cover_lbl)
-        cv.addStretch()
-        root.addWidget(cover_panel)
-        root.addWidget(vline())
-
-        # ── Right info panel ──────────────────────────────────────────────
-        info_panel = QWidget()
-        iv = QVBoxLayout(info_panel)
-        iv.setContentsMargins(24, 20, 24, 16)
-        iv.setSpacing(8)
-
-        # Title + meta
-        title_lbl = QLabel(self._name)
-        title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet(
-            f"font-size:20px;font-weight:bold;color:{ACCENT};"
-            f"font-family:{FONT_BODY};")
-        iv.addWidget(title_lbl)
-
-        meta = self._book.get("metadata", {})
-        meta_parts = []
-        if meta.get("author"): meta_parts.append(meta["author"])
-        if meta.get("status"): meta_parts.append(meta["status"])
-        meta_lbl = QLabel("  ·  ".join(meta_parts) if meta_parts else "")
-        meta_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
-        iv.addWidget(meta_lbl)
-        iv.addWidget(hline())
-
-        # ── Stacked widget: loading / results / error ─────────────────────
-        self._stack = QStackedWidget()
-
-        # -- Loading page --
-        loading_w = QWidget()
-        lv = QVBoxLayout(loading_w)
-        lv.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lv.setSpacing(10)
-        scan_lbl = QLabel("Scanning first 20 chapters…")
-        scan_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        scan_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
-        hint_lbl = QLabel("Sending to Groq for analysis")
-        hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint_lbl.setStyleSheet(f"color:{MUTED};font-size:10px;")
-        lv.addWidget(scan_lbl)
-        lv.addWidget(hint_lbl)
-        self._stack.addWidget(loading_w)   # index 0
-
-        # -- Results page --
-        results_w = QWidget()
-        rv = QVBoxLayout(results_w)
-        rv.setContentsMargins(0, 0, 0, 0)
-        rv.setSpacing(8)
-
-        # Section: Extracted facts (2-col grid via QFormLayout)
-        facts_lbl = QLabel("EXTRACTED FACTS")
-        facts_lbl.setStyleSheet(
-            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
-        rv.addWidget(facts_lbl)
-
-        self._facts_form = QWidget()
-        self._facts_layout = QFormLayout(self._facts_form)
-        self._facts_layout.setContentsMargins(0, 0, 0, 0)
-        self._facts_layout.setSpacing(4)
-        self._facts_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        rv.addWidget(self._facts_form)
-        rv.addWidget(hline())
-
-        # Section: Vibe
-        vibe_lbl = QLabel("VIBE")
-        vibe_lbl.setStyleSheet(
-            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
-        rv.addWidget(vibe_lbl)
-
-        self._vibe_box = QTextEdit()
-        self._vibe_box.setReadOnly(True)
-        self._vibe_box.setStyleSheet(
-            f"background:{BG3};border:none;padding:10px;color:{TEXT};"
-            f"font-family:{FONT_BODY};font-size:12px;")
-        self._vibe_box.setFixedHeight(110)
-        rv.addWidget(self._vibe_box)
-        rv.addWidget(hline())
-
-        # Section: First impression
-        imp_lbl = QLabel("FIRST IMPRESSION")
-        imp_lbl.setStyleSheet(
-            f"color:{MUTED};font-size:9px;letter-spacing:1.2px;")
-        rv.addWidget(imp_lbl)
-
-        imp_row = QHBoxLayout()
-        imp_row.setSpacing(10)
-        self._score_lbl = QLabel()
-        self._score_lbl.setStyleSheet(
-            f"color:{ACCENT};font-size:13px;font-weight:bold;letter-spacing:2px;")
-        self._verdict_lbl = QLabel()
-        self._verdict_lbl.setWordWrap(True)
-        self._verdict_lbl.setStyleSheet(
-            f"color:{TEXT2};font-size:11px;font-style:italic;")
-        imp_row.addWidget(self._score_lbl)
-        imp_row.addWidget(self._verdict_lbl, 1)
-        rv.addLayout(imp_row)
-
-        self._stack.addWidget(results_w)   # index 1
-
-        # -- Error page --
-        error_w = QWidget()
-        ev = QVBoxLayout(error_w)
-        ev.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._error_lbl = QLabel()
-        self._error_lbl.setWordWrap(True)
-        self._error_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._error_lbl.setStyleSheet(f"color:{RED};font-size:12px;")
-        ev.addWidget(self._error_lbl)
-        self._stack.addWidget(error_w)     # index 2
-
-        iv.addWidget(self._stack, 1)
-        iv.addWidget(hline())
-
-        # ── Buttons ───────────────────────────────────────────────────────
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        def _mk(text, style="", cb=None):
-            b = QPushButton(text)
-            if style == "accent":
-                b.setStyleSheet(
-                    f"background:{ACCENT};color:{BG};border:none;font-weight:bold;"
-                    f"font-size:9px;letter-spacing:1.2px;padding:8px 18px;border-radius:3px;")
-            else:
-                b.setStyleSheet(
-                    f"background:transparent;color:{TEXT2};border:1px solid {BORDER};"
-                    f"font-size:9px;letter-spacing:1px;padding:8px 14px;border-radius:3px;")
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            if cb:
-                b.clicked.connect(cb)
-            return b
-
-        btn_row.addWidget(_mk("← BACK", "", self.reject))
-        btn_row.addStretch()
-        iv.addLayout(btn_row)
-
-        root.addWidget(info_panel, 1)
-
-        # Load cover art
-        QTimer.singleShot(0, self._load_cover)
-
-    # ── worker ────────────────────────────────────────────────────────────────
-
-    def _start_worker(self):
-        self._stack.setCurrentIndex(0)
-        self._worker = BookPreviewWorker(self._name, self._book, self)
-        self._worker.done.connect(self._on_result)
-        self._worker.start()
-
-    def _on_result(self, result):
-        if isinstance(result, str):
-            # error
-            self._error_lbl.setText(result)
-            self._stack.setCurrentIndex(2)
-            return
-
-        # Populate facts
-        label_map = {
-            "main_character": "Main character",
-            "setting":        "Setting",
-            "power_system":   "Power system",
-            "protagonist_type": "Protagonist type",
-            "tone":           "Tone",
-            "early_cast":     "Early cast",
-        }
-        facts = result.get("facts", {})
-        for key, display in label_map.items():
-            val = facts.get(key, "—")
-            if not val:
-                val = "—"
-            key_lbl = QLabel(display.upper())
-            key_lbl.setStyleSheet(
-                f"color:{MUTED};font-size:9px;letter-spacing:0.5px;")
-            val_lbl = QLabel(str(val))
-            val_lbl.setWordWrap(True)
-            val_lbl.setStyleSheet(f"color:{ACCENT2};font-size:11px;")
-            self._facts_layout.addRow(key_lbl, val_lbl)
-
-        # Vibe
-        self._vibe_box.setPlainText(result.get("vibe", ""))
-
-        # Score + verdict
-        score   = int(result.get("score", 0))
-        verdict = result.get("verdict", "")
-        score_text = f"{'[ ' + '#' * score + ' ' * (5 - score) + ' ]'}"
-        self._score_lbl.setText(f"{score}/5  {score_text}")
-        self._verdict_lbl.setText(f'"{verdict}"')
-
-        self._stack.setCurrentIndex(1)
-
-    def _load_cover(self):
-        try:
-            from plugins.book_covers import get_cover
-            src = self._book.get("current_url", "") or self._book.get("url", "")
-            px  = get_cover(self._name, src)
-            if px and not px.isNull():
-                scaled = px.scaled(
-                    168, 236,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                self._cover_lbl.setPixmap(scaled)
-                self._cover_lbl.setText("")
-        except Exception:
-            pass
-
-
-class AddBookDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent); self.result_data = ("","")
-        self.setWindowTitle("Add Book"); self.setMinimumWidth(440); self.setStyleSheet(QSS)
-        lay = QFormLayout(self)
-        lay.setSpacing(12)
-        lay.setContentsMargins(18,18,18,18)
-        self.t = QLineEdit(); self.t.setPlaceholderText("Auto-filled from URL")
-        self.u = QLineEdit(); self.u.setPlaceholderText("https://novelbin.com/b/.../chapter-1")
-        self.u.textChanged.connect(self._url_changed)
-        lay.addRow("Book Title:", self.t); lay.addRow("First Chapter URL:", self.u)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self._ok); bb.rejected.connect(self.reject); lay.addRow(bb)
-
-    def _url_changed(self, url):
-        """Auto-populate title from URL slug if title field is empty or was auto-filled."""
-        import re as _re
-        url = url.strip()
-        if not url:
-            return
-        # Extract slug: novelbin.com/b/sage-of-humanity/chapter-1 → sage-of-humanity
-        m = _re.search(r'/b/([^/]+)', url)
-        if not m:
-            # Try generic: anything between domain and /chapter
-            m = _re.search(r'\.(?:com|me|net|org)/([^/]+)', url)
-        if m:
-            slug = m.group(1)
-            # Convert slug to title: "sage-of-humanity" → "Sage Of Humanity"
-            title = ' '.join(w.capitalize() for w in slug.replace('-', ' ').replace('_', ' ').split())
-            self.t.setText(title)
-
-    def _ok(self):
-        self.result_data = (self.t.text().strip(), self.u.text().strip())
-        self.accept()
-
+            if not self._grid._cards:
+                self._load_trending()
+
+    def _show_toast(self, message: str):
+        self._status_bar.setText(message)
+        QTimer.singleShot(4000, lambda: self._status_bar.setText(
+            f"{len(self._grid._cards)} titles loaded"
+            if self._grid._cards else ""))

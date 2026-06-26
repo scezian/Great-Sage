@@ -17,10 +17,7 @@ import subprocess
 import shutil
 import socket
 import threading
-import termios
-import tty
-import select
-import signal
+import requests
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
@@ -35,102 +32,15 @@ except Exception:
         def __getattr__(self, name): return lambda *a, **kw: None
     log = _NoopLog()
 
-# Transmission settings for optimal performance
-TRANSMISSION_SETTINGS = {
-    'peer-limit-global': 200,
-    'upload-queue-size': 5,
-    'speed-limit-down-enabled': False,
-    'speed-limit-up-enabled': False,
-    'peer-port': 51413,
-    'port-forwarding-enabled': True
-}
-
-# Additional trackers for better peer discovery
-DEFAULT_TRACKERS = [
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://tracker.coppersurfer.tk:6969/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://9.rarbg.to:2710/announce",
-    "udp://p4p.arenabg.com:1337/announce",
-    "http://tracker.internetwarriors.net:1337/announce",
-    "udp://tracker.zer0day.to:1337/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://coppersurfer.tk:6969/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://open.demonii.com:1337/announce",
-    "udp://tracker.pirateparty.gr:6969/announce",
-    "udp://denis.stalker.upeer.me:6969/announce",
-    "https://tracker.bt-hash.com:443/announce",
-    "udp://tracker.cyberia.is:6969/announce",
-    "udp://ipv4.tracker.harry.lu:80/announce",
-    "udp://tracker.moeking.me:6969/announce",
-    "udp://tracker.dler.org:6969/announce"
-]
-
-# Enhanced transmission settings for maximum speed
-ENHANCED_TRANSMISSION_SETTINGS = {
-    'peer-limit-global': 500,           # Increased from 200
-    'peer-limit-per-torrent': 100,       # Increased from 50
-    'upload-slots-per-torrent': 20,      # Increased from 14
-    'download-queue-size': 10,           # Increased from 5
-    'upload-queue-size': 10,             # Increased from 5
-    'speed-limit-down-enabled': False,   # No download limit
-    'speed-limit-up-enabled': False,     # No upload limit
-    'peer-port': 51413,
-    'peer-port-random-on-start': False,
-    'port-forwarding-enabled': True,
-    'pex-enabled': True,                  # Peer exchange
-    'dht-enabled': True,                   # Distributed hash table
-    'lpd-enabled': True,                    # Local peer discovery
-    'encryption': '1',                      # Prefer encryption but allow plain
-    'utp-enabled': True,                     # Micro Transport Protocol
-    'download-speed': -1,                    # Unlimited
-    'upload-speed': -1,                      # Unlimited
-    'seed-queue-size': 10,
-    'queue-stalled-enabled': True,
-    'queue-stalled-minutes': 30,
-    'ratio-limit-enabled': False,
-    'idle-seeding-limit-enabled': False,
-    'alt-speed-enabled': False,
-    'blocklist-enabled': False
-}
-
-# Import additional modules needed
-
-# Add this class for torrent management
-import requests
-from bs4 import BeautifulSoup
-
-# Rich terminal UI
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.text import Text
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
-    from rich.box import ROUNDED, SIMPLE
-    from rich.style import Style
-    RICH_AVAILABLE = True
-    console = Console()
-except ImportError:
-    RICH_AVAILABLE = False
-    console = None
-
-# Cloudscraper for bypassing Cloudflare
-try:
-    import cloudscraper
-    CLOUDSCRAPER_AVAILABLE = True
-except ImportError:
-    CLOUDSCRAPER_AVAILABLE = False
-
 # ============================================================================
 # CONSTANTS
 # ============================================================================
 
-# File paths
-CONFIG_DIR   = os.path.expanduser('~/.config/matrix')
-PROGRESS_FILE = os.path.join(CONFIG_DIR, 'progress.json')
-SYNC_CONFIG  = os.path.join(CONFIG_DIR, 'sync_config.json')
+# File paths — PROGRESS_FILE aliases MATRIX_PROGRESS from great_sage_core so
+# Storage and the UI always read/write the same file.
+CONFIG_DIR    = os.path.expanduser('~/.config/matrix')
+PROGRESS_FILE = MATRIX_PROGRESS   # alias — do not change
+SYNC_CONFIG   = os.path.join(CONFIG_DIR, 'sync_config.json')
 
 # Ensure config directory exists
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -170,108 +80,6 @@ TITLE_CORRECTIONS = {
 
 # ============================================================================
 # UTILITY FUNCTIONS
-# ============================================================================
-
-def setup_signal_handlers():
-    """Setup signal handlers for clean exit"""
-    def signal_handler(sig, frame):
-        print("\n\nExiting...")
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-
-def get_key(timeout: float = None) -> str:
-    """
-    Get a single keypress without requiring Enter.
-    If timeout is None, blocks indefinitely until a key is pressed.
-    """
-    try:
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        tty.setraw(sys.stdin.fileno())
-        
-        if timeout is not None:
-            # Use select with timeout if specified
-            if select.select([sys.stdin], [], [], timeout)[0]:
-                ch = sys.stdin.read(1)
-            else:
-                ch = ''
-        else:
-            # Block indefinitely until a key is pressed
-            ch = sys.stdin.read(1)
-            
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-    except Exception:
-        # Fallback for Windows or when termios fails
-        try:
-            return input().strip()
-        except EOFError:
-            return ''
-
-def get_menu_choice(max_choice: int) -> Optional[Union[int, str]]:
-    """
-    Get menu choice with smart input handling.
-    Returns:
-        - int if a number is selected
-        - str if a command key is pressed (n, p, a, e, d, s, t, m, r, x, z)
-        - None if cancelled (q pressed or invalid)
-    """
-    ALL_COMMANDS = ['a', 'e', 'd', 's', 't', 'm', 'r', 'x', 'n', 'p', 'z']
-    if max_choice <= 9:
-        choice = get_key().lower()
-        if choice.isdigit():
-            return int(choice)
-        elif choice in ALL_COMMANDS:
-            return choice
-        elif choice == 'q':
-            return None
-    else:
-        choice = input("  Choice: ").strip().lower()
-        if choice.isdigit():
-            return int(choice)
-        elif choice in ALL_COMMANDS:
-            return choice
-        elif choice == 'q':
-            return None
-    return None
-
-def format_time(seconds: float) -> str:
-    """Format seconds to HH:MM:SS"""
-    if seconds < 0:
-        return "00:00:00"
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-def get_terminal_size() -> Tuple[int, int]:
-    """Get terminal size with fallback"""
-    try:
-        import shutil
-        size = shutil.get_terminal_size()
-        return size.columns, size.lines
-    except Exception:
-        return 80, 24
-
-def clear_screen():
-    """Clear the terminal screen"""
-    os.system('cls' if os.name == 'nt' else 'clear')
-
-def safe_print(message: str, rich_style: str = None):
-    """Print with fallback if rich is not available"""
-    if RICH_AVAILABLE and console and rich_style:
-        console.print(rich_style, message)
-    else:
-        print(message)
-
-def confirm_action(prompt: str) -> bool:
-    """Ask for confirmation"""
-    response = input(f"{prompt} (y/N): ").strip().lower()
-    return response == 'y'
-
-# ============================================================================
-# DATA MODELS
 # ============================================================================
 
 class MediaItem:
@@ -474,7 +282,7 @@ class MediaPlayer:
         finished=True means the file reached >= 90% — treat as watched.
         """
         if not os.path.exists(file_path):
-            safe_print(f"File not found: {file_path}", "[red]")
+            log.warning(f"File not found: {file_path}")
             return False, 0, 0
 
         duration = MediaPlayer._get_duration(file_path)
@@ -513,8 +321,8 @@ class MediaPlayer:
                 if resp and resp.get("error") == "success" and resp.get("data") is not None:
                     last_position = float(resp["data"])
 
-                dur_str = format_time(int(duration)) if duration > 0 else "--:--:--"
-                pos_str = format_time(int(last_position)) if last_position > 0 else "00:00:00"
+                dur_str = (lambda _s: f"{_s//3600:02d}:{(_s%3600)//60:02d}:{_s%60:02d}")(duration) if duration > 0 else "--:--:--"
+                pos_str = (lambda _s: f"{_s//3600:02d}:{(_s%3600)//60:02d}:{_s%60:02d}")(last_position) if last_position > 0 else "00:00:00"
                 print(f"\r  Progress : {pos_str}/{dur_str}  ", end="", flush=True)
 
                 if duration > 0 and last_position >= duration * 0.9:
@@ -564,10 +372,10 @@ class MediaPlayer:
             return False, last_position, duration
 
         except FileNotFoundError:
-            safe_print("mpv not found. Install mpv: sudo apt install mpv", "[red]")
+            log.warning("mpv not found. Install mpv: sudo apt install mpv")
             return False, 0, 0
         except Exception as e:
-            safe_print(f"Playback error: {e}", "[red]")
+            log.warning(f"Playback error: {e}")
             return False, 0, 0
 
     @staticmethod
@@ -586,7 +394,7 @@ class MediaPlayer:
         start_time: resume position in seconds (0 = from beginning).
         """
         if not os.path.exists(file_path):
-            safe_print(f"File not found: {file_path}", "[red]")
+            log.warning(f"File not found: {file_path}")
             return True, False
 
         duration     = MediaPlayer._get_duration(file_path)
@@ -630,7 +438,7 @@ class MediaPlayer:
                         break
                     time.sleep(0.1)
             except FileNotFoundError:
-                safe_print("mpv not found. Install: sudo apt install mpv", "[red]")
+                log.warning("mpv not found. Install: sudo apt install mpv")
                 return True, False
         else:
             # mpv is already running (called after a loadfile swap)
@@ -672,8 +480,8 @@ class MediaPlayer:
                         _state["last_position"] = float(resp["data"])
 
                     last_position = _state["last_position"]
-                    dur_str = format_time(int(duration)) if duration > 0 else "--:--:--"
-                    pos_str = format_time(int(last_position)) if last_position > 0 else "00:00:00"
+                    dur_str = (lambda _s: f"{_s//3600:02d}:{(_s%3600)//60:02d}:{_s%60:02d}")(duration) if duration > 0 else "--:--:--"
+                    pos_str = (lambda _s: f"{_s//3600:02d}:{(_s%3600)//60:02d}:{_s%60:02d}")(last_position) if last_position > 0 else "00:00:00"
                     print(f"\r  Progress : {pos_str}/{dur_str}  ", end="", flush=True)
 
                     now = time.time()
@@ -1136,117 +944,6 @@ class MediaPlayer:
 # UI COMPONENTS
 # ============================================================================
 
-class UI:
-    """UI rendering utilities"""
-    
-    @staticmethod
-    def get_page_size() -> int:
-        """Get optimal page size based on terminal — minimum 20"""
-        try:
-            import shutil
-            terminal_height = shutil.get_terminal_size().lines
-            return max(20, terminal_height - 10)
-        except Exception:
-            return 20
-    
-    @staticmethod
-    def paginate(items: List, page_size: int = None) -> List[List]:
-        """Split items into pages"""
-        if page_size is None:
-            page_size = UI.get_page_size()
-        
-        if len(items) <= page_size:
-            return [items]
-        
-        return [items[i:i + page_size] for i in range(0, len(items), page_size)]
-    
-    @staticmethod
-    def show_table(title: str, headers: List[str], rows: List[List], 
-                   show_numbers: bool = True):
-        """Show a table with optional numbering"""
-        if RICH_AVAILABLE:
-            table = Table(show_header=True, header_style="cyan", box=SIMPLE)
-            
-            if show_numbers:
-                table.add_column("#", style="dim", width=4)
-            
-            for header in headers:
-                table.add_column(header, style="white")
-            
-            for i, row in enumerate(rows, 1):
-                display_row = [str(i)] + row if show_numbers else row
-                table.add_row(*display_row)
-            
-            console.print(f"\n[accent]{title}[/accent]")
-            console.print(table)
-        else:
-            print(f"\n{title}")
-            print("-" * 80)
-            
-            header_line = "  ".join(headers)
-            if show_numbers:
-                header_line = "#   " + header_line
-            print(header_line)
-            print("-" * 80)
-            
-            for i, row in enumerate(rows, 1):
-                display_row = [str(i)] + row if show_numbers else row
-                print("  ".join(display_row))
-    
-    @staticmethod
-    def show_info_panel(title: str, info: Dict):
-        """Show information panel"""
-        if not info:
-            return
-        
-        if RICH_AVAILABLE:
-            info_text = []
-            
-            # Basic info
-            for key, value in info.items():
-                if key not in ['synopsis', 'related', 'genres'] and value:
-                    info_text.append(f"[accent]{key.title()}:[/accent] {value}")
-            
-            # Genres
-            if info.get('genres'):
-                genres = ", ".join(info['genres'][:5])
-                info_text.append(f"\n[accent]Genres:[/accent] {genres}")
-            
-            # Synopsis — pre-wrap so Rich Panel doesn't truncate mid-word
-            if info.get('synopsis'):
-                import textwrap, shutil
-                wrap_w = min(shutil.get_terminal_size().columns - 6, 86)
-                wrapped = textwrap.fill(info['synopsis'], width=wrap_w)
-                info_text.append(f"\n[accent]Synopsis:[/accent]\n{wrapped}")
-            
-            # Related
-            if info.get('related'):
-                info_text.append(f"\n[accent]Related:[/accent]")
-                for rel in info['related'][:5]:
-                    info_text.append(f"  • {rel}")
-            
-            panel = Panel(
-                "\n".join(info_text),
-                title=title,
-                border_style="blue",
-                box=ROUNDED
-            )
-            console.print(panel)
-        else:
-            print(f"\n{title}")
-            print("=" * 40)
-            
-            for key, value in info.items():
-                if key not in ['synopsis', 'related', 'genres'] and value:
-                    print(f"{key.title()}: {value}")
-            
-            if info.get('genres'):
-                print(f"Genres: {', '.join(info['genres'][:5])}")
-            
-            if info.get('synopsis'):
-                print(f"\nSynopsis:\n{info['synopsis']}")
-    
-
 class Storage:
     """Handles all data persistence"""
     
@@ -1261,7 +958,7 @@ class Storage:
                     data = json.load(f)
                     return self._migrate_data(data)
         except Exception as e:
-            safe_print(f"Error loading data: {e}", "[yellow]")
+            log.warning(f"Error loading data: {e}")
             log.error("Storage._load failed", path=PROGRESS_FILE, error=str(e))
         
         return self._get_default_data()
@@ -1330,7 +1027,7 @@ class Storage:
                 pass
             return True
         except Exception as e:
-            safe_print(f"Error saving data: {e}", "[red]")
+            log.warning(f"Error saving data: {e}")
             log.error("Storage.save failed", path=PROGRESS_FILE, error=str(e))
             return False
     
@@ -1762,7 +1459,7 @@ class MetadataFetcher:
                         'image_url':    img_url,
                     }
         except Exception as e:
-            safe_print(f"Jikan error: {e}", "[dim]")
+            log.warning(f"Jikan error: {e}")
             log.warning("Jikan metadata fetch failed", title=title, error=str(e))
         return None
 
@@ -1843,7 +1540,7 @@ class MetadataFetcher:
                     }
 
         except Exception as e:
-            safe_print(f"TMDB error: {e}", "[dim]")
+            log.warning(f"TMDB error: {e}")
             log.warning("TMDB metadata fetch failed", title=title, error=str(e))
         return None
 
@@ -1880,638 +1577,13 @@ class MetadataFetcher:
                         'image_url':    img.get('original') or img.get('medium', ''),
                     }
         except Exception as e:
-            safe_print(f"TVMaze error: {e}", "[dim]")
+            log.warning(f"TVMaze error: {e}")
             log.warning("TVMaze metadata fetch failed", title=title, error=str(e))
         return None
 
 # ============================================================================
 # TORRENT SEARCH
 # ============================================================================
-
-class MatrixApp:
-    """Main application class"""
-
-    def __init__(self):
-        self.storage = Storage()
-        self.current_search_title = None
-
-    def run(self):
-        """Main application loop"""
-        setup_signal_handlers()
-        self.sync_manager = SyncManager(self.storage)
-        
-        while True:
-            if not self.show_main_menu():
-                break
-    
-    def show_main_menu(self):
-        """Show main menu"""
-        clear_screen()
-        
-        if RICH_AVAILABLE:
-            console.print(Panel.fit(
-                "[bold blue]Matrix[/bold blue]\nMedia Manager",
-                box=ROUNDED
-            ))
-            console.print("\n[dim][1] Continue Watching[/dim]")
-            console.print("[dim][2] Browse[/dim]")
-            console.print("[dim][3] Watchlist[/dim]")
-            console.print("[dim][4] Settings & Sync[/dim]")
-            console.print("\n[dim][q] Quit[/dim]\n")
-        else:
-            print("\nMatrix - Media Manager")
-            print("=" * 40)
-            print("\n1. Continue Watching")
-            print("2. Browse")
-            print("3. Watchlist")
-            print("4. Settings & Sync")
-            print("\nq. Quit\n")
-        
-        choice = get_key().lower()
-        
-        if choice == 'q':
-            return False
-        elif choice == '1':
-            self.show_continue_watching()
-        elif choice == '2':
-            self.show_browser()
-        elif choice == '3':
-            self.show_watchlist()
-        elif choice == '4':
-            self.sync_manager.show_settings()
-        return True
-    
-    def show_continue_watching(self):
-        """Show continue watching menu"""
-        watching = self.storage.get_watching()
-        
-        if not watching:
-            safe_print("No media in continue watching.", "[yellow]")
-            input("\nPress Enter to continue...")
-            return
-        
-        while True:
-            clear_screen()
-            
-            # Prepare items for display
-            items = list(watching.items())
-            rows = []
-            
-            for show_key, item in items:
-                title = show_key[:28] + ".." if len(show_key) > 30 else show_key
-
-                # Episode info if available
-                if item.current_episode > 0:
-                    ep_str = f"S{item.current_season:02d}E{item.current_episode:02d}"
-                    if item.total_episodes > 0:
-                        ep_str += f"  ({item.current_episode}/{item.total_episodes} eps)"
-                    progress = ep_str
-                else:
-                    progress = f"{format_time(item.position)} / {format_time(item.duration)}"
-
-                last = item.last_watched or "Unknown"
-                rows.append([title, progress, last[:10]])
-
-            UI.show_table("Continue Watching", ["Title", "Episode / Progress", "Last"], rows)
-            
-            print("\n[#] Resume  [d] Mark Done  [r] Remove  [q] Back")
-
-            choice = get_menu_choice(len(items))
-            
-            if choice is None:  # 'q' pressed
-                break
-
-            elif choice == 'r':
-                # Remove — ask which item by number
-                print("  Remove #: ", end="", flush=True)
-                num = get_menu_choice(len(items))
-                if isinstance(num, int):
-                    idx = num - 1
-                    if 0 <= idx < len(items):
-                        show_key, _ = items[idx]
-                        self.storage.remove_watching(show_key)
-                        watching = self.storage.get_watching()
-                        if not watching:
-                            break
-                continue
-
-            elif choice == 'd':
-                # Mark done — ask which item by number
-                print("  Mark done #: ", end="", flush=True)
-                num = get_menu_choice(len(items))
-                if isinstance(num, int):
-                    idx = num - 1
-                    if 0 <= idx < len(items):
-                        show_key, item = items[idx]
-                        self.storage.add_to_watchlist_list(
-                            show_key, 'completed', is_anime=item.is_anime)
-                        self.storage.remove_watching(show_key)
-                        watching = self.storage.get_watching()
-                        if not watching:
-                            break
-                continue
-
-            if isinstance(choice, int):
-                idx = choice - 1
-                if 0 <= idx < len(items):
-                    show_key, item = items[idx]
-                    
-                    if item.file_path and os.path.exists(item.file_path):
-                        safe_print(f"Playing: {show_key}", "[dim]")
-
-                        # Always recount from folder — never use stale saved value
-                        _total_eps = MediaPlayer.count_episodes_in_folder(item.file_path) or item.total_episodes
-                        # Persist the corrected count immediately so the display updates
-                        if _total_eps != item.total_episodes:
-                            item.total_episodes = _total_eps
-                            self.storage.update_watching(show_key, item)
-
-                        # Immediately update episode from current filename — don't wait for on_progress
-                        _season, _episode = MediaPlayer._extract_season_episode(os.path.basename(item.file_path))
-                        if _episode > 0 and _episode != item.current_episode:
-                            item.current_episode = _episode
-                            if _season > 0:
-                                item.current_season = _season
-                            self.storage.update_watching(show_key, item)
-
-                        def on_next(next_file):
-                            """Called when moving to a new episode — update episode tracking."""
-                            next_title = extract_show_title(os.path.basename(next_file))
-                            season, episode = MediaPlayer._extract_season_episode(
-                                os.path.basename(next_file))
-                            # Reuse existing item for the same show to preserve metadata
-                            existing = self.storage.get_watching().get(show_key)
-                            next_item = existing if existing else MediaItem(next_title)
-                            next_item.file_path       = next_file
-                            next_item.last_watched    = datetime.now().isoformat()
-                            next_item.current_season  = season  if season  > 0 else next_item.current_season
-                            next_item.current_episode = episode if episode > 0 else next_item.current_episode
-                            next_item.total_episodes  = _total_eps
-                            next_item.media_type      = 'series'
-                            # Record this episode as watched
-                            ep_key = [season, episode]
-                            if ep_key not in next_item.episodes_watched:
-                                next_item.episodes_watched.append(ep_key)
-                            self.storage.update_watching(show_key, next_item)
-
-                        def on_progress(f, pos, dur):
-                            """Save progress and detect series completion."""
-                            t         = extract_show_title(os.path.basename(f))
-                            season, episode = MediaPlayer._extract_season_episode(
-                                os.path.basename(f))
-                            existing  = self.storage.get_watching().get(show_key)
-                            saved     = existing if existing else MediaItem(t)
-                            saved.file_path       = f
-                            saved.duration        = dur
-                            saved.position        = pos
-                            saved.last_watched    = datetime.now().isoformat()
-                            saved.total_episodes  = _total_eps
-                            saved.media_type      = 'series'
-                            if season  > 0: saved.current_season  = season
-                            if episode > 0: saved.current_episode = episode
-                            ep_key = [season, episode]
-                            if ep_key not in saved.episodes_watched and episode > 0:
-                                saved.episodes_watched.append(ep_key)
-
-                            # ── Auto-complete detection ─────────────────────
-                            finished = dur > 0 and pos >= dur * 0.9
-                            no_next  = MediaPlayer.find_next_episode(f) is None
-                            eps_done = (_total_eps > 0 and
-                                        len(saved.episodes_watched) >= _total_eps)
-
-                            if finished and (no_next or eps_done):
-                                # Series complete — move to Completed watchlist
-                                self.storage.update_watching(show_key, saved)
-                                result = self.storage.add_to_watchlist_list(
-                                    show_key, 'completed', is_anime=saved.is_anime)
-                                self.storage.remove_watching(show_key)
-                                safe_print(
-                                    f"\n  ✅ '{show_key}' marked as completed!", "[green]")
-                                return
-
-                            self.storage.update_watching(show_key, saved)
-
-                        MediaPlayer.play_with_next_detection(item.file_path, on_next, on_progress, start_time=item.position)
-                        # Clear screen and refresh after playback returns
-                        os.system("cls" if os.name == "nt" else "clear")
-                        watching = self.storage.get_watching()
-                    else:
-                        safe_print(f"File not found: {item.file_path}", "[red]")
-                        input("\nPress Enter...")
-    
-    def show_browser(self):
-        """Show file browser"""
-        video_dirs = [
-            os.path.expanduser('~/Videos'),
-            os.path.expanduser('~/videos'),
-            os.path.expanduser('~/Movies'),
-            '/media',
-            '/mnt/media'
-        ]
-        
-        # Find first valid video directory
-        start_dir = None
-        for d in video_dirs:
-            if os.path.exists(d):
-                start_dir = d
-                break
-        
-        if not start_dir:
-            safe_print("No video directories found.", "[yellow]")
-            input("\nPress Enter...")
-            return
-        
-        self._browse_directory(start_dir)
-    
-    def _browse_directory(self, directory: str, depth: int = 0):
-        """Browse a directory"""
-        if depth > 5:  # Prevent deep recursion
-            return
-        
-        try:
-            items = sorted(os.listdir(directory))
-        except PermissionError:
-            safe_print(f"Permission denied: {directory}", "[red]")
-            input("\nPress Enter...")
-            return
-        
-        # Separate directories and files
-        dirs = []
-        files = []
-        
-        for item in items:
-            if item.startswith('.'):
-                continue
-            path = os.path.join(directory, item)
-            if os.path.isdir(path):
-                dirs.append(item)
-            elif any(item.lower().endswith(ext) for ext in VIDEO_EXTS):
-                files.append(item)
-        
-        all_items = dirs + files
-
-        if not all_items:
-            safe_print("No items found.", "[yellow]")
-            input("\nPress Enter...")
-            return
-
-        page_size    = 20
-        total_pages  = max(1, (len(all_items) + page_size - 1) // page_size)
-        current_page = 0
-
-        while True:
-            clear_screen()
-
-            start_idx  = current_page * page_size
-            end_idx    = min(start_idx + page_size, len(all_items))
-            page_items = all_items[start_idx:end_idx]
-
-            rows = []
-            for item in page_items:
-                path = os.path.join(directory, item)
-                if os.path.isdir(path):
-                    try:
-                        count = len(os.listdir(path))
-                        info = f"📁 ({count} items)"
-                    except OSError:
-                        info = "📁"
-                else:
-                    size = os.path.getsize(path)
-                    info = f"📄 ({size // (1024*1024)} MB)" if size > 1024*1024 else f"📄 ({size // 1024} KB)"
-                rows.append([item[:50], info])
-
-            dir_label  = os.path.basename(directory) or directory
-            page_label = f" — Page {current_page + 1}/{total_pages}" if total_pages > 1 else ""
-            UI.show_table(f"Browsing: {dir_label}{page_label}", ["Name", "Info"], rows)
-
-            nav = []
-            if current_page > 0:
-                nav.append("[p] Prev")
-            if current_page < total_pages - 1:
-                nav.append("[n] Next")
-            nav.append("[q] Back")
-            print("\n" + "  ".join(nav))
-
-            choice = get_menu_choice(len(page_items))
-
-            if choice is None:
-                break
-            elif choice == 'n':
-                if current_page < total_pages - 1:
-                    current_page += 1
-            elif choice == 'p':
-                if current_page > 0:
-                    current_page -= 1
-            elif isinstance(choice, int):
-                idx = choice - 1
-                if 0 <= idx < len(page_items):
-                    selected      = page_items[idx]
-                    selected_path = os.path.join(directory, selected)
-                    if os.path.isdir(selected_path):
-                        self._browse_directory(selected_path, depth + 1)
-                        try:
-                            items = sorted(os.listdir(directory))
-                        except PermissionError:
-                            return
-                        dirs  = [i for i in items if not i.startswith('.') and os.path.isdir(os.path.join(directory, i))]
-                        files = [i for i in items if not i.startswith('.') and os.path.isfile(os.path.join(directory, i)) and any(i.lower().endswith(ext) for ext in VIDEO_EXTS)]
-                        all_items    = dirs + files
-                        total_pages  = max(1, (len(all_items) + page_size - 1) // page_size)
-                        current_page = min(current_page, total_pages - 1)
-                    else:
-                        self._play_selected_file(selected_path)
-    
-    def _play_selected_file(self, file_path: str):
-        """Play selected file and track progress in Continue Watching"""
-        filename = os.path.basename(file_path)
-        title    = extract_show_title(filename)
-        season, episode = MediaPlayer._extract_season_episode(filename)
-
-        title_display = title.strip(" -–—")
-        print(f"\n  Playing  : {title_display}")
-        if episode > 0:
-            print(f"  Episode  : S{season:02d}E{episode:02d}")
-        print(f"  Progress : 00:00:00/--:--:--", end="", flush=True)
-
-        finished, position, duration = MediaPlayer.play(file_path)
-        print()  # newline after progress
-
-        # Reuse existing item for same show to preserve episode history
-        existing = self.storage.get_watching().get(title)
-        item     = existing if existing else MediaItem(title)
-        item.file_path    = file_path
-        item.duration     = duration
-        item.position     = position
-        item.last_watched = datetime.now().isoformat()
-        item.media_type   = 'series' if episode > 0 else item.media_type
-
-        if season  > 0: item.current_season  = season
-        if episode > 0: item.current_episode = episode
-
-        # Count episodes from the folder — no API needed
-        if episode > 0 and not item.total_episodes:
-            item.total_episodes = MediaPlayer.count_episodes_in_folder(file_path)
-
-        ep_key = [season, episode]
-        if episode > 0 and ep_key not in item.episodes_watched:
-            item.episodes_watched.append(ep_key)
-
-        # Check for series completion
-        no_next  = MediaPlayer.find_next_episode(file_path) is None
-        eps_done = (item.total_episodes > 0 and
-                    len(item.episodes_watched) >= item.total_episodes)
-
-        if finished and (no_next or eps_done):
-            self.storage.update_watching(title, item)
-            self.storage.add_to_watchlist_list(title, 'completed',
-                                                is_anime=item.is_anime)
-            self.storage.remove_watching(title)
-            safe_print(f"\n  ✅ '{title}' marked as completed!", "[green]")
-        else:
-            self.storage.update_watching(title, item)
-            if finished:
-                safe_print(f"  ✓ Finished: {title}", "[green]")
-            elif position > 0:
-                pct = round((position / duration * 100) if duration > 0 else 0, 1)
-                safe_print(f"  ↻ Progress saved: {format_time(position)} ({pct}%)", "[dim]")
-    
-    def show_watchlist(self):
-        """Top-level watchlist menu — four sub-lists."""
-        self.storage.sync_watching_to_watchlist()
-        LISTS = [
-            ('planning',  'Planning'),
-            ('watching',  'Watching'),
-            ('dropped',   'Dropped'),
-            ('completed', 'Completed'),
-        ]
-
-        while True:
-            clear_screen()
-            wl = self.storage._wl()
-
-            if RICH_AVAILABLE:
-                from rich.panel import Panel
-                console.print()
-                console.print(Panel("[bold cyan]  📺  Watchlist[/bold cyan]",
-                                    border_style="blue", width=50))
-                console.print()
-                for i, (key, label) in enumerate(LISTS, 1):
-                    count = len(wl.get(key, []))
-                    console.print(f"  [dim]{i}[/dim]  [bold]{label}[/bold]  [dim]({count})[/dim]")
-                console.print()
-                console.print("[dim]  [#] Open list  ·  [q] Back[/dim]\n")
-            else:
-                print("\n=== Watchlist ===\n")
-                for i, (key, label) in enumerate(LISTS, 1):
-                    count = len(wl.get(key, []))
-                    print(f"  {i}. {label}  ({count})")
-                print("\n  [#/q]: ", end="")
-
-            choice = get_key().lower()
-
-            if choice == 'q':
-                break
-            elif choice.isdigit():
-                idx = int(choice) - 1
-                if 0 <= idx < len(LISTS):
-                    self._show_watchlist_list(LISTS[idx][0], LISTS[idx][1])
-
-    def _show_watchlist_list(self, list_name: str, list_label: str):
-        """Show a single watchlist sub-list with pagination."""
-        PAGE_SIZE = 20
-        page = 0
-
-        while True:
-            items = self.storage.get_watchlist_list(list_name)
-            total_pages = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
-            page = min(page, total_pages - 1)
-            page_items = items[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
-            page_start = page * PAGE_SIZE
-            clear_screen()
-
-            if RICH_AVAILABLE:
-                from rich.panel import Panel
-                pg_info = f"  ({page+1}/{total_pages})" if total_pages > 1 else ""
-                console.print()
-                console.print(Panel(f"[bold cyan]  Watchlist — {list_label}[/bold cyan]{pg_info}",
-                                    border_style="blue", width=55))
-                console.print()
-                if not items:
-                    console.print(f"[dim]  No entries in {list_label} yet.[/dim]\n")
-                else:
-                    for i, item in enumerate(page_items, page_start + 1):
-                        console.print(f"  [dim]{i}[/dim]  [bold]{item.title[:45]}[/bold]")
-                console.print()
-                nav = []
-                if page > 0:              nav.append("[p] prev")
-                if page < total_pages-1:  nav.append("[n] next")
-                nav.append("[#] Details")
-                if list_name != 'watching': nav.append("[a] Add")
-                nav += ["[d] Delete", "[q] Back"]
-                console.print(f"[dim]  {'  ·  '.join(nav)}[/dim]\n")
-            else:
-                pg_info = f" ({page+1}/{total_pages})" if total_pages > 1 else ""
-                print(f"\n=== Watchlist — {list_label}{pg_info} ===\n")
-                if not items:
-                    print(f"  No entries in {list_label} yet.\n")
-                else:
-                    for i, item in enumerate(page_items, page_start + 1):
-                        print(f"  {i}. {item.title}")
-                print()
-                parts = []
-                if page > 0:             parts.append("p. Prev")
-                if page < total_pages-1: parts.append("n. Next")
-                parts.append("#. Details")
-                if list_name != 'watching': parts.append("a. Add")
-                parts += ["d. Delete", "q. Back"]
-                print("  " + "  ·  ".join(parts))
-
-            raw = get_key().lower()
-
-            if raw == 'q':
-                break
-            elif raw == 'n' and page < total_pages - 1:
-                page += 1
-            elif raw == 'p' and page > 0:
-                page -= 1
-            elif raw == 'a' and list_name != 'watching':
-                self._add_to_watchlist_list(list_name)
-            elif raw == 'd':
-                print("\nEnter number to delete: ", end="")
-                try:
-                    del_idx = int(input().strip()) - 1
-                    if 0 <= del_idx < len(items):
-                        title = items[del_idx].title
-                        if confirm_action(f"Delete '{title}'?"):
-                            self.storage.remove_from_watchlist_list(list_name, del_idx)
-                            safe_print(f"✅ Deleted '{title}'", "[green]")
-                            new_pages = max(1, (len(items) - 1 + PAGE_SIZE - 1) // PAGE_SIZE)
-                            page = min(page, new_pages - 1)
-                    else:
-                        safe_print("❌ Invalid number", "[red]")
-                except ValueError:
-                    safe_print("❌ Invalid input", "[red]")
-                time.sleep(1)
-            elif raw.isdigit():
-                num_str = raw
-                if len(items) > 9:
-                    rest = input(f"  (#{raw}): ").strip()
-                    if rest.isdigit():
-                        num_str = raw + rest
-                try:
-                    idx = int(num_str) - 1
-                    if 0 <= idx < len(items):
-                        self._show_watchlist_item_details(list_name, idx, items[idx])
-                    else:
-                        safe_print("❌ Invalid number", "[red]")
-                        time.sleep(1)
-                except ValueError:
-                    pass
-
-    def _add_to_watchlist_list(self, list_name: str):
-        """Add item to a specific watchlist sub-list."""
-        print("\nEnter title to add: ", end="")
-        title = input().strip()
-        if not title or len(title) < 2:
-            safe_print("❌ Invalid title", "[red]")
-            time.sleep(1)
-            return
-        result = self.storage.add_to_watchlist_list(title, list_name)
-        if result == 'added':
-            safe_print(f"✅ Added '{title}'", "[green]")
-        elif result == 'duplicate':
-            safe_print(f"⚠️  '{title}' already in your watchlist", "[yellow]")
-        else:
-            safe_print("❌ Error saving", "[red]")
-        time.sleep(1.5)
-
-    def _add_to_watchlist(self):
-        """Compat shim — adds to Planning."""
-        self._add_to_watchlist_list('planning')
-
-    def _show_watchlist_item_details(self, list_name: str, idx: int, item: WatchlistItem):
-        """Show metadata and options for a watchlist item."""
-        while True:
-            clear_screen()
-            corrected_title = correct_title(item.title)
-            is_anime = item.is_anime if hasattr(item, 'is_anime') else False
-
-            metadata = MetadataFetcher.fetch_movie_info(corrected_title, is_anime)
-            if metadata:
-                UI.show_info_panel(item.title, metadata)
-            else:
-                safe_print(f"No metadata found for: {item.title}", "[yellow]")
-
-            # Build options based on which list this is
-            print(f"\n  [2] Move to list  [3] Delete", end="")
-            if list_name != 'dropped':
-                print("  [m] Toggle watched", end="")
-            print("  [q] Back")
-
-            choice = get_key().lower()
-
-            if choice == 'q':
-                break
-
-            elif choice == 'm' and list_name != 'dropped':
-                self.storage.update_watchlist_list_item(list_name, idx, watched=not item.watched)
-                item.watched = not item.watched
-                safe_print(f"\n✅ Marked as {'watched' if item.watched else 'unwatched'}", "[green]")
-                time.sleep(1)
-
-            elif choice == '2':
-                LISTS = ['planning', 'watching', 'dropped', 'completed']
-                print("\n  Move to which list?")
-                for i, lst in enumerate(LISTS, 1):
-                    if lst != list_name:
-                        print(f"  {i}. {lst.capitalize()}")
-                print("  0. Cancel")
-                try:
-                    mv = int(input("  Choice: ").strip()) - 1
-                    if 0 <= mv < len(LISTS) and LISTS[mv] != list_name:
-                        target = LISTS[mv]
-                        self.storage.add_to_watchlist_list(item.title, target,
-                                                            is_anime=is_anime)
-                        safe_print(f"  ✅ Moved to {target.capitalize()}", "[green]")
-                        time.sleep(1)
-                        return  # item is gone from this list
-                except (ValueError, TypeError):
-                    pass
-
-            elif choice == '3':
-                if confirm_action(f"Delete '{item.title}'?"):
-                    self.storage.remove_from_watchlist_list(list_name, idx)
-                    safe_print(f"✅ Deleted '{item.title}'", "[green]")
-                    time.sleep(1)
-                    return
-
-
-# ============================================================================
-# TRAKT + ANILIST SYNC
-# ============================================================================
-
-TRAKT_API        = "https://api.trakt.tv"
-TRAKT_AUTH_URL   = "https://trakt.tv/oauth/authorize"
-TRAKT_TOKEN_URL  = "https://api.trakt.tv/oauth/token"
-TRAKT_DEVICE_URL = "https://api.trakt.tv/oauth/device"
-ANILIST_API      = "https://graphql.anilist.co"
-
-# Map external list names → our internal list names
-TRAKT_LIST_MAP = {
-    "watchlist": "planning",
-    "watching":  "watching",
-    "watched":   "completed",
-    "dropped":   "dropped",
-}
-ANILIST_LIST_MAP = {
-    "PLANNING":  "planning",
-    "CURRENT":   "watching",
-    "COMPLETED": "completed",
-    "DROPPED":   "dropped",
-    "PAUSED":    "dropped",
-    "REPEATING": "watching",
-}
-
 
 def load_sync_config() -> dict:
     try:
@@ -2529,7 +1601,7 @@ def save_sync_config(cfg: dict):
         with open(SYNC_CONFIG, "w") as f:
             json.dump(cfg, f, indent=2)
     except Exception as e:
-        safe_print(f"Could not save sync config: {e}", "[red]")
+        log.warning(f"Could not save sync config: {e}")
 
 
 # ── Trakt OAuth device flow ──────────────────────────────────────────────────
@@ -2554,9 +1626,9 @@ def trakt_device_auth(client_id: str, client_secret: str) -> dict:
         expires_in     = data.get("expires_in", 600)
         interval       = data.get("interval", 5)
 
-        safe_print(f"\n  Open this URL in your browser:\n  [bold]{verify_url}[/bold]", "[cyan]")
-        safe_print(f"\n  Enter this code: [bold]{user_code}[/bold]", "[cyan]")
-        safe_print("\n  Waiting for authorisation... (press Ctrl+C to cancel)\n", "[dim]")
+        log.warning(f"\n  Open this URL in your browser:\n  [bold]{verify_url}[/bold]")
+        log.warning(f"\n  Enter this code: [bold]{user_code}[/bold]")
+        log.warning("\n  Waiting for authorisation... (press Ctrl+C to cancel)\n")
 
         # Step 2 — poll for token
         deadline = time.time() + expires_in
@@ -2574,25 +1646,25 @@ def trakt_device_auth(client_id: str, client_secret: str) -> dict:
             if poll.status_code == 200:
                 token = poll.json()
                 token["obtained_at"] = time.time()
-                safe_print("  ✅ Trakt authorised!", "[green]")
+                log.warning("  ✅ Trakt authorised!")
                 return token
             elif poll.status_code == 400:
                 continue   # pending
             elif poll.status_code == 404:
-                safe_print("  ❌ Invalid device code.", "[red]")
+                log.warning("  ❌ Invalid device code.")
                 return {}
             elif poll.status_code == 409:
-                safe_print("  ❌ Already authorised.", "[yellow]")
+                log.warning("  ❌ Already authorised.")
                 return {}
             elif poll.status_code == 410:
-                safe_print("  ❌ Code expired.", "[red]")
+                log.warning("  ❌ Code expired.")
                 return {}
             elif poll.status_code == 429:
                 time.sleep(interval)   # slow down
     except KeyboardInterrupt:
-        safe_print("\n  Cancelled.", "[dim]")
+        log.warning("\n  Cancelled.")
     except Exception as e:
-        safe_print(f"  ❌ Trakt auth error: {e}", "[red]")
+        log.warning(f"  ❌ Trakt auth error: {e}")
         log.error("Trakt auth failed", error=str(e))
     return {}
 
@@ -2704,7 +1776,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
                                                      "source": "trakt"})
 
     except Exception as e:
-        safe_print(f"  Trakt fetch error: {e}", "[red]")
+        log.warning(f"  Trakt fetch error: {e}")
         log.error("Trakt fetch failed", error=str(e))
 
     return result
@@ -2756,7 +1828,7 @@ def fetch_anilist_lists(username: str) -> dict:
                     result[internal].append({"title": title, "is_anime": True,
                                              "source": "anilist"})
     except Exception as e:
-        safe_print(f"  AniList fetch error: {e}", "[red]")
+        log.warning(f"  AniList fetch error: {e}")
         log.error("AniList fetch failed", error=str(e))
     return result
 
@@ -2815,182 +1887,3 @@ def merge_external_lists(storage, external: dict, source_name: str) -> dict:
 
 # ── Settings + sync UI ───────────────────────────────────────────────────────
 
-class SyncManager:
-    """Handles Settings screen and Trakt/AniList sync inside MatrixApp."""
-
-    def __init__(self, storage):
-        self.storage = storage
-
-    def show_settings(self):
-        cfg = load_sync_config()
-
-        while True:
-            clear_screen()
-            trakt_ok    = bool(cfg.get("trakt_token"))
-            anilist_ok  = bool(cfg.get("anilist_username"))
-            trakt_user  = cfg.get("trakt_username", "—")
-            al_user     = cfg.get("anilist_username", "—")
-
-            if RICH_AVAILABLE:
-                from rich.panel import Panel
-                console.print()
-                console.print(Panel("[bold cyan]  ⚙  Settings & Sync[/bold cyan]",
-                                    border_style="blue", width=55))
-                console.print()
-                trakt_status  = f"[green]✓ {trakt_user}[/green]"  if trakt_ok  else "[dim]Not connected[/dim]"
-                al_status     = f"[green]✓ {al_user}[/green]"     if anilist_ok else "[dim]Not connected[/dim]"
-                console.print(f"  [dim]1[/dim]  Trakt     {trakt_status}")
-                console.print(f"  [dim]2[/dim]  AniList   {al_status}")
-                console.print()
-                if trakt_ok or anilist_ok:
-                    console.print("  [dim]s[/dim]  Sync now")
-                    console.print("  [dim]d[/dim]  Disconnect a service")
-                console.print("  [dim]q[/dim]  Back\n")
-            else:
-                print("\n=== Settings & Sync ===\n")
-                print(f"  1. Trakt    {'✓ ' + trakt_user if trakt_ok else 'Not connected'}")
-                print(f"  2. AniList  {'✓ ' + al_user if anilist_ok else 'Not connected'}")
-                if trakt_ok or anilist_ok:
-                    print("  s. Sync now")
-                    print("  d. Disconnect a service")
-                print("  q. Back\n")
-
-            key = get_key().lower()
-
-            if key == "q":
-                break
-            elif key == "1":
-                cfg = self._setup_trakt(cfg)
-            elif key == "2":
-                cfg = self._setup_anilist(cfg)
-            elif key == "s" and (trakt_ok or anilist_ok):
-                self._run_sync(cfg)
-                input("\n  Press Enter to continue...")
-            elif key == "d" and (trakt_ok or anilist_ok):
-                cfg = self._disconnect(cfg)
-
-    def _setup_trakt(self, cfg: dict) -> dict:
-        clear_screen()
-        safe_print("\n  Trakt Setup", "[bold]")
-        safe_print("  You need a Trakt application to get a Client ID and Secret.", "[dim]")
-        safe_print("  Register one free at: https://trakt.tv/oauth/applications/new", "[dim]")
-        safe_print("  Set the redirect URI to: urn:ietf:wg:oauth:2.0:oob\n", "[dim]")
-
-        client_id = input("  Client ID     : ").strip()
-        if not client_id:
-            return cfg
-        client_secret = input("  Client Secret : ").strip()
-        if not client_secret:
-            return cfg
-        username = input("  Trakt username (for fetching your lists): ").strip()
-        if not username:
-            return cfg
-
-        token = trakt_device_auth(client_id, client_secret)
-        if token:
-            cfg["trakt_client_id"]     = client_id
-            cfg["trakt_client_secret"] = client_secret
-            cfg["trakt_username"]      = username
-            cfg["trakt_token"]         = token
-            save_sync_config(cfg)
-        return cfg
-
-    def _setup_anilist(self, cfg: dict) -> dict:
-        clear_screen()
-        safe_print("\n  AniList Setup", "[bold]")
-        safe_print("  AniList uses your public username — no login required.", "[dim]")
-        safe_print("  Your lists must be set to public in AniList settings.\n", "[dim]")
-
-        username = input("  AniList username: ").strip()
-        if not username:
-            return cfg
-
-        # Quick validation
-        safe_print("  Checking username...", "[dim]")
-        test = fetch_anilist_lists(username)
-        total = sum(len(v) for v in test.values())
-        if total == 0:
-            safe_print("  ⚠️  No anime entries found. Check username and list privacy.", "[yellow]")
-            if input("  Save anyway? (y/n): ").strip().lower() != "y":
-                return cfg
-        else:
-            safe_print(f"  ✅ Found {total} anime entries.", "[green]")
-
-        cfg["anilist_username"] = username
-        save_sync_config(cfg)
-        return cfg
-
-    def _disconnect(self, cfg: dict) -> dict:
-        services = []
-        if cfg.get("trakt_token"):
-            services.append(("t", "Trakt"))
-        if cfg.get("anilist_username"):
-            services.append(("a", "AniList"))
-
-        print("\n  Disconnect which service?")
-        for key, name in services:
-            print(f"  [{key}] {name}")
-        print("  [0] Cancel")
-
-        key = get_key().lower()
-        if key == "t" and cfg.get("trakt_token"):
-            for k in ("trakt_token", "trakt_client_id", "trakt_client_secret", "trakt_username"):
-                cfg.pop(k, None)
-            save_sync_config(cfg)
-            safe_print("  Trakt disconnected.", "[green]")
-        elif key == "a" and cfg.get("anilist_username"):
-            cfg.pop("anilist_username", None)
-            save_sync_config(cfg)
-            safe_print("  AniList disconnected.", "[green]")
-        time.sleep(1)
-        return cfg
-
-    def _run_sync(self, cfg: dict):
-        total_added = total_moved = 0
-
-        if cfg.get("trakt_token"):
-            safe_print("\n  Syncing Trakt...", "[cyan]")
-            try:
-                trakt_data = fetch_trakt_lists(cfg)
-                counts = merge_external_lists(self.storage, trakt_data, "Trakt")
-                safe_print(f"  Trakt: +{counts['added']} added, "
-                           f"{counts['moved']} moved, {counts['skipped']} already correct.", "[green]")
-                total_added += counts["added"]
-                total_moved += counts["moved"]
-            except Exception as e:
-                safe_print(f"  ❌ Trakt sync failed: {e}", "[red]")
-                log.error("Trakt sync failed", error=str(e))
-
-        if cfg.get("anilist_username"):
-            safe_print("\n  Syncing AniList...", "[cyan]")
-            try:
-                al_data = fetch_anilist_lists(cfg["anilist_username"])
-                counts  = merge_external_lists(self.storage, al_data, "AniList")
-                safe_print(f"  AniList: +{counts['added']} added, "
-                           f"{counts['moved']} moved, {counts['skipped']} already correct.", "[green]")
-                total_added += counts["added"]
-                total_moved += counts["moved"]
-            except Exception as e:
-                safe_print(f"  ❌ AniList sync failed: {e}", "[red]")
-                log.error("AniList sync failed", error=str(e))
-
-        safe_print(f"\n  Sync complete — {total_added} new entries, {total_moved} moved.", "[bold]")
-
-
-def main():
-    """Main entry point"""
-    try:
-        app = MatrixApp()
-        app.run()
-    except KeyboardInterrupt:
-        print("\n\nExiting...")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\nUnexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

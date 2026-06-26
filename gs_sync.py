@@ -630,6 +630,7 @@ class GreatSageSync:
 
     def _get(self, table: str, query: str = "", select: str = "*",
              order: str = "") -> list:
+        self._ensure_fresh_token()
         params = {"select": select}
         if order:
             params["order"] = order
@@ -655,6 +656,7 @@ class GreatSageSync:
         Now we use a single POST with Prefer: resolution=merge-duplicates so the
         operation is atomic and safe to retry.
         """
+        self._ensure_fresh_token()
         if not rows:
             return []
 
@@ -713,6 +715,22 @@ class GreatSageSync:
                 logger.info("[gs_sync] Loaded cached token")
         except Exception as e:
             logger.warning(f"[gs_sync] Failed to load cached token: {e}")
+
+    def _ensure_fresh_token(self):
+        """
+        Called before every HTTP request. Refreshes the access token if it has
+        expired or is within 5 minutes of expiry. No-op if token is still fresh.
+        """
+        if not TOKEN_CACHE_PATH.exists():
+            return
+        try:
+            cache = json.loads(TOKEN_CACHE_PATH.read_text())
+            expires_at = cache.get("expires_at", 0)
+            if expires_at and time.time() > expires_at - 300:
+                logger.info("[gs_sync] Token near/past expiry — refreshing mid-session")
+                self._refresh_token(cache.get("refresh_token", ""))
+        except Exception as e:
+            logger.warning(f"[gs_sync] _ensure_fresh_token error: {e}")
 
     def _refresh_token(self, refresh_token: str):
         # Pre-load stored credentials before anything else so they're always

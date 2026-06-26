@@ -2144,7 +2144,7 @@ class NotificationPanel(QFrame):
     def _show_rec_dialog(self, data: dict):
         """Open RecNotificationDialog from gs_sage_ui for the given rec."""
         try:
-            from gs_sage_ui import RecNotificationDialog
+            from gs_settings_ui import RecNotificationDialog
             from gs_sync import GreatSageSync
             import logging as _logging
             _log = _logging.getLogger("great_sage.sync")

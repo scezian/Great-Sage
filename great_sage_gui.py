@@ -102,7 +102,8 @@ from gs_widgets import (
 )
 
 # ── Page modules ──────────────────────────────────────────────────────────────
-from gs_legion_ui import LegionPage, HighlightsDialog, CalendarDialog, WrappedDialog
+from gs_legion_ui import LegionPage
+from gs_matrix_ui import HighlightsDialog, CalendarDialog, WrappedDialog
 from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
 from gs_bugreport_ui import BugReportPage

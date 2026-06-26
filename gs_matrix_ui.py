@@ -64,6 +64,12 @@ from great_sage_core import (
 def _sync_item_added(title: str, media_type: str, status: str = "Planning", **kw) -> None:
     pass  # replaced at runtime by SettingsPage.__init__
 
+# Sync hook — registered by SettingsPage after it constructs GreatSageSync.
+# Calling _sync_item_removed(title) fires an immediate delete_item on the cloud
+# without any coupling between MatrixPage and SettingsPage.
+def _sync_item_removed(title: str) -> None:
+    pass  # replaced at runtime by SettingsPage.__init__
+
 
 class TrailerPickerDialog(QDialog):
     """Shown when TMDB returns multiple matches for a title."""
@@ -682,7 +688,9 @@ class MatrixPage(QWidget):
         md = matrix_data(); wl = md.get("watchlist",{})
         wl[lst_name] = [e for e in wl.get(lst_name,[])
             if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
-        save_json(MATRIX_PROGRESS, md); self.refresh()
+        save_json(MATRIX_PROGRESS, md)
+        _sync_item_removed(title)
+        self.refresh()
 
     def _wl_meta(self, item, lst_name):
         e = item.data(Qt.ItemDataRole.UserRole)

@@ -25,6 +25,7 @@ ACCENT  = "#C9A84C"   # amber gold — primary CTA
 ACCENT2 = "#4EC9A4"   # seafoam — secondary highlights
 NEON    = "#5DDFCC"   # bright teal
 RED     = "#E05A6A"
+GREEN   = "#4EC97A"
 BLUE    = "#4A90D9"
 PURPLE  = "#8B6FD4"
 

@@ -722,10 +722,21 @@ class SageWorker(QThread):
             if bsummary:
                 mem_ctx = (mem_ctx + "\n\nLearned behaviour signals: " + bsummary).strip()
             seen   = mod.load_seen_recs() if hasattr(mod, "load_seen_recs") else []
+            # Also exclude titles already in Legion (reading) and Matrix watchlist/bookmarks
+            # so Sage never recommends something the user is actively reading or tracking.
+            try:
+                from sage import all_listed_titles
+                listed_titles = {t.title() for t in all_listed_titles()}
+            except Exception:
+                listed_titles = set()
+            # Add currently-reading Legion books directly from profile
+            for n in profile.get("novels", []):
+                listed_titles.add(n["title"].title())
+            combined_seen = list(dict.fromkeys(seen + list(listed_titles)))
             # Build a hard exclusion block — goes into the system prompt, not user turn
             seen_block = ""
-            if seen:
-                seen_list = "\n".join(f"- {t}" for t in seen[-50:])
+            if combined_seen:
+                seen_list = "\n".join(f"- {t}" for t in combined_seen[-80:])
                 seen_block = (
                     "\n\n[HARD EXCLUSION LIST — NEVER recommend any of these titles under any circumstances. "
                     "Even if they seem like a perfect fit, skip them entirely and suggest something else:]\n"
@@ -775,7 +786,7 @@ class SageWorker(QThread):
                 cur_ch       = (legion_data.get("books", {}).get(book_name, {}).get("current_chapter") or 0)
                 chapter_text = None
                 try:
-                    from legion import read_chapters_around, read_last_n_chapters
+                    from sage import read_chapters_around, read_last_n_chapters
                     if cur_ch:
                         chapter_text = read_chapters_around(book_name, cur_ch, n=5)
                     if not chapter_text:
@@ -810,7 +821,14 @@ class SageWorker(QThread):
             
             # Streaming implementation
             full_resp = ""
-            if hasattr(mod, "groq_stream_chat"):
+            if self.mode == "chat" and hasattr(mod, "chat_with_sage"):
+                # Multi-turn chat — use history-aware path
+                full_resp, error = mod.chat_with_sage(profile_text, self.user_msg, self.history)
+                if error:
+                    self.error.emit(error)
+                    return
+                self.chunk_ready.emit(full_resp)
+            elif hasattr(mod, "groq_stream_chat"):
                 for chunk, error in mod.groq_stream_chat(full_prompt, system=system_msg if system_msg else None):
                     if self._stop:
                         return
@@ -1240,6 +1258,7 @@ class AutoSyncWorker(QThread):
                         "Reconciling chapter count — JSON/disk mismatch",
                         book=name, json_count=json_count, disk_count=disk_count,
                     )
+                    legion_data["books"][name].setdefault("download_state", {})
                     legion_data["books"][name]["download_state"]["total_chapters_downloaded"] = disk_count
                     # If disk has chapters but status is idle/completed with 0 recorded,
                     # correct the status so the book re-enters the active sync path.
@@ -1273,119 +1292,11 @@ class AutoSyncWorker(QThread):
             log.sync.error("Library validator failed", error=str(_ve))
         # ─────────────────────────────────────────────────────────────────────
 
-        # ── Fix 2: Widened fresh filter ───────────────────────────────────────
-        # Previously required status == "idle". Now catches any non-active book
-        # with 0 chapters on disk (including orphaned "completed" state).
-        fresh = [
-            (name, book) for name, book in books.items()
-            if book.get("current_url") and
-               book.get("download_state", {}).get("status") not in ("downloading", "queued") and
-               book.get("download_state", {}).get("total_chapters_downloaded", 0) == 0
-        ]
-        for name, book in fresh:
-            legion_data = get_legion_data()
-            if name not in legion_data.get("books", {}):
-                continue
-            legion_data["books"][name]["download_state"]["status"] = "queued"
-            save_json(LEGION_PROGRESS, legion_data)
-            try:
-                mod.download_manager.queue_download(name, legion_data["books"][name], legion_data)
-                log.sync.info("Fresh book queued for download", book=name)
-            except Exception as e:
-                log.sync.exc("Failed to queue fresh book download", e, book=name)
-
-        active = [
-            (name, book) for name, book in books.items()
-            if book.get("current_url") and
-               book.get("download_state", {}).get("status") not in ("downloading", "queued") and
-               book.get("download_state", {}).get("total_chapters_downloaded", 0) > 0
-        ]
-        if not active:
-            self.sync_clear.emit()
-            return
-
-        any_new      = False
-        synced_names = []
-        for name, book in active:
-            dl_state    = book.get("download_state", {})
-            last_dl_ch  = dl_state.get("last_downloaded_chapter_num", 0)
-            last_dl_url = dl_state.get("last_downloaded_chapter")
-            if last_dl_url and (last_dl_url.endswith("/null") or last_dl_url.endswith("/undefined")):
-                log.sync.warning("Corrupt last_downloaded_chapter URL discarded", book=name, url=last_dl_url)
-                last_dl_url = None
-
-            # ── Fix 3: Plugin-first probing with canonical source URL ─────────
-            # Always probe via the plugin using last_dl_url if a plugin owns the
-            # book's canonical source (current_url). This avoids redirect-polluted
-            # URLs (e.g. novelfire → boxnovel) causing _extract_nav to fail on an
-            # unfamiliar site layout. Generic scraping is only used for sources
-            # with no plugin.
-            canonical_url = book.get("current_url", "")
-            probe_url = last_dl_url or canonical_url
-            if not probe_url:
-                log.sync.warning("Book has no probe URL — skipping", book=name)
-                continue
-
-            self.status_update.emit(f"Checking {name}...")
-            log.sync.debug("Probing for new chapters", book=name, probe_url=probe_url, canonical=canonical_url)
-
-            next_url = None
-            try:
-                # Check if the canonical source has a plugin
-                plugin = mod.plugin_registry.for_url(canonical_url) if hasattr(mod, "plugin_registry") else None
-                if plugin and last_dl_url:
-                    # Plugin path: structured fetch of the last chapter → read next_url directly
-                    log.sync.debug("Using plugin for probe", book=name, plugin=plugin.id)
-                    scraper = mod.SCRAPER if (hasattr(mod, "SCRAPER") and plugin.supports_cloudflare) else None
-                    try:
-                        result = plugin.fetch_chapter(last_dl_url, mod.SESSION, scraper)
-                        next_url = result.next_url
-                    except Exception as e:
-                        log.sync.warning("Plugin probe failed — falling back to generic", book=name, error=str(e))
-                        next_url = mod.find_next_chapter(probe_url) if hasattr(mod, "find_next_chapter") else None
-                else:
-                    # No plugin for this source — use generic scraper
-                    next_url = mod.find_next_chapter(probe_url) if hasattr(mod, "find_next_chapter") else None
-            except Exception as e:
-                log.sync.exc("Probe failed", e, book=name, probe_url=probe_url)
-                next_url = None
-            # ─────────────────────────────────────────────────────────────────
-
-            if not next_url:
-                log.sync.debug("No new chapters found", book=name)
-                continue
-
-            log.sync.info("New chapters found — queuing sync", book=name, next_url=next_url)
-            any_new = True
-            synced_names.append(name)
-            self.status_update.emit(f"Syncing {name}...")
-
-            existing_state = book.get("download_state", {})
-            legion_data = get_legion_data()
-            if name not in legion_data.get("books", {}):
-                continue
-            legion_data["books"][name]["download_state"] = {
-                "status":                      "queued",
-                "last_downloaded_chapter":     last_dl_url,
-                "last_downloaded_chapter_num": last_dl_ch,
-                "total_chapters_downloaded":   existing_state.get("total_chapters_downloaded", 0),
-                "download_path":               existing_state.get("download_path"),
-                "failed_chapters":             [],
-                "timestamp":                   time.time(),
-                "pause_requested":             False,
-                "_sync_start_url":             next_url,
-            }
-            save_json(LEGION_PROGRESS, legion_data)
-            try:
-                mod.download_manager.queue_download(name, legion_data["books"][name], legion_data)
-            except Exception as e:
-                log.sync.exc("Failed to queue sync download", e, book=name)
-        if any_new:
-            log.sync.info("Auto-sync complete — new chapters found", books=synced_names)
-            self.sync_done.emit(f"📥 Syncing new chapters — {', '.join(synced_names)}")
-        else:
-            log.sync.info("Auto-sync complete — library up to date")
-            self.sync_clear.emit()
+        # ── Note: download queueing removed ──────────────────────────────────
+        # Downloads for Jump In books are now handled exclusively by
+        # ChapterDownloadWorker / _DownloadRegistry in gs_legion_ui.py.
+        # AutoSyncWorker's role is reconciliation + validation only.
+        self.sync_clear.emit()
 
 
 # ── Mobile server ──────────────────────────────────────────────────────────────

@@ -743,6 +743,8 @@ def _build_cosmetic_injection(extra_css: str = "") -> str:
     css_escaped = combined_css.replace("\\", "\\\\").replace("`", r"\`")
     return (
         "(function(){"
+        "var _h=window.location.hostname;"
+        "if(_h.includes('youtube.com')||_h.includes('ytimg.com')||_h.includes('googlevideo.com'))return;"
         "window.open=function(){return null;};"
         "window.alert=function(){};"
         "window.confirm=function(){return false;};"
@@ -778,6 +780,10 @@ def popup_killer_js() -> str:
     return r"""
 (function() {
 'use strict';
+
+// ── Skip trusted sites ────────────────────────────────────────────────────
+var _h = window.location.hostname;
+if (_h.includes('youtube.com') || _h.includes('ytimg.com') || _h.includes('googlevideo.com')) return;
 
 // ── Block ad JS APIs ──────────────────────────────────────────────────────
 try {
@@ -851,8 +857,7 @@ function isCornerAd(el) {
                    (r.top  < VH * 0.35 || r.bottom > VH * 0.65);
     if (!inCorner) return false;
     var txt = (el.textContent || '').toLowerCase();
-    return TEXT_PATTERNS.some(function(p) { return txt.includes(p); }) ||
-           !!(el.querySelector && el.querySelector('img'));
+    return TEXT_PATTERNS.some(function(p) { return txt.includes(p); });
 }
 
 // ── Selector kill list ────────────────────────────────────────────────────
