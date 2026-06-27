@@ -11,10 +11,14 @@ Layout
 
 Sources
 -------
-  Royal Road   — scraping (trending + search)
-  LibRead      — cloudscraper (popular + search + chapters)
-  Gutenberg    — Gutendex API (most downloaded + search)
-  Local        — scans Legion library folder for EPUB / PDF / TXT
+  Royal Road       — scraping (trending + search)
+  FreeWebNovel/LR  — plain requests (popular + search + chapters)
+                     libread.com now redirects to freewebnovel.com;
+                     all fwn requests use a plain requests.Session with a
+                     Chrome UA (proven working by diag.py Test 1).
+                     cloudscraper is NOT used — fwn blocks its TLS fingerprint.
+  Gutenberg        — Gutendex API (most downloaded + search)
+  Local            — scans Legion library folder for EPUB / PDF / TXT
 
 All network work runs in QThread workers so the UI never blocks.
 """
@@ -30,7 +34,6 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-import cloudscraper
 from bs4 import BeautifulSoup
 
 from PyQt6.QtCore import (
@@ -77,7 +80,42 @@ GRID_COLS = 7
 
 RR_BASE   = "https://www.royalroad.com"
 LR_BASE   = "https://libread.com"
+FWN_BASE  = "https://freewebnovel.com"
 GX_BASE   = "https://gutendex.com"
+
+
+def _lr_url_to_fwn(url: str) -> str:
+    """
+    Convert a libread.com URL to its freewebnovel.com equivalent.
+
+    libread chapter : https://libread.com/libread/{slug}-{id}/chapter-{N}
+      → fwn chapter : https://freewebnovel.com/novel/{slug}/chapter-{N}
+
+    libread landing : https://libread.com/libread/{slug}-{id}
+      → fwn landing  : https://freewebnovel.com/novel/{slug}
+
+    The trailing numeric ID (e.g. -591) is stripped from the slug because
+    freewebnovel does not include it.  Chapter padding is also dropped
+    (fwn uses /chapter-1, not /chapter-01).
+
+    If the URL is already a fwn URL it is returned unchanged.
+    If it cannot be parsed it is returned unchanged.
+    """
+    import re as _re
+    if "freewebnovel.com" in url:
+        return url
+    # Match /libread/{slug}/chapter-{N}  or  /libread/{slug}
+    m = _re.search(r"/libread/([^/?#]+?)(?:/chapter-(\d+))?$", url)
+    if not m:
+        return url
+    raw_slug   = m.group(1)                          # e.g. the-mighty-dragons-are-dead-591
+    chapter_n  = m.group(2)                          # e.g. "01" or "00001" or None
+    # Strip trailing numeric ID from slug: -591
+    clean_slug = _re.sub(r"-\d+$", "", raw_slug)    # the-mighty-dragons-are-dead
+    if chapter_n:
+        n = int(chapter_n)                           # remove zero-padding
+        return f"{FWN_BASE}/novel/{clean_slug}/chapter-{n}"
+    return f"{FWN_BASE}/novel/{clean_slug}"
 
 LOCAL_EXTENSIONS = {".epub", ".pdf", ".txt"}
 
@@ -379,10 +417,6 @@ class _DownloadRegistry:
         return list(cls._workers.values())
 
     @classmethod
-    def all_workers(cls) -> list:
-        return list(cls._workers.values())
-
-    @classmethod
     def is_running(cls, title: str) -> bool:
         w = cls._workers.get(title)
         return w is not None and w.isRunning()
@@ -404,7 +438,7 @@ class ChapterDownloadWorker(QThread):
       near-instantaneous and never blocks the UI.
     """
 
-    POLL_INTERVAL = 600   # 10 minutes
+    POLL_INTERVAL = 120   # 2 minutes
 
     chapter_downloaded = pyqtSignal(str, int)  # (book_title, new_chapter_count)
 
@@ -419,19 +453,57 @@ class ChapterDownloadWorker(QThread):
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _load_start_url(self) -> str | None:
-        """Return the URL to resume from, or None if we can't determine one."""
+        """
+        Return the URL to resume downloading from, or None if we can't determine one.
+
+        We save the URL of the successfully written chapter (not next_url).
+        On resume we must advance one chapter forward — otherwise we re-download
+        and duplicate the last written chapter.
+
+        Strategy:
+        1. Load saved last_downloaded_url from LEGION_PROGRESS.
+        2. If it's a chapter URL (contains /chapter-N), derive the next chapter
+           URL arithmetically. For fwn this is trivial: /chapter-{N+1}.
+        3. Verify the derived URL exists (HEAD request) before committing to it.
+        4. If verification fails or no saved URL, fall back to fetching chapter 1
+           from the book's landing page.
+        """
+        import re as _re
         try:
             data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
             entry = data.get("books", {}).get(self._book.title, {})
-            saved = entry.get("last_downloaded_url")
-            # Only trust the saved URL if it actually points to a chapter page.
-            # A landing-page URL (no /chapter- segment) means corrupted state —
-            # fall through and re-derive the first chapter URL instead.
+            saved = entry.get("last_downloaded_url", "")
+
             if saved and "/chapter-" in saved:
-                return saved
+                # Validate it's a genuine fwn or RR chapter URL, not a landing page
+                # that somehow slipped through a previous bug.
+                if "freewebnovel.com" in saved or "royalroad.com" in saved:
+                    m = _re.search(r"/chapter-(\d+)$", saved)
+                    if m:
+                        n        = int(m.group(1))
+                        base_url = saved[:saved.rfind("/")]
+                        candidate = f"{base_url}/chapter-{n + 1}"
+                        # Quick HEAD to confirm the chapter exists before we
+                        # commit to it. Use the same plain session — no cloudscraper.
+                        try:
+                            s    = _fwn_session()
+                            head = s.head(candidate, timeout=8, allow_redirects=True)
+                            if head.status_code < 400:
+                                return candidate
+                            # 404 → we're already at the end of published chapters.
+                            # Return the last saved URL so the main loop can enter
+                            # its polling block immediately without re-downloading.
+                            return saved
+                        except Exception:
+                            # Network hiccup — return candidate anyway; the main
+                            # loop will 404 and enter polling, which is correct.
+                            return candidate
+                    # URL has /chapter-N but pattern didn't match (unusual slug).
+                    # Fall through to first-chapter resolve.
         except Exception:
             pass
-        # Fall back to the book's landing-page URL and fetch chapter 1 from it
+
+        # No valid saved URL — resolve chapter 1 from the landing page.
         return self._fetch_first_chapter_url()
 
     def _fetch_first_chapter_url(self) -> str | None:
@@ -440,17 +512,25 @@ class ChapterDownloadWorker(QThread):
             url = self._book.url
             if not url:
                 return None
-            if "libread.com" in url:
-                scraper = _libread_scraper()
-                r = scraper.get(url, timeout=12)
+            if "libread.com" in url or "freewebnovel.com" in url:
+                # libread landing pages redirect to freewebnovel — go direct.
+                fwn_url = _lr_url_to_fwn(url) if "libread.com" in url else url
+                s = _fwn_session()   # plain requests — confirmed working
+                r = s.get(fwn_url, timeout=12)
                 if r.status_code != 200:
                     return None
                 soup = BeautifulSoup(r.text, "html.parser")
-                # First chapter link — /libread/<slug>/chapter-01
-                a = soup.select_one("a[href*='/chapter-']")
+                # fwn first chapter link: /novel/{slug}/chapter-1
+                # Target the read button or chapter-1 link specifically.
+                # Avoid picking up random chapter links from recommended novels.
+                a = (
+                    soup.select_one("a.btn-read[href*='/chapter-']")
+                    or soup.select_one("a[href$='/chapter-1']")
+                    or soup.select_one("a[href*='/chapter-']")
+                )
                 if a:
                     href = a["href"]
-                    return ("https://libread.com" + href) if href.startswith("/") else href
+                    return (FWN_BASE + href) if href.startswith("/") else href
             else:
                 # Royal Road
                 s = _session()
@@ -480,7 +560,7 @@ class ChapterDownloadWorker(QThread):
         error is None                              →  success
         """
         try:
-            if "libread.com" in url:
+            if "libread.com" in url or "freewebnovel.com" in url:
                 # Reuse the proven libread fetcher via a temporary worker instance
                 tmp = ChapterFetchWorker(url, self._book.title)
                 title, paragraphs, next_url, _prev, error = tmp._fetch_libread(url)
@@ -718,8 +798,12 @@ class ChapterDownloadWorker(QThread):
                     pass
 
                 if written:
-                    # Bug 1 fix: save next_url so resume picks up AFTER this chapter.
-                    self._save_progress(chapter_num, next_url or url)
+                    # Save the URL of the chapter we just successfully wrote, NOT next_url.
+                    # Saving next_url caused resume to skip this chapter (treating it as
+                    # already done) and re-download the last chapter before end-of-book
+                    # (when next_url is None, the fallback `or url` is the same as saving
+                    # url, but only after the duplicate was written). Always save `url`.
+                    self._save_progress(chapter_num, url)
                     self.chapter_downloaded.emit(self._book.title, chapter_num)
                 else:
                     chapter_num -= 1
@@ -778,9 +862,12 @@ def jump_in_add(book: "BookItem"):
         }
         save_json(LEGION_PROGRESS, data)
 
-    # Auto-download for all supported sources
+    # Always (re)start the download worker — book may already exist in progress
+    # but its worker may not be running (e.g. first click after app launch, or
+    # after the book was previously added but the worker never started).
     if book.source in ("royalroad", "libread", "gutenberg"):
-        _DownloadRegistry.start(book)
+        if not _DownloadRegistry.is_running(book.title):
+            _DownloadRegistry.start(book)
 
 
 def jump_in_remove(title: str, delete_files: bool = False) -> bool:
@@ -819,10 +906,45 @@ def _session() -> requests.Session:
     return s
 
 
-def _libread_scraper() -> cloudscraper.CloudScraper:
-    return cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "linux", "desktop": True}
-    )
+# diag.py proved that plain requests.Session + Chrome UA = HTTP 200 on fwn.
+# cloudscraper (both default and with explicit UA) = HTTP 403. fwn detects
+# the cloudscraper TLS fingerprint and blocks it. Do NOT reintroduce cloudscraper
+# here under any framing — it will 403. One shared session per call is sufficient;
+# fwn does not require cookie persistence across the chapter chain because the
+# download worker creates a new session per chapter anyway (acceptable overhead
+# vs. the complexity of a shared session that can expire mid-download).
+_FWN_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;"
+        "q=0.9,image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language":           "en-US,en;q=0.9",
+    # Accept-Encoding intentionally omitted — requests adds it automatically
+    # and handles decompression. Setting it manually disables auto-decode,
+    # causing BeautifulSoup to receive raw compressed binary garbage.
+    "Connection":                "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest":            "document",
+    "Sec-Fetch-Mode":            "navigate",
+    "Sec-Fetch-Site":            "none",
+    "Sec-Fetch-User":            "?1",
+}
+
+
+def _fwn_session() -> requests.Session:
+    """Plain requests.Session that works on freewebnovel.com (HTTP 200, confirmed)."""
+    s = requests.Session()
+    s.headers.update(_FWN_HEADERS)
+    return s
+
+
+# libread.com redirects to freewebnovel.com. We go direct to fwn so we never
+# follow the redirect chain. Same session factory applies — no cloudscraper.
+_libread_scraper = _fwn_session   # alias; callers updated below
 
 
 def fetch_royalroad_trending(page: int = 1) -> list[BookItem]:
@@ -911,31 +1033,39 @@ def fetch_royalroad_detail(url: str) -> dict:
 
 
 def fetch_libread_popular(page: int = 1) -> list[BookItem]:
-    """Fetch popular books from LibRead with pagination."""
-    s = _libread_scraper()
-    url = f"{LR_BASE}/most-popular" if page == 1 else f"{LR_BASE}/most-popular?page={page}"
-    r = s.get(url, timeout=12)
+    """Fetch popular books from FreeWebNovel (the live backend for LibRead content)."""
+    # libread.com/most-popular redirects to freewebnovel.com — go direct.
+    # fwn uses the same li-row / h3.tit structure as old libread.
+    s   = _fwn_session()
+    url = f"{FWN_BASE}/most-popular" if page == 1 else f"{FWN_BASE}/most-popular?page={page}"
+    try:
+        r = s.get(url, timeout=12)
+    except Exception:
+        return []
     if r.status_code != 200:
         return []
     soup  = BeautifulSoup(r.text, "html.parser")
     items = []
-    for row in soup.select("div.ul-list1 div.li-row"):
-        title_el = row.select_one("h3.tit a")
+    for row in soup.select("div.ul-list1 div.li-row, div.list div.li-row"):
+        title_el = row.select_one("h3.tit a, h3 a")
         if not title_el:
             continue
         href      = title_el.get("href", "")
         cover_el  = row.select_one("img")
         cover_url = cover_el.get("src", "") if cover_el else ""
+        # fwn serves cover paths as absolute URLs already; normalise just in case
         if cover_url and cover_url.startswith("/"):
-            cover_url = LR_BASE + cover_url
-        author_el = row.select_one("p.author a, span.author")
+            cover_url = FWN_BASE + cover_url
+        author_el   = row.select_one("p.author a, span.author")
         synopsis_el = row.select_one("p.intro")
+        # Build the canonical fwn URL — href is like /novel/slug
+        book_url = (FWN_BASE + href) if href.startswith("/") else href
         items.append(BookItem(
             title     = title_el.text.strip(),
             author    = author_el.text.strip() if author_el else "",
             cover_url = cover_url,
-            url       = f"{LR_BASE}{href}",
-            source    = "libread",
+            url       = book_url,
+            source    = "libread",   # keep source label so Jump In worker picks it up
             synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
         ))
     return items
@@ -1036,89 +1166,113 @@ def search_royalroad(query: str, page: int = 1) -> list[BookItem]:
 
 
 def search_libread(query: str, page: int = 1) -> list[BookItem]:
-    """Search LibRead via POST — returns BookItems."""
-    s = _libread_scraper()
-    r = s.post(f"{LR_BASE}/search", data={"searchkey": query}, timeout=12)
+    """Search FreeWebNovel (the live backend for LibRead content)."""
+    # libread.com/search is a dead redirect. fwn /search?searchkey= works
+    # and was confirmed returning 50 results in test_scraper.py.
+    s = _fwn_session()
+    params = {"searchkey": query}
+    if page > 1:
+        params["page"] = page
+    try:
+        r = s.get(f"{FWN_BASE}/search", params=params, timeout=12)
+    except Exception:
+        return []
     if r.status_code != 200:
         return []
     soup  = BeautifulSoup(r.text, "html.parser")
     items = []
-    for row in soup.select("div.ul-list1 div.li-row"):
-        title_el = row.select_one("h3.tit a")
+    # fwn search results use the same li-row structure as the popular page
+    for row in soup.select("div.ul-list1 div.li-row, div.list div.li-row"):
+        title_el = row.select_one("h3.tit a, h3 a")
         if not title_el:
             continue
         href      = title_el.get("href", "")
         cover_el  = row.select_one("img")
         cover_url = cover_el.get("src", "") if cover_el else ""
         if cover_url and cover_url.startswith("/"):
-            cover_url = LR_BASE + cover_url
+            cover_url = FWN_BASE + cover_url
         author_el   = row.select_one("p.author a, span.author")
         synopsis_el = row.select_one("p.intro")
+        book_url = (FWN_BASE + href) if href.startswith("/") else href
         items.append(BookItem(
             title     = title_el.text.strip(),
             author    = author_el.text.strip() if author_el else "",
             cover_url = cover_url,
-            url       = f"{LR_BASE}{href}",
+            url       = book_url,
             source    = "libread",
             synopsis  = synopsis_el.get_text(" ", strip=True)[:400] if synopsis_el else "",
         ))
     return items
 
 def fetch_libread_detail(url: str) -> dict:
-    """Fetch synopsis and chapter list for a LibRead book page."""
-    s = _libread_scraper()
-    r = s.get(url, timeout=12)
+    """Fetch synopsis, author and chapter list for a LibRead book.
+
+    libread.com landing pages redirect to freewebnovel.com, so we convert
+    the URL up-front and scrape fwn directly using its confirmed selectors.
+    """
+    import re as _re
+
+    fwn_url = _lr_url_to_fwn(url) if "libread.com" in url else url
+
+    s = _fwn_session()  # _fwn_scraper() was removed; use plain session
+    r = s.get(fwn_url, timeout=12)
     if r.status_code != 200:
-        return {"synopsis": "", "chapters": [], "total_pages": 0}
+        return {"synopsis": "", "author": "", "chapters": [], "total_pages": 0}
+
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # Synopsis — div.m-desc (live selector confirmed); filter out vote/rating <p> tags
+    # Synopsis — fwn stores it in div.m-desc (same class as old libread, confirmed by test)
     synopsis = ""
     desc_div = soup.find("div", class_="m-desc")
     if desc_div:
-        synopsis = "\n\n".join(
+        paras = [
             p.get_text(strip=True) for p in desc_div.find_all("p")
-            if "vote" not in p.get("class", [])
-        )
+            if p.get_text(strip=True)
+            and "vote" not in p.get("class", [])
+            and not any(x in p.get_text().lower() for x in ["facebook", "twitter", "whatsapp", "pinterest"])
+        ]
+        synopsis = "\n\n".join(paras)
 
-    # Author — identified by glyphicon span with title="Author", not a class
+    # Author — fwn uses same selector pattern (span[title="Author"] ~ div.right a.a1)
     author = ""
     author_el = soup.select_one('span[title="Author"] ~ div.right a.a1')
+    if not author_el:
+        # Fallback: look for any author-labelled element
+        author_el = soup.select_one(".author a, .writer a")
     if author_el:
         author = author_el.get_text(strip=True)
 
-    # Extract slug from URL: https://libread.com/libread/{slug}
-    import re as _re
-    slug_match = _re.search(r"/libread/([^/?#]+)", url)
+    # Chapter count — fwn lists chapters as <a href="/novel/{slug}/chapter-N"> links
+    # Extract the highest chapter number from all chapter links on the page
+    chapter_links = soup.select("a[href*='/chapter-']")
+    total = 0
+    for a in chapter_links:
+        href = a.get("href", "")
+        cm = _re.search(r"/chapter-(\d+)$", href)
+        if cm:
+            total = max(total, int(cm.group(1)))
+
+    # Fallback: try numeric count from page text
+    if not total:
+        count_el = soup.select_one(".chapter-count, span.s1")
+        if count_el:
+            cm = _re.search(r"(\d+)", count_el.get_text())
+            if cm:
+                total = int(cm.group(1))
+
+    if not total:
+        total = 1
+
+    # Build chapter list using fwn URL format (no padding)
+    # Derive slug from the fwn_url: https://freewebnovel.com/novel/{slug}
+    slug_m = _re.search(r"/novel/([^/?#]+)$", fwn_url)
     chapters = []
-    if slug_match:
-        slug = slug_match.group(1)
-
-        # Try to find total chapter count from the page
-        total = 0
-        for sel in ["span.chapter-count", "div.chapter-count", ".chapter-count",
-                    "div.ul-list2 li", "div.chapter-list li"]:
-            els = soup.select(sel)
-            if els:
-                # If it's a count element, parse the number
-                text = els[0].get_text()
-                m = _re.search(r"(\d+)", text)
-                if m and len(els) == 1:
-                    total = int(m.group(1))
-                elif len(els) > 1:
-                    total = len(els)
-                if total:
-                    break
-
-        # Default to building at least chapter 1 so Read Now always works
-        if not total:
-            total = 1
-
-        for i in range(1, min(total + 1, 201)):  # cap list at 200
-            padded = f"{i:02d}" if i < 100 else str(i)
+    if slug_m:
+        slug = slug_m.group(1)
+        for i in range(1, min(total + 1, 201)):   # cap at 200
             chapters.append({
                 "title": f"Chapter {i}",
-                "url":   f"{LR_BASE}/libread/{slug}/chapter-{padded}",
+                "url":   f"{FWN_BASE}/novel/{slug}/chapter-{i}",
             })
 
     return {"synopsis": synopsis, "author": author, "chapters": chapters, "total_pages": 1}
@@ -1665,9 +1819,25 @@ class DetailPanel(QWidget):
             val.setText(label_text)
             val.setStyleSheet(label_style)
         try:
+            import re as _re2
             data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
             entry = data.get("books", {}).get(book.title, {})
-            ch    = int(entry.get("current_chapter", 0))
+            # current_chapter is never written by the reader — derive the number
+            # from reader_url (most accurate) or reader_chapter (title string).
+            ch = 0
+            reader_url = entry.get("reader_url", "")
+            if reader_url:
+                m = _re2.search(r"/chapter-(\d+)", reader_url)
+                if not m:
+                    m = _re2.search(r"local-disk://chapter/(\d+)/", reader_url)
+                if m:
+                    ch = int(m.group(1))
+            if not ch:
+                ch_title = entry.get("reader_chapter", "")
+                if ch_title:
+                    m = _re2.search(r"(\d+)", ch_title)
+                    if m:
+                        ch = int(m.group(1))
         except Exception:
             ch = 0
         # Count chapters directly from disk — always accurate, never drifts.
@@ -2029,6 +2199,10 @@ class DetailPanel(QWidget):
         if book.source in ("gutenberg", "local", "libread"):
             self._ch_label.hide()
             self._ch_scroll.hide()
+            # For libread, still cache the first chapter URL so _open_reader
+            # can use it immediately (Priority 2) without a second network fetch.
+            if book.source == "libread" and chapters:
+                self._first_chapter_url = chapters[0].get("url", "")
             return
 
         if not chapters:
@@ -2437,44 +2611,49 @@ class ChapterFetchWorker(QThread):
             return self._fetch_from_disk(url)
 
         # ── Local cache check ────────────────────────────────────────────────
-        # If this chapter was already downloaded, serve it from disk.
-        # We need the chapter number — extract it from LEGION_PROGRESS.
-        if self._book_name:
+        # If this specific chapter is already downloaded, serve it from disk.
+        # Extract the chapter number from the URL being fetched — NOT from
+        # current_chapter in LEGION_PROGRESS (that's the reader's reading
+        # position, not the chapter we're being asked to load right now).
+        if self._book_name and (
+            "freewebnovel.com" in url or "libread.com" in url
+        ):
             try:
+                import re as _re2
                 from great_sage_core import legion_mod
                 mod, err = legion_mod()
                 if mod and not err:
-                    data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
-                    entry = data.get("books", {}).get(self._book_name, {})
-                    # reader_chapter is the title string; we need the number.
-                    # Derive chapter number from current reader position stored
-                    # as reader_url — compare against url to get chapter index.
-                    # Simpler: scan the file for this url is complex, so instead
-                    # we check if a chapter exists at the current_chapter index.
-                    ch_num = entry.get("current_chapter", 0)
-                    if ch_num and ch_num > 0:
+                    m = _re2.search(r"/chapter-(\d+)$", url)
+                    # Also handle libread padded format: /chapter-01
+                    if not m:
+                        m = _re2.search(r"/chapter-0*(\d+)$", url)
+                    if m:
+                        ch_num = int(m.group(1))
                         local_title, local_paragraphs = mod.get_chapter_from_file(
                             self._book_name, ch_num)
                         if local_title and local_paragraphs:
-                            # We have it locally — but we still need next/prev URLs.
-                            # Derive them from progress; next chapter may also be local.
-                            # Return with next/prev as None so reader re-fetches nav
-                            # on demand — this is safe, nav buttons will still work
-                            # because _on_chapter_loaded handles None gracefully.
-                            # For a proper next_url, peek at ch_num+1:
-                            next_title, next_paras = mod.get_chapter_from_file(
-                                self._book_name, ch_num + 1)
-                            # We can't reconstruct the URL from file alone, so fall
-                            # through to network for URL resolution — but only if
-                            # the current chapter is not already loaded from disk.
-                            # Serve from disk to avoid the network round-trip.
-                            return local_title, local_paragraphs, None, None, None
+                            # Chapter is on disk. Derive prev/next as local-disk
+                            # sentinels so the reader never needs the network for nav.
+                            # This requires knowing total chapters — scan once.
+                            try:
+                                ch_list = mod._get_chapter_list_from_file(self._book_name)
+                                total   = ch_list[-1][0] if ch_list else ch_num
+                            except Exception:
+                                total = ch_num
+                            def _sentinel(n):
+                                # URL-encode the book name so titles with /
+                                # don't break the local-disk:// URL pattern.
+                                from urllib.parse import quote as _q
+                                return f"local-disk://chapter/{n}/{_q(self._book_name, safe='')}"
+                            prev_s = _sentinel(ch_num - 1) if ch_num > 1 else None
+                            next_s = _sentinel(ch_num + 1) if ch_num < total else None
+                            return local_title, local_paragraphs, next_s, prev_s, None
             except Exception:
-                pass
+                pass  # disk miss — fall through to network
 
         # ── Network fetch ────────────────────────────────────────────────────
-        # LibRead: use proven selectors directly
-        if "libread.com" in url:
+        # LibRead / FreeWebNovel: use proven selectors directly
+        if "libread.com" in url or "freewebnovel.com" in url:
             return self._fetch_libread(url)
         # All other sources: delegate to legion.fetch_chapter
         from great_sage_core import legion_mod
@@ -2486,106 +2665,163 @@ class ChapterFetchWorker(QThread):
         return title or "Chapter", paragraphs or [], next_url, prev_url, error
 
     def _fetch_libread(self, url: str):
-        """Fetch a libread chapter using the proven m-read selector."""
+        """
+        Fetch a chapter from freewebnovel.com.
+
+        Accepts both libread.com and freewebnovel.com chapter URLs — libread
+        URLs are converted to fwn equivalents before the request so we never
+        follow the 302 → Cloudflare-challenge redirect that caused HTTP 403.
+
+        Returns: (title, paragraphs, next_url, prev_url, error)
+          error is None on success, "No content found" when the page exists but
+          is empty (ghost URL past end-of-book), or "HTTP NNN" on HTTP error.
+          Callers treat "HTTP 4xx" as permanent (end-of-book), other errors as
+          transient (retry).
+        """
         import re as _re
-        s = _libread_scraper()
-        r = s.get(url, timeout=12)
+
+        # Convert libread URL to fwn equivalent before any network touch.
+        # This prevents following the libread→fwn redirect which triggers CF.
+        fwn_url = _lr_url_to_fwn(url) if "libread.com" in url else url
+
+        # Plain requests.Session — proven to return HTTP 200 on fwn (diag.py Test 1).
+        # Do NOT use cloudscraper here; fwn blocks it (diag.py Tests 2 & 3 both 403).
+        s = _fwn_session()
+        try:
+            r = s.get(fwn_url, timeout=12)
+        except requests.exceptions.Timeout:
+            return "Error", [], None, None, "Timeout fetching chapter"
+        except requests.exceptions.ConnectionError as e:
+            return "Error", [], None, None, f"Connection error: {e}"
+        except Exception as e:
+            return "Error", [], None, None, str(e)
+
         if r.status_code != 200:
             return "Error", [], None, None, f"HTTP {r.status_code}"
 
+        # Guard against JS challenge pages served with HTTP 200 (CF anti-bot).
+        # A challenge page has < 2000 chars and contains CF-specific markers.
+        # Writing challenge HTML as chapter content would corrupt the book file.
+        if len(r.text) < 2000 and any(
+            marker in r.text for marker in (
+                "Just a moment", "cf-browser-verification",
+                "_cf_chl", "Checking your browser", "DDoS protection",
+            )
+        ):
+            return "Error", [], None, None, "JS challenge page — cannot scrape"
+
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Chapter title
-        title_span = soup.find("span", class_="chapter")
-        title = title_span.get_text(strip=True) if title_span else "Chapter"
+        # Chapter title — fwn primary: <span class="chapter">, fallback: <h1>
+        title_el = soup.find("span", class_="chapter") or soup.find("h1")
+        title    = title_el.get_text(strip=True) if title_el else "Chapter"
 
-        # Content
-        container = soup.find("div", class_="m-read")
-        if not container:
-            # Fallback to generic selectors
-            for sel in ["chr-content", "chapter-content", "chp_raw"]:
-                container = soup.find("div", id=sel) or soup.find("div", class_=sel)
-                if container:
-                    break
+        # Content — fwn primary selector is div.txt; chain for safety.
+        # These are ordered by specificity: most specific first.
+        container = (
+            soup.find("div", class_="txt")
+            or soup.find("div", id="chapter-content")
+            or soup.find("div", class_="chapter-content")
+            or soup.find("div", class_="content")
+        )
 
         paragraphs = []
         if container:
-            skip = {"Prev Chapter", "Next Chapter", "Font size", "Report"}
+            # Navigation noise fwn injects as <p> tags inside the content div.
+            # Filter by exact text rather than class because fwn uses no classes
+            # on these paragraphs — only content matters.
+            _NAV_NOISE = {"Prev Chapter", "Next Chapter", "Font size", "Report"}
             for p in container.find_all("p"):
                 text = p.get_text(strip=True)
-                if text and not any(s in text for s in skip):
+                if text and text not in _NAV_NOISE:
                     paragraphs.append(text)
 
-        # Next / prev nav — only trust hrefs that contain /libread/ (with slug+ID)
-        parsed = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url)
-        base   = f"{parsed.scheme}://{parsed.netloc}"
-
+        # Nav links — fwn nav buttons live in a dedicated .m-con-btn container
+        # (div.m-con-btn > a). Targeting this avoids the false-positive match
+        # from sidebar recommended-novel links which also contain /chapter- hrefs.
+        # Fallback to rel="prev"/rel="next" attributes as a secondary signal.
         next_url = prev_url = None
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            # Skip nav links that don't have the full slug (missing numeric ID suffix)
-            if "/libread/" not in href:
-                continue
-            full = (base + href) if href.startswith("/") else href
-            txt  = a.get_text(strip=True).lower()
-            if "next" in txt:
-                next_url = full
-            elif "prev" in txt:
-                prev_url = full
 
-        # Arithmetic fallback — always used for libread since nav links are unreliable
-        # LibRead URL padding: chapters 1-9 → 2 digits, chapters 10+ → 5 digits
-        m = _re.search(r"/chapter-(\d+)$", url)
+        nav_container = soup.find("div", class_="m-con-btn")
+        if nav_container:
+            for a in nav_container.find_all("a", href=True):
+                href = a["href"]
+                if "/chapter-" not in href:
+                    continue
+                full = (FWN_BASE + href) if href.startswith("/") else href
+                txt  = a.get_text(strip=True).lower()
+                if "next" in txt and next_url is None:
+                    next_url = full
+                elif "prev" in txt and prev_url is None:
+                    prev_url = full
+
+        # rel="next" / rel="prev" as fallback (fwn sets these in <link> tags)
+        if next_url is None:
+            tag = soup.find("link", rel="next") or soup.find("a", rel="next")
+            if tag and tag.get("href"):
+                href = tag["href"]
+                next_url = (FWN_BASE + href) if href.startswith("/") else href
+        if prev_url is None:
+            tag = soup.find("link", rel="prev") or soup.find("a", rel="prev")
+            if tag and tag.get("href"):
+                href = tag["href"]
+                prev_url = (FWN_BASE + href) if href.startswith("/") else href
+
+        # Arithmetic fallback — fwn uses clean /chapter-N slugs with no padding.
+        # We verify the candidate with a HEAD request using the same plain session
+        # (not cloudscraper) so we don't 403 the check.
+        m = _re.search(r"/chapter-(\d+)$", fwn_url)
         if m:
-            n   = int(m.group(1))
-            # Derive base_url from the book's canonical landing-page URL stored in
-            # LEGION_PROGRESS, NOT from the current chapter URL.  A chapter URL can
-            # drift (e.g. truncated book ID) and corrupt every subsequent arithmetic URL.
-            # Fall back to the chapter URL's directory only if no landing page is stored.
-            try:
-                _prog_data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
-                _book_entry = _prog_data.get("books", {}).get(self._book_name, {})
-                _lp         = _book_entry.get("url", "")
-                # Landing page ends with the slug+ID, e.g. /libread/<slug>-<id>
-                # Strip any trailing slash then that is our base_url for chapters.
-                base_url = _lp.rstrip("/") if (_lp and "/libread/" in _lp) else url[:url.rfind("/")]
-            except Exception:
-                base_url = url[:url.rfind("/")]
-            def _lr_pad(num):
-                return f"{num:02d}" if num < 10 else f"{num:05d}"
-            if not next_url:
-                candidate = f"{base_url}/chapter-{_lr_pad(n + 1)}"
-                # Validate the candidate exists before returning it — this prevents
-                # ghost chapters being downloaded past the real end of the book.
+            n        = int(m.group(1))
+            base_url = fwn_url[:fwn_url.rfind("/")]   # strips /chapter-N
+
+            if next_url is None:
+                candidate = f"{base_url}/chapter-{n + 1}"
                 try:
-                    head = s.head(candidate, timeout=6)
+                    # HEAD with same session — no cloudscraper, no 403.
+                    # Accept 200–399: fwn may 301 to canonical URL which is fine.
+                    # Reject >= 400: chapter genuinely doesn't exist.
+                    head = s.head(candidate, timeout=6, allow_redirects=True)
                     if head.status_code < 400:
                         next_url = candidate
-                    # 404/403 → next_url stays None → downloader enters polling loop
+                    # 404 → next_url stays None → downloader enters polling loop
                 except Exception:
-                    # Network error during validation — conservative: don't set next_url
-                    # so the downloader retries the current chapter rather than advancing.
+                    # Network hiccup on HEAD — leave next_url as None.
+                    # The downloader will re-check via arithmetic on next poll.
                     pass
-            if not prev_url and n > 1:
-                prev_url = f"{base_url}/chapter-{_lr_pad(n - 1)}"
 
-        return title, paragraphs, next_url, prev_url, None if paragraphs else "No content found"
+            if prev_url is None and n > 1:
+                prev_url = f"{base_url}/chapter-{n - 1}"
+
+        error = None if paragraphs else "No content found"
+        return title, paragraphs, next_url, prev_url, error
 
     def _fetch_from_disk(self, url: str):
         """
         Serve a chapter from the locally downloaded .txt file.
-        URL format: local-disk://chapter/{num}/{book_title}
-        Prev/next URLs are also local-disk sentinels so navigation never hits the network.
+        URL format: local-disk://chapter/{num}/{url_encoded_book_title}
+
+        Book title is URL-encoded in the sentinel to handle titles containing /
+        or other characters that would break a naive regex capture.
+        Prev/next URLs are also local-disk sentinels so navigation never hits
+        the network once chapters are on disk.
         """
         import re as _re, os
-        # Parse sentinel
-        m = _re.match(r"local-disk://chapter/(\d+)/(.+)$", url)
-        if not m:
-            return "Error", [], None, None, f"Bad local-disk URL: {url}"
-        ch_num    = int(m.group(1))
-        book_name = m.group(2)
+        from urllib.parse import unquote as _unquote, quote as _q
 
-        # Locate the file
+        # Strip the scheme and split on the first two path components.
+        # Format: local-disk://chapter/{num}/{encoded_title}
+        # We can't use a greedy regex on the title because titles may contain
+        # characters that look like URL separators.
+        path = url[len("local-disk://"):]   # "chapter/{num}/{encoded_title}"
+        parts = path.split("/", 2)           # ["chapter", "N", "encoded_title"]
+        if len(parts) != 3 or parts[0] != "chapter" or not parts[1].isdigit():
+            return "Error", [], None, None, f"Bad local-disk URL: {url}"
+
+        ch_num    = int(parts[1])
+        book_name = _unquote(parts[2])   # decode %2F etc. back to original title
+
+        # Locate the file using the same sanitization as get_book_path.
         from great_sage_core import SCRIPT_DIR
         safe     = _re.sub(r"[^\w\-_\. ]", "_", book_name)
         txt_path = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
@@ -2598,30 +2834,31 @@ class ChapterFetchWorker(QThread):
         except Exception as e:
             return "Error", [], None, None, str(e)
 
-        # Split on chapter separators and find the target chapter
-        blocks = _re.split(r"={50,}", raw)
+        # Parse chapter blocks
+        blocks         = _re.split(r"={50,}", raw)
         total_chapters = 0
-        title      = f"Chapter {ch_num}"
-        paragraphs = []
+        title          = f"Chapter {ch_num}"
+        paragraphs     = []
 
         for i in range(len(blocks) - 1):
             header = blocks[i].strip()
             body   = blocks[i + 1].strip() if i + 1 < len(blocks) else ""
             hm = _re.match(r"Chapter\s+(\d+)\s*[:\-]?\s*(.*)", header, _re.IGNORECASE)
             if hm:
-                total_chapters = max(total_chapters, int(hm.group(1)))
-                if int(hm.group(1)) == ch_num:
+                n = int(hm.group(1))
+                total_chapters = max(total_chapters, n)
+                if n == ch_num:
                     title      = hm.group(2).strip() or f"Chapter {ch_num}"
                     paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
 
         if not paragraphs:
             return "Error", [], None, None, f"Chapter {ch_num} not found in downloaded file."
 
-        # Build prev/next as local-disk sentinels — no network
+        # Build prev/next as local-disk sentinels — URL-encode the title.
         def _sentinel(n):
-            return f"local-disk://chapter/{n}/{book_name}"
+            return f"local-disk://chapter/{n}/{_q(book_name, safe='')}"
 
-        prev_url = _sentinel(ch_num - 1) if ch_num > 1 else None
+        prev_url = _sentinel(ch_num - 1) if ch_num > 1             else None
         next_url = _sentinel(ch_num + 1) if ch_num < total_chapters else None
 
         return title, paragraphs, next_url, prev_url, None
@@ -4099,10 +4336,7 @@ class LegionPage(QWidget):
 
         # ── Page 4: Detail panel ──────────────────────────────────────────────
         self._detail = DetailPanel()
-        self._detail.closed.connect(lambda: (
-            self._status_bar.show(),
-            self._content_stack.setCurrentIndex(self._active_tab),
-        ))
+        self._detail.closed.connect(self._on_detail_closed)
         self._detail.book_action.connect(self._on_detail_book_action)
         self._content_stack.addWidget(self._detail)    # index 4
 
@@ -4392,7 +4626,21 @@ class LegionPage(QWidget):
     def _on_book_clicked(self, book: BookItem):
         self._detail.show_book(book)
         self._status_bar.hide()
+        # Hide search row when detail panel slides in — only belongs on Discover grid
+        self._search_box.setVisible(False)
+        self._search_btn.setVisible(False)
+        self._source_combo.setVisible(False)
         self._content_stack.setCurrentIndex(4)
+
+    def _on_detail_closed(self):
+        """Return to grid and restore search bar if we came from Discover."""
+        self._status_bar.show()
+        self._content_stack.setCurrentIndex(self._active_tab)
+        # Restore search UI only when returning to Discover tab (index 0)
+        show_search = (self._active_tab == 0)
+        self._search_box.setVisible(show_search)
+        self._search_btn.setVisible(show_search)
+        self._source_combo.setVisible(show_search)
 
     def _on_detail_book_action(self, action: str, book: BookItem):
         """Triggered by DetailPanel after read/add/remove — refresh affected tabs."""
@@ -4441,11 +4689,14 @@ class LegionPage(QWidget):
         # ── Priority 3: book has downloaded chapters — open ch 1 from disk via sentinel
         try:
             import os, re as _re
+            from urllib.parse import quote as _q
             from great_sage_core import SCRIPT_DIR
             safe      = _re.sub(r"[^\w\-_\. ]", "_", book.title)
             txt_path  = str(SCRIPT_DIR / "library" / safe / f"{safe}.txt")
             if os.path.exists(txt_path):
-                self._reader.open_book(book, f"local-disk://chapter/1/{book.title}")
+                # URL-encode the title so sentinel survives titles containing /
+                encoded = _q(book.title, safe="")
+                self._reader.open_book(book, f"local-disk://chapter/1/{encoded}")
                 self._enter_reader()
                 return
         except Exception:
@@ -4485,6 +4736,15 @@ class LegionPage(QWidget):
             self._content_stack.setCurrentIndex(5)
         else:
             self._content_stack.setCurrentIndex(4)
+        # Refresh Last Read stat now that the reader has saved progress.
+        # The detail panel was opened before reading started so its stats
+        # are stale — re-run _update_stats with the book that was just read.
+        try:
+            book = getattr(self._detail, "_current_book", None)
+            if book:
+                self._detail._update_stats(book)
+        except Exception:
+            pass
 
     # ── Local tab ─────────────────────────────────────────────────────────────
 

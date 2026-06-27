@@ -12,7 +12,7 @@ import random
 import re
 import sys
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
