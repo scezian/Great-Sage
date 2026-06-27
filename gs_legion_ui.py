@@ -379,6 +379,10 @@ class _DownloadRegistry:
         return list(cls._workers.values())
 
     @classmethod
+    def all_workers(cls) -> list:
+        return list(cls._workers.values())
+
+    @classmethod
     def is_running(cls, title: str) -> bool:
         w = cls._workers.get(title)
         return w is not None and w.isRunning()
@@ -2185,10 +2189,14 @@ class BooksGrid(QWidget):
         for book in books:
             t = book.title.strip().lower()
             u = book.url.strip().rstrip("/").lower()
-            if t in existing_titles or u in existing_urls:
+            # Local books have no URL — skip URL dedup to avoid all of them
+            # collapsing into a single "" match after the first is added.
+            url_is_dupe = bool(u) and u in existing_urls
+            if t in existing_titles or url_is_dupe:
                 continue
             existing_titles.add(t)
-            existing_urls.add(u)
+            if u:
+                existing_urls.add(u)
             card = CoverCard(book)
             card.clicked.connect(self.book_clicked)
             card.delete_requested.connect(self.delete_requested)
