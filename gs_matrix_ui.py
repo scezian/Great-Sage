@@ -1439,30 +1439,47 @@ class MatrixPage(QWidget):
                     if dr and dr.get("error") == "success" and dr.get("data"):
                         duration = float(dr["data"])
 
-                # Save position + duration every 3s
+                # ── Position tracking ─────────────────────────────────────────
+                # In-memory state updates every 3s (for accurate position reads).
+                # Disk writes are throttled to every 30s to avoid fd exhaustion.
+                # track_event watch_time is accumulated and flushed every 60s.
                 now = time.time()
                 if last_pos > 0 and not _file_switching and now - last_save >= 3:
                     last_save = now
-                    pos_snap = last_pos
-                    dur_snap = duration
-                    fname = current
-                    track_event("watch_time", {"minutes": 0.05})  # ~3s per save cycle
-                    def _save(sk=show, p=pos_snap, d=dur_snap, f=fname):
-                        if p <= 0: return                # never persist a zero from a stale tick
-                        md = matrix_data()
-                        watching = md.get("watching", {})
-                        # Find the right key — prefer exact match, fall back to file_path match
-                        target_key = sk if sk in watching else next(
-                            (k for k, v in watching.items()
-                             if isinstance(v, dict) and v.get("file_path") == f), None)
-                        if target_key:
-                            watching[target_key]["position"]     = p
-                            watching[target_key]["duration"]     = d
-                            watching[target_key]["file_path"]    = f
-                            watching[target_key]["last_watched"] = time.time()
-                            save_json(MATRIX_PROGRESS, md)
-                        QTimer.singleShot(0, self.refresh)
-                    threading.Thread(target=_save, daemon=False).start()
+                    pos_snap  = last_pos
+                    dur_snap  = duration
+                    fname     = current
+
+                    # Accumulate watch-time — flush to behaviour log every 60s
+                    _watch_time_accum = getattr(self, "_watch_time_accum", 0.0)
+                    _watch_time_last_flush = getattr(self, "_watch_time_last_flush", now)
+                    _watch_time_accum += 0.05   # ~3s per tick → 0.05 minutes
+                    if now - _watch_time_last_flush >= 60:
+                        track_event("watch_time", {"minutes": _watch_time_accum})
+                        _watch_time_accum      = 0.0
+                        _watch_time_last_flush = now
+                    self._watch_time_accum      = _watch_time_accum
+                    self._watch_time_last_flush = _watch_time_last_flush
+
+                    # Only write to disk every 30s — in-memory position is always current
+                    _last_disk_save = getattr(self, "_play_last_disk_save", 0.0)
+                    if now - _last_disk_save >= 30:
+                        self._play_last_disk_save = now
+                        def _save(sk=show, p=pos_snap, d=dur_snap, f=fname):
+                            if p <= 0: return
+                            md = matrix_data()
+                            watching = md.get("watching", {})
+                            target_key = sk if sk in watching else next(
+                                (k for k, v in watching.items()
+                                 if isinstance(v, dict) and v.get("file_path") == f), None)
+                            if target_key:
+                                watching[target_key]["position"]     = p
+                                watching[target_key]["duration"]     = d
+                                watching[target_key]["file_path"]    = f
+                                watching[target_key]["last_watched"] = time.time()
+                                save_json(MATRIX_PROGRESS, md)
+                            QTimer.singleShot(0, self.refresh)
+                        threading.Thread(target=_save, daemon=False).start()
 
                 # Re-check for next episode once we're past 85%
                 # (handles case where cur_next was None at launch but file appeared)

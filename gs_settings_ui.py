@@ -41,8 +41,8 @@ from great_sage_core import (
     load_json, save_json,
     matrix_data,
     reload_module,
-    get_notification_store,
 )
+from gs_notifications import push_notification, dismiss_notification, get_notification_store
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -677,6 +677,13 @@ class SettingsPage(QWidget):
             self._sync_user_lbl.setText("")
             self._sync_login_widget.show()
             self._sync_actions_widget.hide()
+            # Push persistent bell notification — dedup + cooldown handled inside push_notification()
+            push_notification(
+                title="Cloud sync — not signed in",
+                body="Open Settings → Cloud to sign in and enable sync.",
+                notif_type="warning",
+                notif_id="cloud_not_logged_in",
+            )
 
     def _sync_login(self):
         sync = self._get_sync()
@@ -694,6 +701,7 @@ class SettingsPage(QWidget):
             sync.login(email, password)
             self._sync_msg_lbl.setText("")
             self._sync_pass_edit.clear()
+            dismiss_notification("cloud_not_logged_in")
             self._sync_refresh_ui()
             self._sync_push(silent=True)
             self._start_autosync_timer()
@@ -753,10 +761,14 @@ class SettingsPage(QWidget):
             return
 
         def _do():
+            auth_failed = False
             try:
                 sync.restore_to_disk()
             except Exception as e:
+                err = str(e)
                 _log.warning(f"[cloud] Sync-cycle pull error: {e}")
+                if "Not logged in" in err or "401" in err or "token" in err.lower():
+                    auth_failed = True
             try:
                 ok = sync.push()
                 if ok:
@@ -764,7 +776,18 @@ class SettingsPage(QWidget):
                 else:
                     _log.warning("[cloud] Sync-cycle push returned False")
             except Exception as e:
+                err = str(e)
                 _log.error(f"[cloud] Sync-cycle push error: {e}")
+                if "Not logged in" in err or "401" in err or "token" in err.lower():
+                    auth_failed = True
+
+            if auth_failed:
+                push_notification(
+                    title="Cloud sync — session expired",
+                    body="Your session expired. Open Settings → Cloud to sign back in.",
+                    notif_type="warning",
+                    notif_id="cloud_not_logged_in",
+                )
 
         threading.Thread(target=_do, daemon=True, name="gs_sync_cycle").start()
 
@@ -847,22 +870,14 @@ class SettingsPage(QWidget):
             sender   = rec.get("sender", "Someone")
             title    = rec.get("title", "")
             notif_id = f"rec-{rec.get('id', '')}"
-            get_notification_store().add(
+            push_notification(
+                title=f"{sender} recommended {title}",
+                body=rec.get("message", ""),
                 notif_type="friend_rec",
-                title=f"{sender} recommended  {title}",
-                data=rec,
                 notif_id=notif_id,
+                data=rec,
+                cooldown=False,   # recs are unique by id, no cooldown needed
             )
-            # Refresh bell badge on the dashboard if it's visible
-            try:
-                from PyQt6.QtWidgets import QApplication as _QApp
-                mw = _QApp.activeWindow()
-                if mw and hasattr(mw, "_page_objs"):
-                    dash = mw._page_objs.get("dashboard")
-                    if dash and hasattr(dash, "_notif_bell"):
-                        dash._notif_bell.refresh_badge()
-            except Exception:
-                pass
             _log.info(f"[cloud] Rec stored in notification bell: {title} from {sender}")
         except Exception as e:
             _log.warning(f"[cloud] Failed to store rec notification: {e}")
@@ -931,6 +946,19 @@ class SettingsPage(QWidget):
             sync.logout()
         if hasattr(self, "_autosync_timer"):
             self._autosync_timer.stop()
+        # Reset cooldown so the not-logged-in notification fires immediately
+        from gs_notifications import _reset_cooldown
+        _reset_cooldown("cloud_not_logged_in")
         self._sync_refresh_ui()
+
+    def cleanup(self):
+        """Called on app exit — cleanly closes the shared HTTP session."""
+        if hasattr(self, "_autosync_timer"):
+            self._autosync_timer.stop()
+        if hasattr(self, "_sync_client"):
+            try:
+                self._sync_client.close()
+            except Exception:
+                pass
 
     def refresh(self): self._load()

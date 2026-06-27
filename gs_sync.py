@@ -133,13 +133,19 @@ class GreatSageSync:
         self._stop_poll = threading.Event()
         self._rec_callbacks: list = []
 
+        # Shared session — reuses the connection pool so we never leak SSL
+        # sockets. One session per GreatSageSync instance (singleton in practice).
+        self._session = requests.Session()
+        # In-memory token expiry — avoids reading TOKEN_CACHE_PATH on every request
+        self._token_expires_at: float = 0.0
+
         self._load_cached_token()
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
     def login(self, email: str, password: str) -> dict:
         """Sign in with email + password. Caches token to disk."""
-        resp = requests.post(
+        resp = self._session.post(
             f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
             headers=self._anon_headers(),
             json={"email": email, "password": password},
@@ -162,11 +168,20 @@ class GreatSageSync:
     def logout(self):
         """Clear token and stop polling."""
         self._stop_polling()
-        self._token   = None
-        self._user_id = None
+        self._token            = None
+        self._user_id          = None
+        self._token_expires_at = 0.0
         if TOKEN_CACHE_PATH.exists():
             TOKEN_CACHE_PATH.unlink()
         logger.info("[gs_sync] Logged out")
+
+    def close(self):
+        """Close the shared HTTP session. Call on app exit."""
+        self._stop_polling()
+        try:
+            self._session.close()
+        except Exception:
+            pass
 
     def is_logged_in(self) -> bool:
         return self._token is not None and self._user_id is not None
@@ -426,7 +441,7 @@ class GreatSageSync:
         if not self.is_logged_in():
             return False
         try:
-            resp = requests.delete(
+            resp = self._session.delete(
                 f"{SUPABASE_URL}/rest/v1/watchlist",
                 headers=self._auth_headers(),
                 params={"user_id": f"eq.{self._user_id}", "title": f"eq.{title}"},
@@ -491,7 +506,7 @@ class GreatSageSync:
 
         # Mark accepted in cloud
         try:
-            resp = requests.patch(
+            resp = self._session.patch(
                 f"{SUPABASE_URL}/rest/v1/recommendations",
                 headers=self._auth_headers(),
                 params={"id": f"eq.{rec_id}"},
@@ -527,7 +542,7 @@ class GreatSageSync:
         if not self.is_logged_in():
             return False
         try:
-            resp = requests.patch(
+            resp = self._session.patch(
                 f"{SUPABASE_URL}/rest/v1/recommendations",
                 headers=self._auth_headers(),
                 params={"id": f"eq.{rec_id}"},
@@ -640,9 +655,9 @@ class GreatSageSync:
             url += f"?{query}&select={select}"
             if order:
                 url += f"&order={order}"
-            resp = requests.get(url, headers=self._auth_headers(), timeout=10)
+            resp = self._session.get(url, headers=self._auth_headers(), timeout=10)
         else:
-            resp = requests.get(url, headers=self._auth_headers(),
+            resp = self._session.get(url, headers=self._auth_headers(),
                                 params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
@@ -667,7 +682,7 @@ class GreatSageSync:
         if on_conflict:
             params["on_conflict"] = on_conflict
 
-        resp = requests.post(
+        resp = self._session.post(
             f"{SUPABASE_URL}/rest/v1/{table}",
             headers=headers,
             params=params,
@@ -698,6 +713,8 @@ class GreatSageSync:
                              else existing.get("password", ""),
         }
         TOKEN_CACHE_PATH.write_text(json.dumps(cache, indent=2))
+        # Keep in-memory expiry in sync so _ensure_fresh_token avoids disk reads
+        self._token_expires_at = float(data.get("expires_at", 0))
 
     def _load_cached_token(self):
         if not TOKEN_CACHE_PATH.exists():
@@ -705,11 +722,11 @@ class GreatSageSync:
         try:
             cache = json.loads(TOKEN_CACHE_PATH.read_text())
             # Always load cached token first so user is never silently logged out
-            self._token   = cache.get("access_token")
-            self._user_id = cache.get("user_id")
-            expires_at = cache.get("expires_at", 0)
+            self._token            = cache.get("access_token")
+            self._user_id          = cache.get("user_id")
+            self._token_expires_at = float(cache.get("expires_at", 0))
             # Try to refresh if expired or within 5 minutes of expiry
-            if expires_at and time.time() > expires_at - 300:
+            if self._token_expires_at and time.time() > self._token_expires_at - 300:
                 self._refresh_token(cache.get("refresh_token", ""))
             else:
                 logger.info("[gs_sync] Loaded cached token")
@@ -719,18 +736,18 @@ class GreatSageSync:
     def _ensure_fresh_token(self):
         """
         Called before every HTTP request. Refreshes the access token if it has
-        expired or is within 5 minutes of expiry. No-op if token is still fresh.
+        expired or is within 5 minutes of expiry. Uses in-memory expiry so no
+        file is opened on every call.
         """
-        if not TOKEN_CACHE_PATH.exists():
+        if not self._token_expires_at:
             return
-        try:
-            cache = json.loads(TOKEN_CACHE_PATH.read_text())
-            expires_at = cache.get("expires_at", 0)
-            if expires_at and time.time() > expires_at - 300:
-                logger.info("[gs_sync] Token near/past expiry — refreshing mid-session")
+        if time.time() > self._token_expires_at - 300:
+            logger.info("[gs_sync] Token near/past expiry — refreshing mid-session")
+            try:
+                cache = json.loads(TOKEN_CACHE_PATH.read_text())
                 self._refresh_token(cache.get("refresh_token", ""))
-        except Exception as e:
-            logger.warning(f"[gs_sync] _ensure_fresh_token error: {e}")
+            except Exception as e:
+                logger.warning(f"[gs_sync] _ensure_fresh_token error: {e}")
 
     def _refresh_token(self, refresh_token: str):
         # Pre-load stored credentials before anything else so they're always
@@ -746,7 +763,7 @@ class GreatSageSync:
             pass
 
         try:
-            resp = requests.post(
+            resp = self._session.post(
                 f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
                 headers=self._anon_headers(),
                 json={"refresh_token": refresh_token},
@@ -769,8 +786,9 @@ class GreatSageSync:
                 except Exception as re_err:
                     logger.warning(f"[gs_sync] Silent re-login failed: {re_err}")
             # Give up — clear cache and require manual sign-in
-            self._token   = None
-            self._user_id = None
+            self._token            = None
+            self._user_id          = None
+            self._token_expires_at = 0.0
             try:
                 TOKEN_CACHE_PATH.unlink(missing_ok=True)
             except Exception:

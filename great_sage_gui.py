@@ -512,6 +512,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_auto_sync_worker') and self._auto_sync_worker:
             self._auto_sync_worker.quit()
             self._auto_sync_worker.wait(1000)
+        # Close the sync HTTP session cleanly to release all SSL sockets
+        settings_page = self._page_objs.get("settings") if hasattr(self, '_page_objs') else None
+        if settings_page is not None and hasattr(settings_page, "cleanup"):
+            settings_page.cleanup()
         # Wait for play thread to finish its final save before exiting
         matrix_page = self._page_objs.get("matrix") if hasattr(self, '_page_objs') else None
         if matrix_page is not None:

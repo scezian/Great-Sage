@@ -18,6 +18,10 @@ import shutil
 import socket
 import threading
 import requests
+
+# Shared HTTP session — reuses SSL connections across all metadata/API calls
+# so we never accumulate leaked sockets from bare _session.get/post calls.
+_session = requests.Session()
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 from datetime import datetime
@@ -1423,7 +1427,7 @@ class MetadataFetcher:
     def _fetch_jikan(title: str) -> Optional[Dict]:
         """Jikan v4 (MyAnimeList). Returns first match across main + alt titles."""
         try:
-            resp = requests.get(
+            resp = _session.get(
                 f"{JIKAN_API}/anime",
                 params={'q': title, 'limit': 8},
                 timeout=10
@@ -1474,7 +1478,7 @@ class MetadataFetcher:
         base_params = {'api_key': TMDB_API_KEY, 'language': 'en-US'}
         try:
             # Multi-search hits both movies and TV
-            resp = requests.get(
+            resp = _session.get(
                 f"{TMDB_API}/search/multi",
                 params={**base_params, 'query': title, 'include_adult': False},
                 timeout=10
@@ -1496,7 +1500,7 @@ class MetadataFetcher:
 
                 # Fetch full details for genres and extra fields
                 detail_url = f"{TMDB_API}/{media_type}/{r['id']}"
-                det = requests.get(detail_url,
+                det = _session.get(detail_url,
                                    params=base_params,
                                    timeout=10).json()
 
@@ -1550,7 +1554,7 @@ class MetadataFetcher:
     def _fetch_tvmaze(title: str) -> Optional[Dict]:
         """TVMaze — final fallback for TV shows."""
         try:
-            resp = requests.get(
+            resp = _session.get(
                 f"{TVMAZE_API}/search/shows",
                 params={'q': title},
                 timeout=10
@@ -1613,7 +1617,7 @@ def trakt_device_auth(client_id: str, client_secret: str) -> dict:
     """
     try:
         # Step 1 — request device code
-        r = requests.post(
+        r = _session.post(
             f"{TRAKT_DEVICE_URL}/code",
             json={"client_id": client_id},
             timeout=15,
@@ -1634,7 +1638,7 @@ def trakt_device_auth(client_id: str, client_secret: str) -> dict:
         deadline = time.time() + expires_in
         while time.time() < deadline:
             time.sleep(interval)
-            poll = requests.post(
+            poll = _session.post(
                 f"{TRAKT_DEVICE_URL}/token",
                 json={
                     "code":          device_code,
@@ -1672,7 +1676,7 @@ def trakt_device_auth(client_id: str, client_secret: str) -> dict:
 def trakt_refresh_token(cfg: dict) -> dict:
     """Refresh Trakt access token using refresh_token. Returns updated cfg."""
     try:
-        r = requests.post(
+        r = _session.post(
             TRAKT_TOKEN_URL,
             json={
                 "refresh_token": cfg["trakt_token"]["refresh_token"],
@@ -1719,7 +1723,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
 
     try:
         # Watchlist (planning)
-        r = requests.get(f"{TRAKT_API}/users/{username}/watchlist",
+        r = _session.get(f"{TRAKT_API}/users/{username}/watchlist",
                          headers=headers, timeout=15)
         if r.status_code == 200:
             for entry in r.json():
@@ -1730,7 +1734,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
                                                "source": "trakt"})
 
         # Watched history — movies
-        r = requests.get(f"{TRAKT_API}/users/{username}/watched/movies",
+        r = _session.get(f"{TRAKT_API}/users/{username}/watched/movies",
                          headers=headers, timeout=15)
         if r.status_code == 200:
             for entry in r.json():
@@ -1740,7 +1744,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
                                                 "source": "trakt"})
 
         # Watched history — shows
-        r = requests.get(f"{TRAKT_API}/users/{username}/watched/shows",
+        r = _session.get(f"{TRAKT_API}/users/{username}/watched/shows",
                          headers=headers, timeout=15)
         if r.status_code == 200:
             for entry in r.json():
@@ -1750,7 +1754,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
                                                 "source": "trakt"})
 
         # Custom lists — look for watching/dropped
-        r = requests.get(f"{TRAKT_API}/users/{username}/lists",
+        r = _session.get(f"{TRAKT_API}/users/{username}/lists",
                          headers=headers, timeout=15)
         if r.status_code == 200:
             for lst in r.json():
@@ -1763,7 +1767,7 @@ def fetch_trakt_lists(cfg: dict) -> dict:
                 if not internal:
                     continue
                 slug = lst.get("ids", {}).get("slug", "")
-                items_r = requests.get(
+                items_r = _session.get(
                     f"{TRAKT_API}/users/{username}/lists/{slug}/items",
                     headers=headers, timeout=15,
                 )
@@ -1806,7 +1810,7 @@ def fetch_anilist_lists(username: str) -> dict:
     """
     result = {"planning": [], "watching": [], "completed": [], "dropped": []}
     try:
-        r = requests.post(
+        r = _session.post(
             ANILIST_API,
             json={"query": query, "variables": {"username": username}},
             timeout=15,

@@ -175,6 +175,7 @@ PACKAGES=(
     "numpy"
     "markdown-it-py"
     "Pygments"
+    "pypdf"
 )
 
 "$SCRIPT_DIR/venv/bin/pip" install --quiet --upgrade pip &>/dev/null

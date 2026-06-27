@@ -1770,18 +1770,38 @@ class NotificationBell(QPushButton):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # Badge: small filled circle at top-right of button
-        badge_r = 5
-        bx = self.width() - badge_r - 4
-        by = badge_r + 3
+
+        label = str(min(self._unread, 99))  # cap display at 99
+
+        from PyQt6.QtGui import QFont, QFontMetrics
+        font = QFont(FONT_UI, 7)
+        font.setBold(True)
+        p.setFont(font)
+        fm = QFontMetrics(font)
+        text_w = fm.horizontalAdvance(label)
+        text_h = fm.ascent()
+
+        pad_x, pad_y = 5, 3
+        badge_w = max(text_w + pad_x * 2, 16)  # min width so single digit looks round
+        badge_h = text_h + pad_y * 2
+
+        # Position: top-right corner, slightly inset
+        bx = self.width() - badge_w - 3
+        by = 3
+
+        # Dark outline ring so badge reads on any background
         p.setPen(Qt.PenStyle.NoPen)
-        # Dark outline so badge is visible on any background
         p.setBrush(QBrush(QColor(BG)))
-        p.drawEllipse(bx - badge_r - 1, by - badge_r - 1,
-                      (badge_r + 1) * 2, (badge_r + 1) * 2)
+        p.drawRoundedRect(bx - 1, by - 1, badge_w + 2, badge_h + 2,
+                          (badge_h + 2) / 2, (badge_h + 2) / 2)
+
         # Accent fill
         p.setBrush(QBrush(QColor(ACCENT)))
-        p.drawEllipse(bx - badge_r, by - badge_r, badge_r * 2, badge_r * 2)
+        p.drawRoundedRect(bx, by, badge_w, badge_h, badge_h / 2, badge_h / 2)
+
+        # White number
+        p.setPen(QColor("#ffffff"))
+        p.drawText(bx, by, badge_w, badge_h, Qt.AlignmentFlag.AlignCenter, label)
         p.end()
 
     def _toggle_panel(self):

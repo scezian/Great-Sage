@@ -1231,6 +1231,11 @@ def append_chapter_to_file(book_name, chapter_num, title, paragraphs):
     m = re.search(r'chapter[\s\-_]*(\d+)', title, re.IGNORECASE)
     if m:
         real_num = int(m.group(1))
+    paragraphs = [p for p in paragraphs if not _is_junk_paragraph(p)]
+    if not paragraphs:
+        log.debug("append_chapter_to_file: skipped — no real content after junk filter",
+                  book=book_name, chapter=real_num)
+        return
     try:
         with open(save_path, 'a', encoding='utf-8') as f:
             f.write(f"\n\n{'='*60}\n")
@@ -1385,10 +1390,11 @@ def _get_chapter_list_from_file(book_name: str) -> list:
         # to avoid matching chapter references inside story text.
         blocks = re.split(r"={50,}", raw)
         seen   = {}
-        for i, block in enumerate(blocks):
-            if i % 2 == 0:
-                continue   # even = body content, skip
-            m = re.match(r"\s*Chapter\s+(\d+)\s*[:\-]?\s*(.*)", block.strip(), re.IGNORECASE)
+        i = 1
+        while i < len(blocks) - 1:
+            header = blocks[i].strip()
+            i += 2
+            m = re.match(r"Chapter\s+(\d+)\s*[:\-]?\s*(.*)", header, re.IGNORECASE)
             if m:
                 num = int(m.group(1))
                 if num not in seen:
@@ -1398,3 +1404,122 @@ def _get_chapter_list_from_file(book_name: str) -> list:
         return []
 
 
+
+# ── Junk paragraph detection ──────────────────────────────────────────────────
+
+_JUNK_PATTERNS = [
+    re.compile(r"use arrow keys", re.IGNORECASE),
+    re.compile(r"prev/next chapter", re.IGNORECASE),
+    re.compile(r"^\s*please\s+(click|tap|support)", re.IGNORECASE),
+    re.compile(r"^\s*translator['']?s?\s+note[s]?\s*[:：]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*\[.*?\]\s*$"),
+]
+
+def _is_junk_paragraph(p: str) -> bool:
+    p = p.strip()
+    if not p or len(p) < 5:
+        return True
+    for pat in _JUNK_PATTERNS:
+        if pat.search(p):
+            return True
+    return False
+
+def _chapter_has_real_content(paragraphs: list, min_real: int = 3, min_total_chars: int = 150) -> bool:
+    real = [p for p in paragraphs if not _is_junk_paragraph(p)]
+    if len(real) < min_real:
+        return False
+    if sum(len(p) for p in real) < min_total_chars:
+        return False
+    return True
+
+
+def clean_junk_chapters(book_name: str) -> dict:
+    """
+    Scan the downloaded .txt file and:
+      1. Strip junk paragraphs (nav text etc.) from within each chapter.
+      2. Remove duplicate chapter numbers — keep first occurrence only.
+      3. Remove chapters with no real content after stripping.
+    Rewrites the file in place with sequential numbering.
+
+    Returns:
+        {
+            "removed":        int,   # whole chapters deleted (empty or duplicate)
+            "duplicates":     int,   # duplicate chapters removed
+            "paras_stripped": int,   # junk paragraphs stripped
+            "kept":           int,   # chapters kept
+            "new_last":       int,   # final chapter count
+            "error":          str | None,
+        }
+    """
+    result = {"removed": 0, "duplicates": 0, "paras_stripped": 0,
+              "kept": 0, "new_last": 0, "error": None}
+    save_path = get_book_path(book_name)
+    if not os.path.exists(save_path):
+        result["error"] = "Book file not found"
+        return result
+
+    try:
+        with open(save_path, "r", encoding="utf-8", errors="replace") as f:
+            raw = f.read()
+
+        blocks = re.split(r"={50,}", raw)
+        chapters = []   # (chapter_num, title, clean_paragraphs)
+        seen_nums = set()
+
+        i = 1
+        while i < len(blocks) - 1:
+            header_block = blocks[i].strip()
+            body_block   = blocks[i + 1] if i + 1 < len(blocks) else ""
+            i += 2
+
+            m = re.match(r"Chapter\s+(\d+)\s*[:\-]?\s*(.*)", header_block, re.IGNORECASE)
+            if not m:
+                continue
+
+            chapter_num = int(m.group(1))
+            title       = m.group(2).strip() or f"Chapter {chapter_num}"
+            all_paras   = [p.strip() for p in body_block.split("\n\n") if p.strip()]
+            clean_paras = [p for p in all_paras if not _is_junk_paragraph(p)]
+            result["paras_stripped"] += len(all_paras) - len(clean_paras)
+
+            # Deduplicate — skip if we've already seen this chapter number
+            if chapter_num in seen_nums:
+                result["duplicates"] += 1
+                continue
+            seen_nums.add(chapter_num)
+            chapters.append((chapter_num, title, clean_paras))
+
+        # Drop chapters with no real content after stripping
+        kept    = [(n, t, p) for n, t, p in chapters if _chapter_has_real_content(p)]
+        removed = len(chapters) - len(kept)
+        result["removed"] = removed
+
+        total_changed = removed + result["duplicates"] + result["paras_stripped"]
+        if total_changed == 0:
+            result["kept"]     = len(kept)
+            result["new_last"] = len(kept)
+            return result
+
+        # Rewrite with sequential numbering
+        lines = []
+        for new_num, (_, title, paras) in enumerate(kept, start=1):
+            lines.append(f"\n\n{'='*60}")
+            lines.append(f"Chapter {new_num}: {title}")
+            lines.append(f"{'='*60}\n")
+            for p in paras:
+                lines.append(p + "\n")
+
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        result["kept"]     = len(kept)
+        result["new_last"] = len(kept)
+        log.info("clean_junk_chapters complete", book=book_name,
+                 removed=removed, duplicates=result["duplicates"],
+                 paras_stripped=result["paras_stripped"], kept=len(kept))
+        return result
+
+    except Exception as e:
+        result["error"] = str(e)
+        log.error("clean_junk_chapters failed", book=book_name, error=str(e))
+        return result

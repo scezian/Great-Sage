@@ -371,6 +371,14 @@ class _DownloadRegistry:
             w.cancel()          # sets flag; worker exits between chapters
 
     @classmethod
+    def get(cls, title: str) -> "ChapterDownloadWorker | None":
+        return cls._workers.get(title)
+
+    @classmethod
+    def all_workers(cls) -> list:
+        return list(cls._workers.values())
+
+    @classmethod
     def is_running(cls, title: str) -> bool:
         w = cls._workers.get(title)
         return w is not None and w.isRunning()
@@ -393,6 +401,8 @@ class ChapterDownloadWorker(QThread):
     """
 
     POLL_INTERVAL = 600   # 10 minutes
+
+    chapter_downloaded = pyqtSignal(str, int)  # (book_title, new_chapter_count)
 
     def __init__(self, book: "BookItem", parent=None):
         super().__init__(parent)
@@ -623,7 +633,15 @@ class ChapterDownloadWorker(QThread):
         if not url or self._cancelled:
             return
 
-        chapter_num = self._chapter_num_from_progress()
+        # Bug 2 fix: use actual disk chapter count as the authoritative baseline.
+        # The JSON counter drifts over restarts and cannot be trusted.
+        try:
+            from great_sage_core import legion_mod as _lm2
+            _lmod2, _ = _lm2()
+            _disk = _lmod2._get_chapter_list_from_file(self._book.title) if _lmod2 else []
+            chapter_num = len(_disk) if _disk else self._chapter_num_from_progress()
+        except Exception:
+            chapter_num = self._chapter_num_from_progress()
 
         # Safety: derive base_url for arithmetic fallback from the book's canonical
         # landing-page URL stored in LEGION_PROGRESS, not from the current chapter URL.
@@ -660,29 +678,47 @@ class ChapterDownloadWorker(QThread):
                             return
                         self.msleep(1000)
                     continue
-                # No error but empty paragraphs — could be a genuine caught-up state
-                # or a ghost URL.  Count consecutive occurrences; if we see 3 in a row
-                # with no real content, treat it as end-of-book and enter polling.
+                # Empty paragraphs — fall through; junk filter + has_real_content
+                # below handles consecutive empty tracking and caught-up detection.
+
+            # Strip junk paragraphs before content check
+            if paragraphs:
+                try:
+                    from great_sage_core import legion_mod as _lm
+                    _lmod, _ = _lm()
+                    if _lmod and hasattr(_lmod, "_is_junk_paragraph"):
+                        paragraphs = [p for p in paragraphs
+                                      if not _lmod._is_junk_paragraph(p)]
+                except Exception:
+                    pass
+
+            has_real_content = bool(paragraphs) and len("".join(paragraphs)) >= 150
+
+            if not has_real_content:
                 _consecutive_empty += 1
                 if _consecutive_empty >= 3:
-                    next_url          = None
+                    next_url           = None
                     _consecutive_empty = 0
-                # Fall through to next_url handling.
-
-            if paragraphs:
+            else:
                 _consecutive_empty = 0
                 chapter_num += 1
 
-                # Import storage from legion.py
+                written = False
                 try:
                     from great_sage_core import legion_mod
                     mod, err = legion_mod()
                     if mod and not err:
                         mod.append_chapter_to_file(self._book.title, chapter_num, title, paragraphs)
+                        written = True
                 except Exception:
                     pass
 
-                self._save_progress(chapter_num, url)
+                if written:
+                    # Bug 1 fix: save next_url so resume picks up AFTER this chapter.
+                    self._save_progress(chapter_num, next_url or url)
+                    self.chapter_downloaded.emit(self._book.title, chapter_num)
+                else:
+                    chapter_num -= 1
 
             if self._cancelled:
                 return
@@ -1344,6 +1380,8 @@ class DetailPanel(QWidget):
         self._detail_worker       = None
         self._detail_cover_worker = None
         self._first_chapter_url: str | None = None
+        self._preview_worker: "PreviewWorker | None" = None
+        self._original_synopsis: str = ""
         self._build()
         self.hide()
 
@@ -1498,6 +1536,28 @@ class DetailPanel(QWidget):
         self._remove_btn.hide()
         btn_row.addWidget(self._remove_btn)
 
+        self._clean_btn = QPushButton("🧹 Clean")
+        self._clean_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clean_btn.setToolTip("Strip junk lines from downloaded chapters")
+        self._clean_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:1px solid #2A2A3A; "
+            f"color:{MUTED}; font-size:10px; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 12px;}}"
+            f"QPushButton:hover{{background:#1E1E2E; border-color:{ACCENT}; color:{ACCENT};}}")
+        self._clean_btn.hide()
+        btn_row.addWidget(self._clean_btn)
+
+        self._preview_btn = QPushButton("✦ Preview")
+        self._preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._preview_btn.setToolTip("AI analysis of the first chapters")
+        self._preview_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:1px solid #2A2A3A; "
+            f"color:{MUTED}; font-size:10px; letter-spacing:1px; "
+            f"border-radius:4px; padding:8px 12px;}}"
+            f"QPushButton:hover{{background:#1E1E2E; border-color:{ACCENT}; color:{ACCENT};}}")
+        self._preview_btn.hide()
+        btn_row.addWidget(self._preview_btn)
+
         btn_row.addStretch()
         meta_col.addLayout(btn_row)
 
@@ -1604,11 +1664,41 @@ class DetailPanel(QWidget):
             data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
             entry = data.get("books", {}).get(book.title, {})
             ch    = int(entry.get("current_chapter", 0))
-            dl    = int(entry.get("last_downloaded_chapter", 0))
         except Exception:
-            ch = dl = 0
+            ch = 0
+        # Count chapters directly from disk — always accurate, never drifts.
+        try:
+            from great_sage_core import legion_mod as _dlm
+            _dm, _ = _dlm()
+            dl = len(_dm._get_chapter_list_from_file(book.title)) if _dm else 0
+        except Exception:
+            dl = 0
         self._set_stat(self._stat_last, f"Ch. {ch}" if ch else "—")
         self._set_stat(self._stat_dl,   f"{dl} ch"  if dl else "—")
+        self._connect_download_signal(book)
+
+    def _connect_download_signal(self, book: BookItem):
+        """Disconnect ALL workers from this panel, then connect only the
+        worker for the current book (if one is running)."""
+        for w in _DownloadRegistry.all_workers():
+            try:
+                w.chapter_downloaded.disconnect()
+            except TypeError:
+                pass
+        w = _DownloadRegistry.get(book.title)
+        if w is None:
+            return
+        def _on_chapter(title, count):
+            if title != book.title:
+                return
+            val = self._stat_dl.findChild(QLabel, "stat_val")
+            try:
+                current = int(val.text().replace(" ch", "")) if val else 0
+            except (ValueError, AttributeError):
+                current = 0
+            if count > current:
+                self._set_stat(self._stat_dl, f"{count} ch")
+        w.chapter_downloaded.connect(_on_chapter)
 
     def _update_genres(self, book: BookItem):
         import re as _re
@@ -1661,7 +1751,7 @@ class DetailPanel(QWidget):
         self._detail_source.setText(source_labels.get(book.source, book.source.upper()))
 
         # ── Wire buttons (disconnect first to avoid stacking) ─────────────────
-        for btn in (self._read_btn, self._add_lib_btn, self._remove_btn):
+        for btn in (self._read_btn, self._add_lib_btn, self._remove_btn, self._clean_btn, self._preview_btn):
             try:
                 btn.clicked.disconnect()
             except TypeError:
@@ -1670,6 +1760,19 @@ class DetailPanel(QWidget):
         self._read_btn.clicked.connect(lambda: self._on_read(book))
         self._add_lib_btn.clicked.connect(lambda: self._on_add_to_library(book))
         self._remove_btn.clicked.connect(lambda: self._on_remove_from_library(book))
+        self._clean_btn.clicked.connect(lambda: self._on_clean_chapters(book))
+        self._preview_btn.clicked.connect(lambda: self._on_preview(book))
+
+        # Show Clean button only for books that have a downloaded file
+        try:
+            from great_sage_core import legion_mod as _clm
+            _cm, _ = _clm()
+            from pathlib import Path as _Path
+            _has_file = _cm and _Path(_cm.get_book_path(book.title)).exists()
+        except Exception:
+            _has_file = False
+        self._clean_btn.setVisible(bool(_has_file))
+        self._preview_btn.setVisible(bool(_has_file))
 
         # ── Library status ────────────────────────────────────────────────────
         self._refresh_lib_status(book)
@@ -1693,6 +1796,12 @@ class DetailPanel(QWidget):
             self._ch_loading.show()
             self._ch_scroll.hide()
             self._load_chapters(book)
+
+        # Reset any active preview state
+        if self._preview_worker and self._preview_worker.isRunning():
+            self._preview_worker.terminate()
+            self._preview_worker = None
+        self._original_synopsis = ""
 
         # Synopsis — show cached value immediately; detail fetch overwrites
         if book.synopsis:
@@ -1755,6 +1864,90 @@ class DetailPanel(QWidget):
         jump_in_remove(book.title, delete_files=True)
         self._refresh_lib_status(book)
         self.book_action.emit("library_remove", book)
+
+    def _on_clean_chapters(self, book: BookItem):
+        """Run junk chapter cleanup on the book's downloaded .txt file."""
+        try:
+            from great_sage_core import legion_mod as _clm
+            mod, err = _clm()
+            if not mod or err:
+                self._lib_badge.setText(f"Clean failed: {err}")
+                self._lib_badge.show()
+                return
+        except Exception as e:
+            self._lib_badge.setText(f"Clean error: {e}")
+            self._lib_badge.show()
+            return
+
+        self._lib_badge.setText("🧹 Cleaning…")
+        self._lib_badge.show()
+        QApplication.processEvents()
+
+        result = mod.clean_junk_chapters(book.title)
+        if result.get("error"):
+            self._lib_badge.setText(f"Clean error: {result['error'][:60]}")
+            return
+
+        removed       = result["removed"]
+        paras_stripped = result.get("paras_stripped", 0)
+        kept          = result["kept"]
+        new_last      = result["new_last"]
+
+        duplicates    = result.get("duplicates", 0)
+        total_changed = removed + paras_stripped + duplicates
+        if total_changed == 0:
+            self._lib_badge.setText(f"✓ No junk found — {kept} chapters clean")
+        else:
+            parts = []
+            if duplicates:     parts.append(f"{duplicates} dupes")
+            if removed:        parts.append(f"{removed} empty")
+            if paras_stripped: parts.append(f"{paras_stripped} junk lines")
+            self._lib_badge.setText(f"✓ Removed {', '.join(parts)} — {kept} kept")
+
+        if total_changed > 0:
+            try:
+                data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                entry = data.get("books", {}).get(book.title)
+                if entry:
+                    entry["last_downloaded_chapter"] = new_last
+                    save_json(LEGION_PROGRESS, data)
+            except Exception:
+                pass
+            # Update the stat card directly from clean result — don't re-read
+            # JSON which may still lag behind the live download counter.
+            self._set_stat(self._stat_dl, f"{new_last} ch")
+
+    # ── AI Preview ────────────────────────────────────────────────────────────
+
+    def _on_preview(self, book: BookItem):
+        """Kick off the PreviewWorker and show a spinner in the synopsis area."""
+        # Stop any running preview first
+        if self._preview_worker and self._preview_worker.isRunning():
+            self._preview_worker.terminate()
+            self._preview_worker = None
+
+        # Stash original synopsis so we can show it again if needed
+        self._original_synopsis = self._synopsis.toPlainText()
+        self._synopsis.setPlainText("✦  Analysing chapters…")
+        self._preview_btn.setEnabled(False)
+
+        w = PreviewWorker(book.title)
+        w.done.connect(lambda text: self._on_preview_done(text))
+        w.error.connect(lambda msg: self._on_preview_error(msg))
+        w.start()
+        self._preview_worker = w
+
+    def _on_preview_done(self, text: str):
+        self._synopsis.setPlainText(text)
+        self._preview_btn.setEnabled(True)
+
+    def _on_preview_error(self, msg: str):
+        self._synopsis.setPlainText(
+            self._original_synopsis or "Preview failed — could not reach Groq."
+        )
+        self._lib_badge.setText(f"Preview error: {msg[:80]}")
+        self._lib_badge.show()
+        self._preview_btn.setEnabled(True)
 
     def _on_detail_cover(self, url: str, px: QPixmap):
         if px.isNull():
@@ -2618,6 +2811,133 @@ class LocalDetailPanel(QWidget):
         self._on_close()
 
 
+class PreviewWorker(QThread):
+    """
+    Reads the first 20–30 chapters of a downloaded book, truncates intelligently,
+    then calls Groq to produce a structured mini-report about the book.
+
+    Signals
+    -------
+    done  — emitted with the formatted report string on success
+    error — emitted with an error message string on failure
+    """
+    done  = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    MAX_CHAPTERS   = 25
+    MAX_CH_CHARS   = 1500   # cap per chapter
+    MAX_TOTAL_CHARS = 40_000  # hard total cap (well under Groq context limit)
+
+    SYSTEM_PROMPT = (
+        "You are a book analyst. Given the first chapters of a web novel, "
+        "return a structured preview report with exactly these labelled sections:\n\n"
+        "MC Name — the protagonist's name (or 'Unknown' if unclear from these chapters)\n"
+        "Power System — how powers/abilities work in this world; write 'None' if it's "
+        "slice-of-life or there is no power system evident yet\n"
+        "Notable Characters — 3–5 names with a one-line role each, as a short bulleted list\n"
+        "Pacing — one of: Slow / Moderate / Fast, followed by one sentence of justification\n"
+        "Verdict — a full paragraph giving an honest take on the writing quality, "
+        "whether it hooks the reader, and who it is likely to appeal to\n\n"
+        "Use the exact section headers above. Do not add extra sections."
+    )
+
+    def __init__(self, book_title: str, parent=None):
+        super().__init__(parent)
+        self._title = book_title
+
+    def _apply_settings(self, mod):
+        try:
+            settings = get_matrix_data().get("settings", {})
+            if settings.get("groq_api_key") and hasattr(mod, "GROQ_API_KEY"):
+                mod.GROQ_API_KEY = settings["groq_api_key"]
+            active = get_session_groq_model() or settings.get("groq_model")
+            if active and hasattr(mod, "GROQ_MODEL"):
+                mod.GROQ_MODEL = active
+        except Exception:
+            pass
+
+    def _read_first_chapters(self, mod) -> str:
+        """Return the first MAX_CHAPTERS chapters, each capped at MAX_CH_CHARS."""
+        try:
+            import re as _re
+            save_path = mod.get_book_path(self._title)
+            if not save_path or not Path(save_path).exists():
+                return ""
+            with open(save_path, "r", encoding="utf-8") as fh:
+                raw = fh.read()
+            blocks = _re.split(r"={50,}", raw)
+            chapters = []
+            i = 1
+            while i < len(blocks) - 1:
+                header = blocks[i].strip()
+                body   = blocks[i + 1].strip() if i + 1 < len(blocks) else ""
+                i += 2
+                m = _re.match(r"Chapter\s+(\d+)\s*[:\-]?\s*(.*)", header, _re.IGNORECASE)
+                if m:
+                    chapters.append((int(m.group(1)), m.group(2).strip(), body))
+            if not chapters:
+                return ""
+            chapters.sort(key=lambda x: x[0])
+            first = chapters[: self.MAX_CHAPTERS]
+            parts = []
+            total = 0
+            for ch_num, title, body in first:
+                snippet = body[: self.MAX_CH_CHARS]
+                entry   = f"Chapter {ch_num}: {title}\n\n{snippet}"
+                if total + len(entry) > self.MAX_TOTAL_CHARS:
+                    break
+                parts.append(entry)
+                total += len(entry)
+            return ("\n\n" + "=" * 40 + "\n\n").join(parts)
+        except Exception as e:
+            return ""
+
+    def run(self):
+        try:
+            from great_sage_core import legion_mod as _clm
+            mod, err = _clm()
+            if err or not mod:
+                self.error.emit(f"Legion unavailable: {err or 'not loaded'}")
+                return
+        except Exception as e:
+            self.error.emit(f"Import error: {e}")
+            return
+
+        self._apply_settings(mod)
+
+        chapter_text = self._read_first_chapters(mod)
+        if not chapter_text.strip():
+            self.error.emit("No chapter text found for this book.")
+            return
+
+        try:
+            from great_sage_core import sage_mod as _sm
+            smod, serr = _sm()
+            if serr or not smod:
+                self.error.emit(f"Sage unavailable: {serr or 'not loaded'}")
+                return
+        except Exception as e:
+            self.error.emit(f"Sage import error: {e}")
+            return
+
+        self._apply_settings(smod)
+
+        prompt = (
+            f"Book title: {self._title}\n\n"
+            f"--- CHAPTER TEXT START ---\n{chapter_text}\n--- CHAPTER TEXT END ---\n\n"
+            f"Write the structured preview report now."
+        )
+
+        try:
+            resp, err = smod.groq_chat(prompt, system=self.SYSTEM_PROMPT)
+            if err:
+                self.error.emit(err)
+            else:
+                self.done.emit(resp.strip())
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class ReaderSageWorker(QThread):
     """
     Background worker for the reader Sage sidebar.
@@ -2646,13 +2966,15 @@ class ReaderSageWorker(QThread):
     def __init__(self, term: str, book: str,
                  current_chapter: int = 0,
                  web_search: bool = False,
+                 local_paragraphs: list | None = None,
                  parent=None):
         super().__init__(parent)
-        self.term            = term.strip()
-        self.book            = book
-        self.current_chapter = current_chapter
-        self.web_search      = web_search
-        self._stop           = False
+        self.term             = term.strip()
+        self.book             = book
+        self.current_chapter  = current_chapter
+        self.web_search       = web_search
+        self.local_paragraphs = local_paragraphs or []
+        self._stop            = False
 
     def stop(self):
         self._stop = True
@@ -2746,7 +3068,13 @@ class ReaderSageWorker(QThread):
         term_to_grep = lookup.group(1).strip().rstrip("?.") if lookup else q
 
         excerpts = ""
-        if self.current_chapter > 0:
+        if self.local_paragraphs:
+            # Local book — grep the in-memory paragraphs directly
+            needle = term_to_grep.lower()
+            hits = [p for p in self.local_paragraphs if needle in p.lower()]
+            if hits:
+                excerpts = "\n\n".join(hits[:40])
+        elif self.current_chapter > 0:
             try:
                 excerpts = _grep_book_for_term(
                     self.book, term_to_grep, self.current_chapter)
@@ -2756,12 +3084,15 @@ class ReaderSageWorker(QThread):
         if self._stop:
             return
 
+        is_local = bool(self.local_paragraphs)
+        position = f"page {self.current_chapter}" if is_local else f"chapter {self.current_chapter}"
+
         if excerpts:
             is_who = bool(_re.match(r"who\s+is", q, _re.IGNORECASE))
             if is_who:
                 prompt = (
                     f"You are a reading companion for '{self.book}'.\n"
-                    f"The reader is on chapter {self.current_chapter} "
+                    f"The reader is on {position} "
                     f"and wants to know about '{term_to_grep}'.\n"
                     f"Using ONLY the excerpts below (no outside knowledge), "
                     f"write a detailed character dossier: "
@@ -2771,7 +3102,7 @@ class ReaderSageWorker(QThread):
             else:
                 prompt = (
                     f"You are a reading companion for '{self.book}'.\n"
-                    f"The reader is on chapter {self.current_chapter} "
+                    f"The reader is on {position} "
                     f"and wants to know about '{term_to_grep}'.\n"
                     f"Using ONLY the excerpts below (no outside knowledge), "
                     f"write a clear, detailed entry: what it is, why it matters, "
@@ -2779,13 +3110,18 @@ class ReaderSageWorker(QThread):
                     f"EXCERPTS:\n{excerpts}"
                 )
         else:
+            no_text_msg = (
+                "No matching text was found in this book for that term."
+                if is_local else
+                "No local chapter text was found for this term."
+            )
             prompt = (
                 f"You are a reading companion for '{self.book}' "
-                f"(chapter {self.current_chapter}).\n"
+                f"({position}).\n"
                 f"The reader asks: '{q}'\n\n"
-                f"No local chapter text was found for this term. "
+                f"{no_text_msg} "
                 f"Answer based on general knowledge if the title is well-known, "
-                f"otherwise say the term hasn't appeared yet in the chapters read."
+                f"otherwise say the term hasn't appeared yet in the text read."
             )
 
         self._stream(mod, prompt)
@@ -3190,6 +3526,7 @@ class ReaderPanel(QWidget):
             book=self._book.title,
             current_chapter=self._current_chapter_num,
             web_search=False,
+            local_paragraphs=self._paragraphs if self._book.source == "local" else None,
         )
         self._sage_worker.chunk.connect(self._on_sage_chunk)
         self._sage_worker.done.connect(self._on_sage_done)
@@ -3423,6 +3760,7 @@ class LegionPage(QWidget):
         self._build()
         QTimer.singleShot(100, self._load_trending)
         QTimer.singleShot(500, self._resume_downloads)
+        QTimer.singleShot(2000, self._startup_clean_junk)
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -4163,6 +4501,56 @@ class LegionPage(QWidget):
         self._enter_reader()
 
     # ── Required by MainWindow ─────────────────────────────────────────────────
+
+    def _startup_clean_junk(self):
+        """Silently clean junk paragraphs from all Jump In books on startup."""
+        class _CleanWorker(QThread):
+            done = pyqtSignal(str, int, int)  # title, paras_stripped, new_last
+
+            def __init__(self, books, parent=None):
+                super().__init__(parent)
+                self._books = books
+
+            def run(self):
+                try:
+                    from great_sage_core import legion_mod as _lm
+                    mod, err = _lm()
+                    if not mod or err:
+                        return
+                    for title in self._books:
+                        import os as _os
+                        if not _os.path.exists(mod.get_book_path(title)):
+                            continue
+                        result = mod.clean_junk_chapters(title)
+                        stripped = result.get("paras_stripped", 0)
+                        removed  = result.get("removed", 0)
+                        if stripped > 0 or removed > 0:
+                            self.done.emit(title, stripped, result["new_last"])
+                except Exception:
+                    pass
+
+        def _on_done(title, stripped, new_last):
+            try:
+                data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                entry = data.get("books", {}).get(title)
+                if entry:
+                    entry["last_downloaded_chapter"] = new_last
+                    save_json(LEGION_PROGRESS, data)
+                log.info("Startup junk cleanup", book=title,
+                         paras_stripped=stripped, new_last=new_last)
+            except Exception:
+                pass
+
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            books = list(data.get("books", {}).keys())
+        except Exception:
+            return
+        if not books:
+            return
+        self._startup_clean_worker = _CleanWorker(books)
+        self._startup_clean_worker.done.connect(_on_done)
+        self._startup_clean_worker.start()
 
     def _resume_downloads(self):
         """On startup, restart download workers for all existing Jump In books."""
