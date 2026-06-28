@@ -363,7 +363,22 @@ def library_add(book: "BookItem", category: str) -> bool:
     for cat in LIBRARY_CATEGORIES:
         data[cat] = [e for e in data[cat] if e.get("title") != book.title]
     data[category].append(entry)
-    return _save_library(data)
+    result = _save_library(data)
+
+    # ── Cloud sync ────────────────────────────────────────────────────────
+    try:
+        from gs_legion_sync import push_book
+        push_book(
+            title     = book.title,
+            category  = category,
+            cover_url = book.cover_url or "",
+            book_url  = book.url or "",
+            source    = book.source or "",
+        )
+    except Exception:
+        pass
+
+    return result
 
 
 def library_remove(title: str) -> bool:
@@ -377,6 +392,14 @@ def library_remove(title: str) -> bool:
             changed = True
     if changed:
         _save_library(data)
+
+    # ── Cloud sync ────────────────────────────────────────────────────────
+    try:
+        from gs_legion_sync import delete_book
+        delete_book(title)
+    except Exception:
+        pass
+
     return changed
 
 
@@ -3894,6 +3917,7 @@ class ReaderPanel(QWidget):
 
     def _save_progress(self, title: str, url: str, chapter_title: str):
         """Persist current chapter URL into LEGION_PROGRESS."""
+        data = {}
         try:
             import time as _time
             data = load_json_cached(LEGION_PROGRESS, {"books": {}})
@@ -3902,6 +3926,25 @@ class ReaderPanel(QWidget):
             data["books"][title]["reader_chapter"]  = chapter_title
             data["books"][title]["last_read"]       = _time.time()
             save_json(LEGION_PROGRESS, data)
+        except Exception:
+            pass
+
+        # ── Cloud sync ────────────────────────────────────────────────────
+        try:
+            if url and not url.startswith("local-disk://"):
+                import re as _re
+                m = _re.search(r"/chapter-(\d+)", url)
+                ch_num     = int(m.group(1)) if m else 0
+                book_entry = data.get("books", {}).get(title, {})
+                from gs_legion_sync import push_reader_progress
+                push_reader_progress(
+                    title       = title,
+                    reader_url  = url,
+                    book_url    = book_entry.get("url", ""),
+                    source      = book_entry.get("source", ""),
+                    cover_url   = book_entry.get("cover_url", ""),
+                    chapter_num = ch_num,
+                )
         except Exception:
             pass
 

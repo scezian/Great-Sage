@@ -769,6 +769,12 @@ class SettingsPage(QWidget):
                 _log.warning(f"[cloud] Sync-cycle pull error: {e}")
                 if "Not logged in" in err or "401" in err or "token" in err.lower():
                     auth_failed = True
+            # ── Legion pull (mirror of restore_to_disk for webnovels) ─────────
+            try:
+                from gs_legion_sync import legion_restore_to_disk
+                legion_restore_to_disk()
+            except Exception as e:
+                _log.warning(f"[cloud] Legion restore error: {e}")
             try:
                 ok = sync.push()
                 if ok:
@@ -780,6 +786,12 @@ class SettingsPage(QWidget):
                 _log.error(f"[cloud] Sync-cycle push error: {e}")
                 if "Not logged in" in err or "401" in err or "token" in err.lower():
                     auth_failed = True
+            # ── Legion push ───────────────────────────────────────────────────
+            try:
+                from gs_legion_sync import backfill_library
+                backfill_library()
+            except Exception as e:
+                _log.warning(f"[cloud] Legion backfill error: {e}")
 
             if auth_failed:
                 push_notification(
