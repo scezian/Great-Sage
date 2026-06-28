@@ -786,12 +786,9 @@ class SettingsPage(QWidget):
                 _log.error(f"[cloud] Sync-cycle push error: {e}")
                 if "Not logged in" in err or "401" in err or "token" in err.lower():
                     auth_failed = True
-            # ── Legion push ───────────────────────────────────────────────────
-            try:
-                from gs_legion_sync import backfill_library
-                backfill_library()
-            except Exception as e:
-                _log.warning(f"[cloud] Legion backfill error: {e}")
+            # Legion progress is pushed in real time by gs_legion_sync.push_book /
+            # push_reader_progress — no bulk backfill needed here. Running
+            # backfill_library() on every cycle resets all webnovel progress to 0.
 
             if auth_failed:
                 push_notification(

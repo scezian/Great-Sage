@@ -377,11 +377,18 @@ class GreatSageSync:
                 supa_type = GS_TO_SUPA_TYPE.get(gs_type, "show")
                 is_novel  = supa_type == "webnovel"
 
-                # Resolve status with type awareness
+                # Webnovels are managed exclusively by gs_legion_sync.push_book /
+                # push_reader_progress which carry the correct chapter progress.
+                # Letting the Matrix sync touch them would reset progress to 0
+                # because progress.json has no chapter data for Legion books.
+                if is_novel:
+                    continue
+
+                # Resolve status (is_novel is always False here — novels are skipped above)
                 if gs_status == "Watching":
-                    supa_status = "reading" if is_novel else "watching"
+                    supa_status = "watching"
                 elif gs_status == "Planning":
-                    supa_status = "plan_to_read" if is_novel else "plan_to_watch"
+                    supa_status = "plan_to_watch"
                 else:
                     supa_status = GS_TO_SUPA_STATUS.get(gs_status, "plan_to_watch")
 

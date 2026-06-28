@@ -3931,15 +3931,38 @@ class ReaderPanel(QWidget):
 
         # ── Cloud sync ────────────────────────────────────────────────────
         try:
-            if url and not url.startswith("local-disk://"):
-                import re as _re
+            import re as _re
+            book_entry = data.get("books", {}).get(title, {})
+            ch_num   = 0
+            sync_url = ""
+
+            if url and url.startswith("local-disk://chapter/"):
+                # Reading from downloaded chapters on disk.
+                # The sentinel URL carries the chapter number but is not a real
+                # web URL — extract the number and use the saved fwn URL instead
+                # so Supabase / TrackFlix always sees a meaningful reader_url.
+                m = _re.match(r"local-disk://chapter/(\d+)/", url)
+                if m:
+                    ch_num = int(m.group(1))
+                # Prefer last_downloaded_url (most specific chapter URL we have),
+                # fall back to the book landing page URL.
+                sync_url = (
+                    book_entry.get("last_downloaded_url", "")
+                    or book_entry.get("url", "")
+                )
+            elif url and not url.startswith("local-disk://"):
+                # Live web URL (Royal Road, fwn direct) — extract chapter from URL.
                 m = _re.search(r"/chapter-(\d+)", url)
-                ch_num     = int(m.group(1)) if m else 0
-                book_entry = data.get("books", {}).get(title, {})
+                ch_num   = int(m.group(1)) if m else 0
+                sync_url = url
+
+            # Only push if we have a real URL and a non-zero chapter number.
+            # This prevents accidentally resetting progress to 0 in Supabase.
+            if sync_url and ch_num > 0:
                 from gs_legion_sync import push_reader_progress
                 push_reader_progress(
                     title       = title,
-                    reader_url  = url,
+                    reader_url  = sync_url,
                     book_url    = book_entry.get("url", ""),
                     source      = book_entry.get("source", ""),
                     cover_url   = book_entry.get("cover_url", ""),
