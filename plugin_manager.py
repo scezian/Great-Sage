@@ -63,7 +63,32 @@ from PyQt6.QtWidgets import (
 )
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-PLUGINS_DIR    = Path.home() / "Documents" / "Great-Sage" / "plugins"
+
+def _find_plugins_dir() -> Path:
+    here = Path(__file__).resolve().parent
+    # 1. Sibling plugins/ next to this file (covers any repo location)
+    candidate = here / "plugins"
+    if candidate.is_dir():
+        return candidate
+    # 2. Walk up up to 4 levels
+    p = here
+    for _ in range(4):
+        candidate = p / "plugins"
+        if candidate.is_dir():
+            return candidate
+        p = p.parent
+    # 3. Common roots
+    for root in ("Projects", "Documents", "dev", "src", "code", ""):
+        base = (Path.home() / root) if root else Path.home()
+        candidate = base / "Great-Sage" / "plugins"
+        if candidate.is_dir():
+            return candidate
+    # 4. Fallback: create next to this file
+    fallback = here / "plugins"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+PLUGINS_DIR    = _find_plugins_dir()
 PLUGINS_CONFIG = Path.home() / ".great_sage_plugins.json"
 PLUGIN_DATA    = Path.home() / ".great_sage_plugin_data.json"
 
