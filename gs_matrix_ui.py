@@ -492,7 +492,11 @@ class MatrixPage(QWidget):
                 f"border-bottom:1px solid {BORDER};font-size:13px;}}"
                 f"QListWidget::item:hover{{color:{TEXT};background:{BG2};}}"
                 f"QListWidget::item:selected{{color:{BLUE};background:{BG3};"
-                f"border-left:3px solid {BLUE};}}")
+                f"border-left:3px solid {BLUE};}}"
+                f"QScrollBar:vertical{{background:transparent;width:8px;border:none;margin:0;}}"
+                f"QScrollBar::handle:vertical{{background:{BORDER2};border-radius:4px;min-height:30px;}}"
+                f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
+                f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}")
             lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             lw.customContextMenuRequested.connect(lambda pos, lw=lw, n=n: self._wl_ctx(pos,lw,n))
             lw.itemDoubleClicked.connect(lambda item, n=n: self._wl_meta(item,n))

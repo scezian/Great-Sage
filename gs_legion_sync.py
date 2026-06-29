@@ -37,7 +37,12 @@ import json
 import logging
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
+
+# Pending push queue — stores failed progress pushes for retry on next sync cycle
+_PENDING_PUSH_PATH = Path.home() / ".config" / "matrix" / "legion_pending_push.json"
+_pending_lock = threading.Lock()
 
 log = logging.getLogger("great_sage.legion_sync")
 
@@ -122,18 +127,91 @@ def delete_book(title: str) -> None:
     threading.Thread(target=_do, daemon=True, name="legion_sync_delete").start()
 
 
+def _save_pending_push(title: str, reader_url: str, book_url: str,
+                        source: str, cover_url: str, chapter_num: int) -> None:
+    """Save a failed push to the pending queue so it can be retried later."""
+    with _pending_lock:
+        try:
+            _PENDING_PUSH_PATH.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                queue = json.loads(_PENDING_PUSH_PATH.read_text())
+            except Exception:
+                queue = {}
+            # Keyed by title — newer chapter always overwrites older
+            queue[title] = {
+                "title":       title,
+                "reader_url":  reader_url,
+                "book_url":    book_url,
+                "source":      source,
+                "cover_url":   cover_url,
+                "chapter_num": chapter_num,
+            }
+            _PENDING_PUSH_PATH.write_text(json.dumps(queue, indent=2))
+            log.info(f"[legion_sync] queued pending push for '{title}' ch {chapter_num}")
+        except Exception as e:
+            log.warning(f"[legion_sync] failed to save pending push: {e}")
+
+
+def _clear_pending_push(title: str) -> None:
+    """Remove a successfully pushed entry from the pending queue."""
+    with _pending_lock:
+        try:
+            if not _PENDING_PUSH_PATH.exists():
+                return
+            queue = json.loads(_PENDING_PUSH_PATH.read_text())
+            if title in queue:
+                del queue[title]
+                _PENDING_PUSH_PATH.write_text(json.dumps(queue, indent=2))
+        except Exception:
+            pass
+
+
+def drain_pending_pushes() -> None:
+    """
+    Retry all queued progress pushes that failed while offline.
+    Called from _sync_cycle in gs_settings_ui.py on every 3-minute tick.
+    Safe to call when queue is empty — returns immediately.
+    """
+    with _pending_lock:
+        try:
+            if not _PENDING_PUSH_PATH.exists():
+                return
+            queue = json.loads(_PENDING_PUSH_PATH.read_text())
+        except Exception:
+            return
+
+    if not queue:
+        return
+
+    log.info(f"[legion_sync] draining {len(queue)} pending push(es)")
+    for title, item in list(queue.items()):
+        push_reader_progress(
+            title       = item["title"],
+            reader_url  = item["reader_url"],
+            book_url    = item.get("book_url", ""),
+            source      = item.get("source", ""),
+            cover_url   = item.get("cover_url", ""),
+            chapter_num = item.get("chapter_num", 0),
+            _from_queue = True,  # prevents re-queuing on failure during drain
+        )
+
+
 def push_reader_progress(title: str, reader_url: str,
                           book_url: str = "", source: str = "",
-                          cover_url: str = "", chapter_num: int = 0) -> None:
+                          cover_url: str = "", chapter_num: int = 0,
+                          _from_queue: bool = False) -> None:
     """
     Update reader_url in Supabase metadata when reading position changes.
     Only updates metadata + progress — does not change status or category.
+    On network failure, saves to a pending queue for retry on next sync cycle.
     """
     def _do():
         try:
-            from gs_sync import GreatSageSync, SUPABASE_URL, SUPABASE_ANON
+            from gs_sync import GreatSageSync
             s = GreatSageSync()
             if not s.is_logged_in():
+                if not _from_queue:
+                    _save_pending_push(title, reader_url, book_url, source, cover_url, chapter_num)
                 return
 
             # Fetch existing row so we don't wipe status/category
@@ -167,8 +245,14 @@ def push_reader_progress(title: str, reader_url: str,
             }], on_conflict="user_id,title")
 
             log.info(f"[legion_sync] progress updated '{title}' → ch {chapter_num}")
+            # Success — remove from pending queue if this was a retry
+            if _from_queue:
+                _clear_pending_push(title)
+
         except Exception as e:
             log.warning(f"[legion_sync] push_reader_progress failed for '{title}': {e}")
+            if not _from_queue:
+                _save_pending_push(title, reader_url, book_url, source, cover_url, chapter_num)
 
     threading.Thread(target=_do, daemon=True, name="legion_sync_progress").start()
 

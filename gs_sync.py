@@ -206,7 +206,7 @@ class GreatSageSync:
 
         rows = self._get(
             "watchlist",
-            f"user_id=eq.{self._user_id}",
+            f"user_id=eq.{self._user_id}&type=neq.webnovel",
             select="title,type,status,notes,rating,progress,cover_url,updated_at",
             order="created_at.desc",
         )
@@ -268,7 +268,23 @@ class GreatSageSync:
             return False
 
         existing = self._load_progress()
-        local_wl  = existing.get("watchlist", {})
+
+        # ── Purge any webnovel/Novel entries that leaked into Matrix watchlist ──
+        # These appear when Legion books were incorrectly pulled into progress.json
+        # before the type=neq.webnovel filter was in place. Remove them now so
+        # they don't persist through the merge.
+        local_wl = existing.get("watchlist", {})
+        _novel_types = {"Novel", "Webnovel", "webnovel", "novel"}
+        purged = 0
+        for bucket in list(local_wl.keys()):
+            before = len(local_wl[bucket])
+            local_wl[bucket] = [
+                e for e in local_wl[bucket]
+                if not (isinstance(e, dict) and e.get("type", "") in _novel_types)
+            ]
+            purged += before - len(local_wl[bucket])
+        if purged:
+            logger.info(f"[gs_sync] purged {purged} novel entry/entries from Matrix watchlist")
 
         # Build a flat index of local entries: title.lower() → (bucket, entry)
         local_index: dict[str, tuple[str, dict]] = {}

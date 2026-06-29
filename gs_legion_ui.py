@@ -39,6 +39,7 @@ from bs4 import BeautifulSoup
 from PyQt6.QtCore import (
     Qt, QThread, QObject, pyqtSignal, QSize, QTimer,
     QPropertyAnimation, QEasingCurve, QRect, QPoint,
+    QFileSystemWatcher,
 )
 from PyQt6.QtGui import (
     QPixmap, QImage, QPainter, QColor, QBrush,
@@ -49,7 +50,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QScrollArea, QFrame, QLineEdit,
     QGridLayout, QComboBox, QSizePolicy,
     QStackedWidget, QTextBrowser, QTextEdit, QApplication,
-    QDialog, QLayout,
+    QDialog, QLayout, QListWidget, QListWidgetItem,
 )
 
 from difflib import SequenceMatcher
@@ -1596,8 +1597,8 @@ class DetailPanel(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:4px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+            "QScrollBar:vertical{width:8px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
 
         inner = QWidget()
         inner.setStyleSheet("background:transparent;")
@@ -1785,8 +1786,8 @@ class DetailPanel(QWidget):
         self._ch_scroll.setStyleSheet(
             f"QScrollArea{{background:{BG3}; border:1px solid {BORDER}; "
             f"border-radius:6px;}}"
-            "QScrollBar:vertical{width:4px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+            "QScrollBar:vertical{width:8px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
 
         self._ch_inner  = QWidget()
         self._ch_inner.setStyleSheet("background:transparent;")
@@ -2292,8 +2293,8 @@ class BooksGrid(QWidget):
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:5px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+            "QScrollBar:vertical{width:8px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
 
         self._container = QWidget()
         self._container.setStyleSheet("background:transparent;")
@@ -2930,8 +2931,8 @@ class LocalDetailPanel(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:4px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
+            "QScrollBar:vertical{width:8px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
 
         inner = QWidget()
         inner.setStyleSheet("background:transparent;")
@@ -3395,6 +3396,224 @@ class ReaderSageWorker(QThread):
         self._stream(mod, prompt)
 
 
+# ── Chapter List Drawer ────────────────────────────────────────────────────────
+
+class ChapterListDrawer(QFrame):
+    """
+    Slide-up drawer that shows all downloaded chapters for the current book.
+
+    - Parses the book's .txt file for Chapter headers (=====\\nChapter N: Title)
+    - Auto-scrolls to the current chapter when opened
+    - Chapter number input at the top for quick jumps
+    - QFileSystemWatcher keeps the list live as chapters download
+    - Clicking a chapter emits chapter_selected(local_disk_url)
+    """
+
+    chapter_selected = pyqtSignal(str)   # emits local-disk://chapter/{num}/{title}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._book_title: str = ""
+        self._txt_path:   str = ""
+        self._current_num: int = 0
+        self._chapters:   list[tuple[int, str]] = []   # (num, title)
+        self._watcher = QFileSystemWatcher(self)
+        self._watcher.fileChanged.connect(self._on_file_changed)
+
+        self.setObjectName("ChapterDrawer")
+        self.setStyleSheet(
+            f"QFrame#ChapterDrawer{{"
+            f"  background:{BG2}; border-top:1px solid {BORDER2};"
+            f"}}"
+        )
+        self._build()
+        self.hide()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(8)
+
+        # ── Header row ────────────────────────────────────────────────────────
+        hdr = QHBoxLayout()
+        hdr.setSpacing(8)
+
+        title_lbl = QLabel("CHAPTERS")
+        title_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:2px; background:transparent;")
+        hdr.addWidget(title_lbl)
+
+        hdr.addStretch()
+
+        # Chapter jump input
+        self._jump_input = QLineEdit()
+        self._jump_input.setPlaceholderText("Go to chapter…")
+        self._jump_input.setFixedWidth(140)
+        self._jump_input.setFixedHeight(26)
+        self._jump_input.setStyleSheet(
+            f"QLineEdit{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"border-radius:3px; color:{TEXT}; font-size:11px; padding:0 8px;}}"
+            f"QLineEdit:focus{{border-color:{ACCENT};}}")
+        self._jump_input.returnPressed.connect(self._on_jump)
+        hdr.addWidget(self._jump_input)
+
+        jump_btn = QPushButton("Jump")
+        jump_btn.setFixedSize(50, 26)
+        jump_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        jump_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; border-radius:3px; font-size:10px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
+        jump_btn.clicked.connect(self._on_jump)
+        hdr.addWidget(jump_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(26, 26)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(
+            f"QPushButton{{background:transparent; border:none; "
+            f"color:{MUTED}; font-size:12px;}}"
+            f"QPushButton:hover{{color:{TEXT};}}")
+        close_btn.clicked.connect(self.hide)
+        hdr.addWidget(close_btn)
+
+        lay.addLayout(hdr)
+
+        # ── Chapter list ──────────────────────────────────────────────────────
+        self._list = QListWidget()
+        self._list.setStyleSheet(
+            f"QListWidget{{"
+            f"  background:{BG3}; border:1px solid {BORDER}; border-radius:4px;"
+            f"  color:{TEXT2}; font-size:11px; outline:none;"
+            f"}}"
+            f"QListWidget::item{{"
+            f"  padding:6px 10px; border-bottom:1px solid {BORDER};"
+            f"}}"
+            f"QListWidget::item:hover{{"
+            f"  background:#1A1628; color:{TEXT};"
+            f"}}"
+            f"QListWidget::item:selected{{"
+            f"  background:#1E1040; color:{ACCENT}; border-left:2px solid {ACCENT};"
+            f"}}"
+            f"QScrollBar:vertical{{background:{BG2}; width:8px; border:none; margin:0;}}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px; min-height:30px;}}"
+            f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}"
+        )
+        self._list.itemClicked.connect(self._on_item_clicked)
+        lay.addWidget(self._list)
+
+        # ── Chapter count label ───────────────────────────────────────────────
+        self._count_lbl = QLabel()
+        self._count_lbl.setStyleSheet(
+            f"color:{MUTED}; font-size:9px; letter-spacing:1px; background:transparent;")
+        lay.addWidget(self._count_lbl)
+
+    # ── Public API ─────────────────────────────────────────────────────────────
+
+    def set_book(self, book_title: str, txt_path: str, current_chapter: int = 0):
+        """Set the book and rebuild the chapter list."""
+        # Unwatch old file
+        if self._txt_path and self._txt_path in self._watcher.files():
+            self._watcher.removePath(self._txt_path)
+
+        self._book_title  = book_title
+        self._txt_path    = txt_path
+        self._current_num = current_chapter
+
+        if txt_path and os.path.exists(txt_path):
+            self._watcher.addPath(txt_path)
+
+        self._rebuild()
+
+    def set_current_chapter(self, num: int):
+        """Update the highlighted current chapter without rebuilding the list."""
+        self._current_num = num
+        self._highlight_current()
+
+    def open(self):
+        """Show the drawer and scroll to the current chapter."""
+        self.show()
+        self._highlight_current()
+        self._jump_input.clear()
+        self._jump_input.setFocus()
+
+    # ── Internal ───────────────────────────────────────────────────────────────
+
+    def _on_file_changed(self, _path: str):
+        """Called by QFileSystemWatcher when the .txt file grows."""
+        # Re-add the path — some editors replace the file on save
+        if self._txt_path and not self._txt_path in self._watcher.files():
+            self._watcher.addPath(self._txt_path)
+        QTimer.singleShot(300, self._rebuild)   # slight delay for write to flush
+
+    def _rebuild(self):
+        """Parse the .txt file and repopulate the list widget."""
+        self._chapters = self._parse_chapters()
+        self._list.clear()
+
+        for num, title in self._chapters:
+            item = QListWidgetItem(f"Chapter {num}  —  {title}" if title else f"Chapter {num}")
+            item.setData(Qt.ItemDataRole.UserRole, num)
+            self._list.addItem(item)
+
+        self._count_lbl.setText(
+            f"{len(self._chapters)} chapters downloaded" if self._chapters else "No chapters downloaded yet")
+        self._highlight_current()
+
+    def _parse_chapters(self) -> list[tuple[int, str]]:
+        """Return list of (chapter_num, title) from the book's .txt file."""
+        if not self._txt_path or not os.path.exists(self._txt_path):
+            return []
+        try:
+            with open(self._txt_path, "r", encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+            blocks   = re.split(r"={50,}", raw)
+            chapters = []
+            seen     = set()
+            for block in blocks:
+                m = re.match(r"\s*Chapter\s+(\d+)\s*[:\-]?\s*(.*)", block.strip(), re.IGNORECASE)
+                if m:
+                    num   = int(m.group(1))
+                    title = m.group(2).strip()
+                    if num not in seen:
+                        seen.add(num)
+                        chapters.append((num, title))
+            chapters.sort(key=lambda x: x[0])
+            return chapters
+        except Exception:
+            return []
+
+    def _highlight_current(self):
+        """Select and scroll to the current chapter in the list."""
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item and item.data(Qt.ItemDataRole.UserRole) == self._current_num:
+                self._list.setCurrentItem(item)
+                self._list.scrollToItem(
+                    item, QListWidget.ScrollHint.PositionAtCenter)
+                return
+
+    def _on_item_clicked(self, item: QListWidgetItem):
+        num = item.data(Qt.ItemDataRole.UserRole)
+        if num is not None and self._book_title:
+            from urllib.parse import quote as _q
+            url = f"local-disk://chapter/{num}/{_q(self._book_title)}"
+            self.chapter_selected.emit(url)
+            self.hide()
+
+    def _on_jump(self):
+        text = self._jump_input.text().strip()
+        if not text.isdigit():
+            return
+        num = int(text)
+        if self._book_title:
+            from urllib.parse import quote as _q
+            url = f"local-disk://chapter/{num}/{_q(self._book_title)}"
+            self.chapter_selected.emit(url)
+            self.hide()
+
+
 class ReaderPanel(QWidget):
     """
     Full-screen reading panel.
@@ -3420,6 +3639,8 @@ class ReaderPanel(QWidget):
         self._sidebar_visible: bool = True
         self._sage_full_text:  str  = ""
         self._build()
+        self._chapter_drawer = ChapterListDrawer(self)
+        self._chapter_drawer.chapter_selected.connect(self._load_chapter)
         self.hide()
 
     def _build(self):
@@ -3629,8 +3850,8 @@ class ReaderPanel(QWidget):
         self._sage_output.setStyleSheet(
             f"QTextEdit{{background:transparent; color:{TEXT}; border:none; "
             f"font-size:12px; font-family:{FONT_UI}; padding:14px 14px;}}"
-            f"QScrollBar:vertical{{background:#0D0B18; width:6px; border:none; margin:0;}}"
-            f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:3px; min-height:30px;}}"
+            f"QScrollBar:vertical{{background:#0D0B18; width:8px; border:none; margin:0;}}"
+            f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:4px; min-height:30px;}}"
             f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
         self._sage_output.setPlaceholderText(
@@ -3686,6 +3907,18 @@ class ReaderPanel(QWidget):
         self._nav_label.setStyleSheet(
             f"color:{MUTED}; font-size:10px; letter-spacing:1px; background:transparent;")
         nav_lay.addWidget(self._nav_label)
+
+        self._chapters_btn = QPushButton("≡  Chapters")
+        self._chapters_btn.setFixedHeight(34)
+        self._chapters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._chapters_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; border-radius:4px; padding:0 16px; font-size:11px; letter-spacing:1px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
+            f"QPushButton:checked{{background:#1E1040; border-color:{ACCENT}; color:{ACCENT};}}")
+        self._chapters_btn.setCheckable(True)
+        self._chapters_btn.clicked.connect(self._toggle_chapter_drawer)
+        nav_lay.addWidget(self._chapters_btn)
 
         nav_lay.addStretch()
 
@@ -3747,6 +3980,28 @@ class ReaderPanel(QWidget):
         """Show/hide the 320-px Sage sidebar."""
         self._sidebar_visible = self._sage_toggle_btn.isChecked()
         self._sidebar.setVisible(self._sidebar_visible)
+
+    def _toggle_chapter_drawer(self):
+        """Show/hide the chapter list drawer."""
+        if self._chapter_drawer.isVisible():
+            self._chapter_drawer.hide()
+            self._chapters_btn.setChecked(False)
+        else:
+            self._position_drawer()
+            self._chapter_drawer.open()
+            self._chapters_btn.setChecked(True)
+
+    def _position_drawer(self):
+        """Size and position the drawer above the bottom nav bar."""
+        drawer_h = min(320, self.height() - 100)
+        drawer_w = self.width()
+        self._chapter_drawer.setGeometry(
+            0, self.height() - 52 - drawer_h, drawer_w, drawer_h)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._chapter_drawer.isVisible():
+            self._position_drawer()
 
     def _apply_template(self, prefix: str):
         """Pre-fill the input with a template prefix and focus it."""
@@ -3862,6 +4117,15 @@ class ReaderPanel(QWidget):
         """Open the reader, resuming from saved progress if available."""
         self._book = book
         self._prev_url = None
+
+        # Wire chapter drawer to this book's .txt file
+        import re as _re
+        from great_sage_core import SCRIPT_DIR
+        _safe    = _re.sub(r"[^\w\-_\. ]", "_", book.title)
+        _txt     = str(SCRIPT_DIR / "library" / _safe / f"{_safe}.txt")
+        self._chapter_drawer.set_book(book.title, _txt, self._current_chapter_num)
+        self._chapter_drawer.hide()
+        self._chapters_btn.setChecked(False)
 
         # Check for saved reading progress
         resume_url = self._load_progress(book.title)
@@ -4025,6 +4289,9 @@ class ReaderPanel(QWidget):
         # Persist reading position
         if self._book:
             self._save_progress(self._book.title, self._current_url, title)
+
+        # Update chapter drawer highlight
+        self._chapter_drawer.set_current_chapter(self._current_chapter_num)
 
         # Nav state
         self._prev_btn.setEnabled(bool(prev_url))

@@ -280,8 +280,8 @@ class SettingsPage(QWidget):
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setStyleSheet(
                 f"QScrollArea{{background:{BG};border:none;}}"
-                f"QScrollBar:vertical{{background:#0d0d14;width:6px;border-radius:3px;}}"
-                f"QScrollBar::handle:vertical{{background:#2a2a3a;border-radius:3px;}}"
+                f"QScrollBar:vertical{{background:#0d0d14;width:8px;border-radius:4px;}}"
+                f"QScrollBar::handle:vertical{{background:#2a2a3a;border-radius:4px;}}"
                 f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}")
             inner = QWidget()
             inner.setStyleSheet(f"background:{BG};")
@@ -771,8 +771,9 @@ class SettingsPage(QWidget):
                     auth_failed = True
             # ── Legion pull (mirror of restore_to_disk for webnovels) ─────────
             try:
-                from gs_legion_sync import legion_restore_to_disk
+                from gs_legion_sync import legion_restore_to_disk, drain_pending_pushes
                 legion_restore_to_disk()
+                drain_pending_pushes()
             except Exception as e:
                 _log.warning(f"[cloud] Legion restore error: {e}")
             try:
