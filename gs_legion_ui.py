@@ -1597,8 +1597,8 @@ class DetailPanel(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:8px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
 
         inner = QWidget()
         inner.setStyleSheet("background:transparent;")
@@ -1786,8 +1786,8 @@ class DetailPanel(QWidget):
         self._ch_scroll.setStyleSheet(
             f"QScrollArea{{background:{BG3}; border:1px solid {BORDER}; "
             f"border-radius:6px;}}"
-            "QScrollBar:vertical{width:8px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
 
         self._ch_inner  = QWidget()
         self._ch_inner.setStyleSheet("background:transparent;")
@@ -2293,8 +2293,8 @@ class BooksGrid(QWidget):
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:8px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
+            "QScrollBar:vertical{width:5px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
 
         self._container = QWidget()
         self._container.setStyleSheet("background:transparent;")
@@ -2931,8 +2931,8 @@ class LocalDetailPanel(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
             "QScrollArea{background:transparent; border:none;}"
-            "QScrollBar:vertical{width:8px; background:transparent;}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px;}}")
+            "QScrollBar:vertical{width:4px; background:transparent;}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:2px;}}")
 
         inner = QWidget()
         inner.setStyleSheet("background:transparent;")
@@ -3495,8 +3495,8 @@ class ChapterListDrawer(QFrame):
             f"QListWidget::item:selected{{"
             f"  background:#1E1040; color:{ACCENT}; border-left:2px solid {ACCENT};"
             f"}}"
-            f"QScrollBar:vertical{{background:{BG2}; width:8px; border:none; margin:0;}}"
-            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:4px; min-height:30px;}}"
+            f"QScrollBar:vertical{{background:{BG2}; width:6px; border:none; margin:0;}}"
+            f"QScrollBar::handle:vertical{{background:{BORDER2}; border-radius:3px; min-height:30px;}}"
             f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}"
         )
@@ -3638,6 +3638,11 @@ class ReaderPanel(QWidget):
         self._sage_worker: ReaderSageWorker | None = None
         self._sidebar_visible: bool = True
         self._sage_full_text:  str  = ""
+        self._scroll_save_timer = QTimer(self)
+        self._scroll_save_timer.setSingleShot(True)
+        self._scroll_save_timer.setInterval(800)  # debounce: save 800ms after scrolling stops
+        self._scroll_save_timer.timeout.connect(self._save_scroll_position)
+        self._restoring_scroll: bool = False
         self._build()
         self._chapter_drawer = ChapterListDrawer(self)
         self._chapter_drawer.chapter_selected.connect(self._load_chapter)
@@ -3744,6 +3749,7 @@ class ReaderPanel(QWidget):
             f"}}"
             f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
+        self._text.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self._apply_font()
         body_lay.addWidget(self._text, 1)
 
@@ -3850,8 +3856,8 @@ class ReaderPanel(QWidget):
         self._sage_output.setStyleSheet(
             f"QTextEdit{{background:transparent; color:{TEXT}; border:none; "
             f"font-size:12px; font-family:{FONT_UI}; padding:14px 14px;}}"
-            f"QScrollBar:vertical{{background:#0D0B18; width:8px; border:none; margin:0;}}"
-            f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:4px; min-height:30px;}}"
+            f"QScrollBar:vertical{{background:#0D0B18; width:6px; border:none; margin:0;}}"
+            f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:3px; min-height:30px;}}"
             f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
             f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
         self._sage_output.setPlaceholderText(
@@ -4179,16 +4185,52 @@ class ReaderPanel(QWidget):
         except Exception:
             return None
 
+    def _on_scroll(self, _value: int):
+        """Restart the debounce timer whenever the user scrolls."""
+        if self._restoring_scroll:
+            return  # don't treat programmatic restore as a user scroll
+        self._scroll_save_timer.start()
+
+    def _save_scroll_position(self):
+        """Persist current scroll position as a fraction of total scroll range."""
+        if not self._book:
+            return
+        bar = self._text.verticalScrollBar()
+        max_val = bar.maximum()
+        fraction = (bar.value() / max_val) if max_val > 0 else 0.0
+        try:
+            data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            data.setdefault("books", {}).setdefault(self._book.title, {})
+            data["books"][self._book.title]["scroll_fraction"] = fraction
+            save_json(LEGION_PROGRESS, data)
+        except Exception:
+            pass
+
+    def _restore_scroll_position(self, fraction: float):
+        """Apply a saved scroll fraction once the chapter content has rendered."""
+        if fraction <= 0:
+            return
+        bar = self._text.verticalScrollBar()
+        self._restoring_scroll = True
+        target = int(bar.maximum() * fraction)
+        bar.setValue(target)
+        self._restoring_scroll = False
+
     def _save_progress(self, title: str, url: str, chapter_title: str):
         """Persist current chapter URL into LEGION_PROGRESS."""
         data = {}
         try:
             import time as _time
             data = load_json_cached(LEGION_PROGRESS, {"books": {}})
-            data.setdefault("books", {}).setdefault(title, {})
-            data["books"][title]["reader_url"]     = url
-            data["books"][title]["reader_chapter"]  = chapter_title
-            data["books"][title]["last_read"]       = _time.time()
+            book_entry = data.setdefault("books", {}).setdefault(title, {})
+            is_new_chapter = book_entry.get("reader_url") != url
+            book_entry["reader_url"]     = url
+            book_entry["reader_chapter"]  = chapter_title
+            book_entry["last_read"]       = _time.time()
+            if is_new_chapter:
+                # Fresh chapter — start at the top, not wherever the last
+                # chapter's scroll fraction happened to be.
+                book_entry["scroll_fraction"] = 0.0
             save_json(LEGION_PROGRESS, data)
         except Exception:
             pass
@@ -4283,8 +4325,25 @@ class ReaderPanel(QWidget):
             if m:
                 self._current_chapter_num = int(m.group(1))
 
+        # Determine if this is a resume of the exact chapter we left off on
+        # (so we restore scroll position) vs navigating to a new chapter
+        # (so we start at the top), BEFORE _save_progress overwrites the saved url.
+        resume_fraction = 0.0
+        if self._book:
+            try:
+                prog_data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                saved_entry = prog_data.get("books", {}).get(self._book.title, {})
+                if saved_entry.get("reader_url") == self._current_url:
+                    resume_fraction = float(saved_entry.get("scroll_fraction", 0.0))
+            except Exception:
+                pass
+
         self._text.setHtml(self._build_html(paragraphs))
         self._text.verticalScrollBar().setValue(0)
+        if resume_fraction > 0:
+            # Defer restore until after the QTextEdit has laid out content
+            # and computed a real scrollbar maximum.
+            QTimer.singleShot(50, lambda f=resume_fraction: self._restore_scroll_position(f))
 
         # Persist reading position
         if self._book:
@@ -4312,6 +4371,8 @@ class ReaderPanel(QWidget):
             self._worker.cancel()
             self._worker.blockSignals(True)
         self._stop_sage_worker()
+        self._scroll_save_timer.stop()
+        self._save_scroll_position()  # flush immediately, don't wait for debounce
         self.hide()
         self.closed.emit()
 

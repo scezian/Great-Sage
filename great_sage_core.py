@@ -783,7 +783,17 @@ class SageWorker(QThread):
             if self.mode == "chapter_summary":
                 book_name    = self.extra
                 legion_data  = get_legion_data()
-                cur_ch       = (legion_data.get("books", {}).get(book_name, {}).get("current_chapter") or 0)
+                book_entry   = legion_data.get("books", {}).get(book_name, {})
+                # Chapter progress is stored as reader_url (e.g. "local-disk://chapter/2087/..."
+                # or a live web URL like ".../chapter-2087"), not a "current_chapter" field.
+                cur_ch = 0
+                reader_url = book_entry.get("reader_url", "")
+                if reader_url:
+                    m = re.match(r"local-disk://chapter/(\d+)/", reader_url)
+                    if not m:
+                        m = re.search(r"chapter[-/](\d+)", reader_url, re.IGNORECASE)
+                    if m:
+                        cur_ch = int(m.group(1))
                 chapter_text = None
                 try:
                     from sage import read_chapters_around, read_last_n_chapters

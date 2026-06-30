@@ -99,6 +99,7 @@ def _build_search_dirs() -> list:
     dirs = [
         os.path.dirname(os.path.abspath(__file__)),   # same folder as sage.py (most likely)
         os.getcwd(),                                   # current working directory
+        os.path.expanduser("~/Projects/Great-Sage"),
         os.path.expanduser("~/Documents/Great Sage"),
         os.path.expanduser("~/Documents/great_sage"),
         os.path.expanduser("~/Great Sage"),
@@ -347,6 +348,41 @@ def find_book_txt(book_name: str) -> str | None:
     for directory in LEGION_BOOK_SEARCH_DIRS:
         if not os.path.isdir(directory):
             continue
+
+        # 0. Books are actually saved under <directory>/library/<sanitised_title>/<sanitised_title>.txt
+        #    (see gs_legion_ui.py open_book). Check this first since it's the real layout.
+        lib_dir = os.path.join(directory, "library")
+        if os.path.isdir(lib_dir):
+            candidate = os.path.join(lib_dir, target_exact[:-4], target_exact)  # strip .txt for folder name
+            if os.path.exists(candidate):
+                _book_path_cache[book_name] = candidate
+                return candidate
+            try:
+                subdirs = [d for d in os.listdir(lib_dir) if os.path.isdir(os.path.join(lib_dir, d))]
+            except Exception:
+                subdirs = []
+            for sub in subdirs:
+                sub_norm = normalise(sub)
+                if target_norm in sub_norm or sub_norm in target_norm:
+                    sub_path = os.path.join(lib_dir, sub)
+                    try:
+                        txt_in_sub = [f for f in os.listdir(sub_path) if f.endswith(".txt")]
+                    except Exception:
+                        txt_in_sub = []
+                    if txt_in_sub:
+                        result = os.path.join(sub_path, txt_in_sub[0])
+                        _book_path_cache[book_name] = result
+                        return result
+                if short_norm and len(short_norm) > 4 and short_norm in sub_norm:
+                    sub_path = os.path.join(lib_dir, sub)
+                    try:
+                        txt_in_sub = [f for f in os.listdir(sub_path) if f.endswith(".txt")]
+                    except Exception:
+                        txt_in_sub = []
+                    if txt_in_sub:
+                        result = os.path.join(sub_path, txt_in_sub[0])
+                        _book_path_cache[book_name] = result
+                        return result
 
         # 1. Exact sanitised match
         candidate = os.path.join(directory, target_exact)
