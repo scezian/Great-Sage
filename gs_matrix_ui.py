@@ -315,6 +315,7 @@ class MatrixPage(QWidget):
         self._request_cloud_push.connect(self._cloud_push)
         self._request_toast.connect(self._show_cloud_toast)
         self._build()
+        self._migrate_legacy_show_names()
         self.refresh()
         # Instantiate cloud-sync toast (parented to self so it overlays MatrixPage)
         self._cloud_toast = SyncToast(self)
@@ -1111,6 +1112,287 @@ class MatrixPage(QWidget):
         return ""
 
 
+    # Fansub release-group tags commonly wrapping a folder/file name, e.g.
+    # "[Judas] Sket Dance S1 [1080p]" — stripped entirely, they carry no
+    # title information.
+    _FANSUB_TAG_RE = re.compile(
+        r'[\[\(](?:SubsPlease|Erai-raws|Anime|HorribleSubs|ASW|Judas|EMBER|'
+        r'Ohys-Raws|DB|Coalgirls|FFF|DameDesuYo|Leopard-Raws)[\]\)]',
+        re.IGNORECASE,
+    )
+
+    # Bracketed encoding/quality/release junk. Matches if the bracket
+    # CONTAINS a quality token anywhere inside it (not just an exact full
+    # match) so compound tags like "[BD 1080p]" or "[BDRip x265 10bit]"
+    # are stripped as a whole, not just left half-cleaned.
+    _QUALITY_BRACKET_RE = re.compile(
+        r'[\[\(][^\[\]\(\)]*?(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
+        r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
+        r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH|RAW)[^\[\]\(\)]*?[\]\)]',
+        re.IGNORECASE,
+    )
+
+    # Same junk when it's NOT bracketed, trailing off the end of the name
+    # with a separator in front, e.g. "One Piece - 1080p" -> "One Piece".
+    # (This is the unbracketed-suffix fix that was previously missing.)
+    _QUALITY_UNBRACKETED_RE = re.compile(
+        r'[\s_\-–]+(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
+        r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
+        r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH)\s*$',
+        re.IGNORECASE,
+    )
+
+    # Season/part/cour suffix — NOT stripped here (unlike _clean_media_title
+    # which strips it for API lookups). Instead it's normalized to a single
+    # canonical "S<n>" form so e.g. "Sket Dance Season 1" and
+    # "Sket Dance S1" resolve to the same display title: "Sket Dance S1".
+    # The leading separator (dash/space/underscore) is consumed as part of
+    # the match and NOT included in the replacement, which is what fixes
+    # the leftover-dash bug (e.g. "Re Zero - Season 2" -> "Re Zero S2"
+    # instead of "Re Zero - S2").
+    _SEASON_SUFFIX_RE = re.compile(
+        r'[\s_\-–]*\(?\[?(?:'
+        r'S(?:eason)?\.?\s*(\d{1,2})'
+        r'|(\d{1,2})(?:st|nd|rd|th)\s*Season'
+        r'|Part\s*(\d{1,2})'
+        r'|Cour\s*(\d{1,2})'
+        r')\)?\]?',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _season_suffix_repl(m: "re.Match") -> str:
+        num = next(g for g in m.groups() if g)
+        return f' S{int(num)}'
+
+    def _clean_folder_name(self, raw_folder: str) -> str:
+        """
+        Pure cleaning step (no Planning-list side effects) — strips fansub
+        tags, quality junk (bracketed and unbracketed), and normalizes
+        season/part/cour suffixes to "S<n>". Shared by both
+        `_resolve_show_name` (used for fresh playback) and
+        `_migrate_legacy_show_names` (used to retroactively clean up
+        Continue Watching entries that were stored before this resolver
+        existed).
+        """
+        name = raw_folder
+
+        name = self._FANSUB_TAG_RE.sub('', name)
+        name = self._QUALITY_BRACKET_RE.sub('', name)
+        name = self._QUALITY_UNBRACKETED_RE.sub('', name)
+        name = self._SEASON_SUFFIX_RE.sub(self._season_suffix_repl, name)
+
+        # Clean up empty bracket/paren remnants and separators left behind
+        # by the strips above.
+        name = re.sub(r'\[\s*\]', '', name)
+        name = re.sub(r'\(\s*\)', '', name)
+        name = re.sub(r'[._]+', ' ', name)
+        name = re.sub(r'\s{2,}', ' ', name).strip()
+        # Defensive cleanup — strip any leading/trailing dash that's still
+        # exposed after the strips above (covers edge cases the season
+        # regex's own separator-consumption doesn't catch, e.g. quality
+        # junk that left a dash before an otherwise-untouched tail).
+        name = re.sub(r'^[-\u2013\s]+', '', name)
+        name = re.sub(r'[\s\-\u2013]+$', '', name)
+
+        return name if name else raw_folder.strip()
+
+    def _resolve_show_name(self, raw_folder: str) -> str:
+        """
+        Resolve a raw folder/file name into a canonical show title used as
+        the Continue Watching / Watchlist key.
+
+        Pipeline:
+          1-5. Clean via `_clean_folder_name` (fansub/quality strip +
+               season normalization + whitespace cleanup).
+          6. Fuzzy-match the cleaned name against the Planning list ONLY.
+             If found, that entry is removed from Planning (it "graduates"
+             into Continue Watching) and its stored title is preferred as
+             the canonical title.
+        """
+        name = self._clean_folder_name(raw_folder)
+
+        # Fuzzy-match against Planning ONLY; remove the matched entry so
+        # the show graduates out of Planning into Continue Watching.
+        try:
+            md = matrix_data()
+            wl = md.setdefault("watchlist", {})
+            planning = wl.setdefault("planning", [])
+            norm_resolved = self._norm_title(name)
+
+            match_idx = None
+            for i, entry in enumerate(planning):
+                t = entry.get("title", "") if isinstance(entry, dict) else str(entry)
+                norm_t = self._norm_title(t)
+                if norm_t and (norm_t == norm_resolved
+                               or norm_t in norm_resolved
+                               or norm_resolved in norm_t):
+                    match_idx = i
+                    break
+
+            if match_idx is not None:
+                removed = planning.pop(match_idx)
+                wl["planning"] = planning
+                save_json(MATRIX_PROGRESS, md)
+                matched_title = (
+                    removed.get("title", name) if isinstance(removed, dict) else str(removed)
+                )
+                if matched_title:
+                    name = matched_title
+        except Exception as e:
+            log.warning("Operation failed", error=str(e), location="_resolve_show_name")
+
+        return name
+
+    def _migrate_legacy_show_names(self):
+        """
+        One-time cleanup run on startup. Re-resolves show titles/keys that
+        were stored before this resolver existed — both in the Continue
+        Watching progress dict (`md["watching"]`) AND in the Watchlist
+        lists shown on the WATCHLIST tab (`wl["planning"/"watching"/
+        "dropped"/"completed"]`), e.g. raw folder names like
+        '[Judas] Karakuri Circus (Season 01) [BD 1080p]' or
+        'One Piece - 1080p'.
+
+        Safe to run on every launch — already-clean names are a no-op, so
+        this doesn't redo work once entries have been migrated.
+
+        Steps:
+          1. Clean + merge `md["watching"]` entries that collapse onto the
+             same canonical name (keeps higher episode count, union of
+             episodes_watched, most-recent other fields).
+          2. Clean + dedupe each Watchlist list independently (same-list
+             duplicates merge, preferring the more recently
+             added/updated entry's other fields).
+          3. Remove any Planning entries that now fuzzy-match something
+             already in Watchlist-Watching or Continue Watching — mirrors
+             what `_resolve_show_name` already does for freshly-played
+             shows, applied retroactively to existing data.
+        """
+        try:
+            md = matrix_data()
+            changed = False
+
+            # --- 1. Continue Watching dict ---------------------------------
+            watching = md.get("watching", {})
+            if watching:
+                new_watching = {}
+                for old_key, entry in watching.items():
+                    if not isinstance(entry, dict):
+                        new_watching[old_key] = entry
+                        continue
+
+                    stored_title = entry.get("title", old_key)
+                    cleaned = self._clean_folder_name(stored_title)
+                    cleaned_key = self._clean_folder_name(old_key)
+                    target_key = cleaned or cleaned_key
+
+                    if target_key != old_key or target_key != stored_title:
+                        changed = True
+
+                    if target_key in new_watching:
+                        cur = new_watching[target_key]
+                        newer = entry if entry.get("last_watched", 0) >= cur.get("last_watched", 0) else cur
+                        merged = dict(newer)
+                        merged["title"] = target_key
+                        merged["current_episode"] = max(
+                            entry.get("current_episode", 0), cur.get("current_episode", 0)
+                        )
+                        merged["total_episodes"] = max(
+                            entry.get("total_episodes", 0), cur.get("total_episodes", 0)
+                        )
+                        seen_eps, combined = set(), []
+                        for ep in (entry.get("episodes_watched", []) + cur.get("episodes_watched", [])):
+                            k = tuple(ep) if isinstance(ep, (list, tuple)) else ep
+                            if k not in seen_eps:
+                                seen_eps.add(k)
+                                combined.append(ep)
+                        merged["episodes_watched"] = combined
+                        new_watching[target_key] = merged
+                        changed = True
+                    else:
+                        fixed_entry = dict(entry)
+                        fixed_entry["title"] = target_key
+                        new_watching[target_key] = fixed_entry
+
+                if changed:
+                    md["watching"] = new_watching
+
+            # --- 2. Watchlist lists (Planning / Watching / Dropped / Completed) ---
+            wl = md.setdefault("watchlist", {})
+            for listname in ("planning", "watching", "dropped", "completed"):
+                items = wl.setdefault(listname, [])
+                if not items:
+                    continue
+
+                seen_norms = {}
+                new_items = []
+                list_changed = False
+                for raw_entry in items:
+                    entry = dict(raw_entry) if isinstance(raw_entry, dict) else {"title": str(raw_entry)}
+                    title = entry.get("title", "")
+                    cleaned = self._clean_folder_name(title) if title else title
+                    if cleaned != title:
+                        entry["title"] = cleaned
+                        list_changed = True
+
+                    norm = self._norm_title(cleaned) if cleaned else ""
+                    if norm and norm in seen_norms:
+                        idx = seen_norms[norm]
+                        cur = new_items[idx]
+                        cur_ts = cur.get("updated_at") or cur.get("added") or 0
+                        new_ts = entry.get("updated_at") or entry.get("added") or 0
+                        merged = dict(entry) if (new_ts and new_ts > cur_ts) else dict(cur)
+                        merged["title"] = cleaned
+                        new_items[idx] = merged
+                        list_changed = True
+                    else:
+                        if norm:
+                            seen_norms[norm] = len(new_items)
+                        new_items.append(entry)
+
+                if list_changed:
+                    wl[listname] = new_items
+                    changed = True
+
+            # --- 3. Drop stale Planning duplicates that match something ---
+            #        already active in Watching / Continue Watching.
+            planning = wl.get("planning", [])
+            if planning:
+                active_norms = set()
+                for e in wl.get("watching", []):
+                    t = e.get("title", "") if isinstance(e, dict) else str(e)
+                    if t:
+                        active_norms.add(self._norm_title(t))
+                for k, e in md.get("watching", {}).items():
+                    t = e.get("title", k) if isinstance(e, dict) else str(e)
+                    if t:
+                        active_norms.add(self._norm_title(t))
+
+                kept_planning = []
+                removed_any = False
+                for e in planning:
+                    t = e.get("title", "") if isinstance(e, dict) else str(e)
+                    norm_t = self._norm_title(t)
+                    is_dup = any(
+                        norm_t and an and (norm_t == an or norm_t in an or an in norm_t)
+                        for an in active_norms
+                    )
+                    if is_dup:
+                        removed_any = True
+                    else:
+                        kept_planning.append(e)
+
+                if removed_any:
+                    wl["planning"] = kept_planning
+                    changed = True
+
+            if changed:
+                save_json(MATRIX_PROGRESS, md)
+                log.info("Matrix: migrated legacy show name(s) across Continue Watching and Watchlist")
+        except Exception as e:
+            log.warning("Operation failed", error=str(e), location="_migrate_legacy_show_names")
+
     def _launch_mpv(self, path, start=0):
         if not os.path.exists(path):
             QMessageBox.warning(self, "Not Found", f"File not found:\n{path}"); return
@@ -1118,8 +1400,11 @@ class MatrixPage(QWidget):
         filename = os.path.basename(path)
 
         mod, _ = matrix_mod()
-        # Use the immediate parent folder name as the show title
-        show = os.path.basename(os.path.dirname(path)) or filename
+        # Use the immediate parent folder name as the show title, resolved
+        # through fansub/quality-tag stripping + season normalization +
+        # Planning-list fuzzy match.
+        raw_folder = os.path.basename(os.path.dirname(path)) or filename
+        show = self._resolve_show_name(raw_folder)
 
         # Extract season/episode from filename
         season, episode = 0, 0

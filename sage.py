@@ -71,7 +71,8 @@ TAVILY_API       = "https://api.tavily.com/search"
 try:
     from great_sage_core import (
         LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS,
-        load_json, save_json
+        load_json, save_json, clean_show_title, norm_show_title, fuzzy_title_in,
+        _clean_dedupe_matrix_data,
     )
 except ImportError:
     # Fallback paths if core isn't found (for standalone CLI runs)
@@ -88,6 +89,14 @@ except ImportError:
         try:
             with open(path, "w") as f: json.dump(data, f, indent=2)
         except Exception: pass  # Ignored
+    # Minimal standalone fallbacks — keep in sync with great_sage_core.py's
+    # canonical versions if this file is ever run without great_sage_core.
+    def clean_show_title(raw): return raw
+    def norm_show_title(t): return re.sub(r'[^a-z0-9]+', ' ', (t or '').lower()).strip()
+    def fuzzy_title_in(title, pool):
+        nt = norm_show_title(title)
+        return bool(nt) and any(nt == p or nt in p or p in nt for p in pool if p)
+    def _clean_dedupe_matrix_data(data): return data, False
 
 SAGE_CACHE_FILE  = os.path.expanduser("~/.great_sage_sage_cache.json")
 SAGE_SEEN_FILE   = os.path.expanduser("~/.great_sage_seen_recs.json")
@@ -174,9 +183,16 @@ def get_legion_data() -> dict:
     return load_json(LEGION_PROGRESS, {"books": {}})
 
 def get_matrix_data() -> dict:
-    return load_json(MATRIX_PROGRESS, {
+    data = load_json(MATRIX_PROGRESS, {
         "watchlist": {"planning": [], "watching": [], "dropped": [], "completed": []},
         "watching": {}, "completed": {}})
+    # Self-heal on every load — this reads the file directly, bypassing
+    # great_sage_core's cache, so it needs its own clean+dedupe pass too
+    # (see great_sage_core._clean_dedupe_matrix_data's docstring).
+    data, changed = _clean_dedupe_matrix_data(data)
+    if changed:
+        save_json(MATRIX_PROGRESS, data)
+    return data
 
 def save_matrix_data(data: dict) -> bool:
     save_json(MATRIX_PROGRESS, data)
@@ -254,20 +270,29 @@ def add_to_matrix_watchlist_list(title: str, list_name: str) -> str:
     Add a title to a specific Matrix watchlist sub-list.
     Returns 'added', 'duplicate', or 'error'.
     """
+    title = clean_show_title(title)
     matrix_data = get_matrix_data()
     watchlist = _get_matrix_watchlist(matrix_data)
 
-    # Duplicate check across ALL lists
-    for wl_list in watchlist.values():
-        for entry in wl_list:
-            if entry.get("title", "").lower() == title.lower():
-                return "duplicate"
+    # Duplicate check across ALL lists — fuzzy, not exact. Sage recommends
+    # titles from AI output/external metadata, which won't always match a
+    # locally-stored, fansub-tag-cleaned title character-for-character
+    # (e.g. "Karakuri Circus" vs "Karakuri Circus S1").
+    all_norms = {
+        norm_show_title(e.get("title", "")) for wl_list in watchlist.values()
+        for e in wl_list if isinstance(e, dict)
+    }
+    if fuzzy_title_in(title, all_norms):
+        return "duplicate"
 
-    # Remove from other lists if present
+    # Remove from other lists if present (fuzzy match here too)
     for key in ("planning", "watching", "dropped", "completed"):
         if key == list_name:
             continue
-        watchlist[key] = [e for e in watchlist[key] if e.get("title", "").lower() != title.lower()]
+        watchlist[key] = [
+            e for e in watchlist[key]
+            if not fuzzy_title_in(e.get("title", "") if isinstance(e, dict) else str(e), {norm_show_title(title)})
+        ]
 
     watchlist[list_name].append({
         "title": title, "watched": list_name == "completed",

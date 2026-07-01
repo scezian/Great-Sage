@@ -71,6 +71,207 @@ def _wl_now() -> str:
     from datetime import timezone as _tz
     return datetime.now(_tz.utc).isoformat()
 
+# ── Show-name cleaning (canonical) ───────────────────────────────────────────
+# This is the SINGLE authoritative implementation of show-title cleaning and
+# fuzzy matching. Both matrix.py (Storage class) and sage.py (its own,
+# separate get_matrix_data()/add_to_matrix_watchlist_list()) have — or had —
+# their own copies of this logic. Multiple independent copies is how the
+# Matrix duplicate-entry bug happened: each read/write path cleaned (or
+# didn't clean) titles differently, so nothing stayed fixed. Every place
+# that reads or writes Matrix watchlist/watching titles should import these
+# functions from here rather than reimplementing them.
+
+_FANSUB_TAG_RE = re.compile(
+    r'[\[\(](?:SubsPlease|Erai-raws|Anime|HorribleSubs|ASW|Judas|EMBER|'
+    r'Ohys-Raws|DB|Coalgirls|FFF|DameDesuYo|Leopard-Raws)[\]\)]',
+    re.IGNORECASE,
+)
+_SEASON_MARKER_INSIDE_BRACKET_RE = re.compile(
+    r'^[\[\(]\s*(?:S(?:eason)?\.?\s*\d{1,2}|\d{1,2}(?:st|nd|rd|th)\s*Season'
+    r'|Part\s*\d{1,2}|Cour\s*\d{1,2})\s*[\]\)]$',
+    re.IGNORECASE,
+)
+_ANY_BRACKET_RE = re.compile(r'[\[\(][^\[\]\(\)]*[\]\)]')
+_QUALITY_UNBRACKETED_RE = re.compile(
+    r'[\s_\-–]+(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
+    r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
+    r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH|Eng[-\s]?Subs?|RAW)\s*$',
+    re.IGNORECASE,
+)
+_SEASON_SUFFIX_RE = re.compile(
+    r'[\s_\-–]*\(?\[?(?:'
+    r'S(?:eason)?\.?\s*(\d{1,2})'
+    r'|(\d{1,2})(?:st|nd|rd|th)\s*Season'
+    r'|Part\s*(\d{1,2})'
+    r'|Cour\s*(\d{1,2})'
+    r')\)?\]?',
+    re.IGNORECASE,
+)
+
+
+def _season_suffix_repl(m: "re.Match") -> str:
+    num = next(g for g in m.groups() if g)
+    return f' S{int(num)}'
+
+
+def _strip_non_season_brackets(name: str) -> str:
+    def _repl(m: "re.Match") -> str:
+        return m.group(0) if _SEASON_MARKER_INSIDE_BRACKET_RE.match(m.group(0)) else ''
+    prev = None
+    while prev != name:
+        prev = name
+        name = _ANY_BRACKET_RE.sub(_repl, name)
+    return name
+
+
+def clean_show_title(raw: str) -> str:
+    """Strip fansub/quality/language tags and normalize season suffixes to
+    'S<n>'. Canonical cleaning function — import this instead of writing a
+    new one."""
+    if not raw:
+        return raw
+    name = raw
+    name = _FANSUB_TAG_RE.sub('', name)
+    name = _strip_non_season_brackets(name)
+    name = _QUALITY_UNBRACKETED_RE.sub('', name)
+    name = _SEASON_SUFFIX_RE.sub(_season_suffix_repl, name)
+    name = re.sub(r'\[\s*\]', '', name)
+    name = re.sub(r'\(\s*\)', '', name)
+    name = re.sub(r'[._]+', ' ', name)
+    name = re.sub(r'\s{2,}', ' ', name).strip()
+    name = re.sub(r'^[-\u2013\s]+', '', name)
+    name = re.sub(r'[\s\-\u2013]+$', '', name)
+    return name if name else raw.strip()
+
+
+def norm_show_title(t: str) -> str:
+    """Normalize a title for fuzzy matching — lowercase, collapse all
+    non-alphanumerics to single spaces."""
+    return re.sub(r'[^a-z0-9]+', ' ', (t or '').lower()).strip()
+
+
+def fuzzy_title_in(title: str, norm_pool) -> bool:
+    """True if `title` (raw) fuzzy-matches any normalized title in norm_pool
+    (an iterable/set of already-normalized strings)."""
+    nt = norm_show_title(title)
+    if not nt:
+        return False
+    return any(nt == p or nt in p or p in nt for p in norm_pool if p)
+
+
+def _clean_dedupe_matrix_data(data: dict) -> dict:
+    """Clean + fuzzy-dedupe titles across the Continue Watching progress
+    dict and all four Watchlist sub-lists, and drop stale Planning entries
+    that now match something active in Watching. Idempotent — safe to run
+    on every load. This is the authoritative self-healing pass; call it
+    from every place that loads Matrix data (great_sage_core.get_matrix_data,
+    matrix.py's Storage._load, sage.py's get_matrix_data) so no read/write
+    path can leave stale duplicate/uncleaned titles behind.
+    """
+    changed = False
+    wl = data.setdefault("watchlist", {})
+    for k in ("planning", "watching", "dropped", "completed"):
+        wl.setdefault(k, [])
+
+    # --- Continue Watching progress dict ---
+    watching_progress = data.get("watching", {})
+    if isinstance(watching_progress, dict) and watching_progress:
+        new_progress = {}
+        for old_key, entry in watching_progress.items():
+            if not isinstance(entry, dict):
+                new_progress[old_key] = entry
+                continue
+            stored_title = entry.get("title", old_key)
+            cleaned = clean_show_title(stored_title) or clean_show_title(old_key)
+            if cleaned != old_key or cleaned != stored_title:
+                changed = True
+            if cleaned in new_progress:
+                cur = new_progress[cleaned]
+                newer = entry if entry.get("last_watched", 0) >= cur.get("last_watched", 0) else cur
+                merged = dict(newer)
+                merged["title"] = cleaned
+                merged["current_episode"] = max(entry.get("current_episode", 0), cur.get("current_episode", 0))
+                merged["total_episodes"] = max(entry.get("total_episodes", 0), cur.get("total_episodes", 0))
+                seen_eps, combined = set(), []
+                for ep in (entry.get("episodes_watched", []) + cur.get("episodes_watched", [])):
+                    ek = tuple(ep) if isinstance(ep, (list, tuple)) else ep
+                    if ek not in seen_eps:
+                        seen_eps.add(ek)
+                        combined.append(ep)
+                merged["episodes_watched"] = combined
+                new_progress[cleaned] = merged
+                changed = True
+            else:
+                fixed = dict(entry)
+                fixed["title"] = cleaned
+                new_progress[cleaned] = fixed
+        if changed:
+            data["watching"] = new_progress
+        watching_progress = new_progress
+
+    # --- Clean + dedupe each Watchlist sub-list independently ---
+    for listname in ("planning", "watching", "dropped", "completed"):
+        items = wl.get(listname, [])
+        if not items:
+            continue
+        seen_norms, new_items, list_changed = {}, [], False
+        for raw_entry in items:
+            entry = dict(raw_entry) if isinstance(raw_entry, dict) else {"title": str(raw_entry)}
+            title = entry.get("title", "")
+            cleaned = clean_show_title(title) if title else title
+            if cleaned != title:
+                list_changed = True
+            entry["title"] = cleaned
+            norm = norm_show_title(cleaned)
+            if norm and norm in seen_norms:
+                idx = seen_norms[norm]
+                cur = new_items[idx]
+                cur_ts = cur.get("updated_at") or cur.get("added") or 0
+                new_ts = entry.get("updated_at") or entry.get("added") or 0
+                merged = dict(entry) if (new_ts and new_ts > cur_ts) else dict(cur)
+                merged["title"] = cleaned
+                new_items[idx] = merged
+                list_changed = True
+            else:
+                if norm:
+                    seen_norms[norm] = len(new_items)
+                new_items.append(entry)
+        if list_changed:
+            wl[listname] = new_items
+            changed = True
+
+    # --- Ensure every Continue Watching title is represented in Watching ---
+    existing_watching_norms = {
+        norm_show_title(e.get("title", "")) for e in wl.get("watching", []) if isinstance(e, dict)
+    }
+    for title in (watching_progress.keys() if isinstance(watching_progress, dict) else []):
+        if title and not fuzzy_title_in(title, existing_watching_norms):
+            wl.setdefault("watching", []).append({
+                "title": title, "is_anime": False,
+                "added": time.time(), "watched": False,
+                "notes": "Migrated from Continue Watching",
+                "updated_at": _wl_now(),
+            })
+            existing_watching_norms.add(norm_show_title(title))
+            changed = True
+
+    # --- Drop stale Planning entries matching something already active ---
+    active_norms = set(existing_watching_norms)
+    for k in (watching_progress.keys() if isinstance(watching_progress, dict) else []):
+        if k:
+            active_norms.add(norm_show_title(k))
+    planning = wl.get("planning", [])
+    if planning and active_norms:
+        kept = [
+            e for e in planning
+            if not fuzzy_title_in(e.get("title", "") if isinstance(e, dict) else str(e), active_norms)
+        ]
+        if len(kept) != len(planning):
+            wl["planning"] = kept
+            changed = True
+
+    return data, changed
+
 # ── Module loader ──────────────────────────────────────────────────────────────
 _modules: dict = {}
 
@@ -314,6 +515,17 @@ def get_matrix_data() -> dict:
     for k in ("planning", "watching", "dropped", "completed"):
         data["watchlist"].setdefault(k, [])
 
+    # Clean + fuzzy-dedupe show titles (fansub/quality tags, stale
+    # cross-list duplicates). Self-healing on every load — see
+    # _clean_dedupe_matrix_data's docstring for why this matters.
+    data, dedupe_changed = _clean_dedupe_matrix_data(data)
+    if dedupe_changed:
+        save_json(MATRIX_PROGRESS, data)
+        try:
+            _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+        except OSError:
+            pass
+
     return data
 
 def get_bookmarks_data() -> dict:
@@ -527,6 +739,29 @@ def _clean_media_title(raw: str) -> str:
     s = junk.sub("", s).strip(" .-_")
     s = re.sub(r"\s*-\s*\w+Raws?\s*$", "", s, flags=re.IGNORECASE).strip()
     s = re.sub(r"\*{1,3}", "", s).strip()
+
+    # Strip standalone season/part/cour suffixes, roman-numeral season
+    # markers, and trailing release years — these are kept in the
+    # canonical display title (e.g. "Karakuri Circus S1") for
+    # disambiguation, but must NOT be sent to AniList/TMDB, which index
+    # shows under their base title without a season suffix. Applied
+    # repeatedly to handle stacked cases (e.g. "Show S2 (2024)" -> "Show").
+    _season_tail_re = re.compile(
+        r'[\s_\-–]*\(?\[?(?:'
+        r'S(?:eason)?\.?\s*\d{1,2}'
+        r'|\d{1,2}(?:st|nd|rd|th)\s*Season'
+        r'|Part\s*\d{1,2}'
+        r'|Cour\s*\d{1,2}'
+        r'|\b(?:I{1,3}|IV|V|VI{0,3}|IX)\b'
+        r'|\(?(?:19|20)\d{2}\)?'
+        r')\)?\]?\s*$',
+        re.IGNORECASE,
+    )
+    prev = None
+    while prev != s:
+        prev = s
+        s = _season_tail_re.sub('', s).strip()
+
     return s or raw
 
 def _strip_markdown(text: str) -> str:
