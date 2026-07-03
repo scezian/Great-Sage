@@ -44,7 +44,7 @@ from great_sage_core import (
     legion_data, matrix_data, bookmarks_data,
     legion_mod, matrix_mod, sage_mod,
     _catalogue_panel_class, _clean_media_title, _strip_markdown, _detect_genre,
-    _detect_show_genre,
+    _detect_show_genre, clean_show_title,
     _grep_book_for_term,
     sage_memory_load, sage_memory_append, sage_memory_extract,
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
@@ -312,6 +312,18 @@ class MatrixPage(QWidget):
         self._meta_worker  = None
         self._mpv_process  = None
         self._play_thread  = None
+        # Keeps references to in-flight background cover-art fetches (fired
+        # from _wl_add) alive until they finish — PyQt will kill/GC a QThread
+        # with no surviving reference, silently dropping the fetch.
+        self._cover_fetch_workers = []
+        # Automatic startup/periodic backfill for shows that are missing a
+        # cover_url (e.g. added before this feature existed, or added via
+        # mpv auto-detect rather than the manual Add box). Runs on every
+        # user's machine automatically — no manual script needed. One queue
+        # processed one title at a time so we don't fire 90 TMDB lookups at
+        # once.
+        self._cover_backfill_queue   = []
+        self._cover_backfill_running = False
         self._request_cloud_push.connect(self._cloud_push)
         self._request_toast.connect(self._show_cloud_toast)
         self._build()
@@ -346,6 +358,7 @@ class MatrixPage(QWidget):
                     s.restore_to_disk()
                     log.sync.info("[cloud] Pull on launch complete")
                     QTimer.singleShot(0, self.refresh)
+                    QTimer.singleShot(2000, self._wl_start_cover_backfill)
                 except Exception as e:
                     log.sync.warning("[cloud] Pull on launch failed", error=str(e))
 
@@ -358,6 +371,7 @@ class MatrixPage(QWidget):
                         if ok:
                             log.sync.info("[cloud] Periodic pull complete")
                             QTimer.singleShot(0, self.refresh)
+                            QTimer.singleShot(2000, self._wl_start_cover_backfill)
                         else:
                             log.sync.warning("[cloud] Periodic pull returned False")
                     except Exception as e:
@@ -618,8 +632,107 @@ class MatrixPage(QWidget):
             tab_idx = {"planning":0,"watching":1,"dropped":2,"completed":3}.get(lst, 0)
             self.wl_tabs.setCurrentIndex(tab_idx)
             self.wl_info.setText(f"✓ Added '{title}' to {lst.capitalize()}")
+            # Shows have no cover art source of their own (unlike webnovels,
+            # which get one from Legion's scraper) — kick off a background
+            # TMDB/MetadataFetcher lookup so a cover_url gets saved+synced
+            # without the user needing to open the detail panel first.
+            if anime:
+                self._wl_fetch_and_save_cover(title, lst)
         except Exception as e:
             self.wl_info.setText(f"⚠ Could not save: {e}")
+
+    def _wl_fetch_and_save_cover(self, title: str, lst: str, on_complete=None):
+        """Background-fetch a poster for a show and persist+sync it.
+        Fire-and-forget: failures are silent (no cover is not worse than the
+        current behavior), success quietly fills in cover_url.
+
+        `on_complete` (optional) is called — success or failure — once the
+        fetch settles, so callers like the startup backfill queue can chain
+        one lookup after another instead of firing dozens of workers at once.
+        """
+        worker = MetadataWorker(_strip_markdown(_clean_media_title(title)), True)
+        self._cover_fetch_workers.append(worker)
+
+        def _cleanup():
+            try: self._cover_fetch_workers.remove(worker)
+            except ValueError: pass
+
+        def _on_done(info, t=title, l=lst):
+            _cleanup()
+            img_url = (info or {}).get("image_url", "")
+            if img_url:
+                try:
+                    md = matrix_data(); wl = md.setdefault("watchlist", {})
+                    for k, entries in wl.items():
+                        for e in entries:
+                            if isinstance(e, dict) and e.get("title", "").lower() == t.lower():
+                                e["cover_url"] = img_url
+                    save_json(MATRIX_PROGRESS, md)
+                except Exception as ex:
+                    log.matrix.warning("Could not persist cover_url locally", title=t, error=str(ex))
+                _sync_item_added(t, "Anime", l.capitalize(), cover_url=img_url)
+            if on_complete:
+                on_complete()
+
+        def _on_error(_e, t=title):
+            _cleanup()
+            log.matrix.info("Cover lookup found no match", title=t)
+            if on_complete:
+                on_complete()
+
+        worker.done.connect(_on_done)
+        worker.error.connect(_on_error)
+        worker.start()
+
+    def _wl_start_cover_backfill(self):
+        """Scan the local watchlist for shows missing a cover_url and queue
+        them for a background TMDB lookup, one at a time. Runs automatically
+        after every cloud pull (launch + every 5-minute poll) so this fixes
+        itself for every user without anyone needing to run a script.
+
+        Cheap when there's nothing to do: if every show already has a
+        cover_url, this is just one pass over the local list and returns.
+        """
+        if self._cover_backfill_running:
+            return  # already working through a queue, don't start a second one
+        try:
+            md = matrix_data(); wl = md.get("watchlist", {})
+            queue = []
+            for lst, entries in wl.items():
+                if lst not in ("planning", "watching", "dropped", "completed"):
+                    continue
+                for e in entries:
+                    if not isinstance(e, dict):
+                        continue
+                    if e.get("is_anime") is False:
+                        continue  # webnovel — covered separately by Legion
+                    if e.get("cover_url"):
+                        continue  # already has one
+                    title = e.get("title", "").strip()
+                    if title:
+                        queue.append((title, lst))
+        except Exception as ex:
+            log.matrix.warning("Cover backfill scan failed", error=str(ex))
+            return
+
+        if not queue:
+            return
+
+        log.matrix.info(f"[cover-backfill] {len(queue)} show(s) missing a cover, starting background fetch")
+        self._cover_backfill_queue = queue
+        self._cover_backfill_running = True
+        self._wl_process_next_cover_backfill()
+
+    def _wl_process_next_cover_backfill(self):
+        if not self._cover_backfill_queue:
+            self._cover_backfill_running = False
+            log.matrix.info("[cover-backfill] queue complete")
+            return
+        title, lst = self._cover_backfill_queue.pop(0)
+        self._wl_fetch_and_save_cover(
+            title, lst,
+            on_complete=lambda: QTimer.singleShot(1200, self._wl_process_next_cover_backfill),
+        )
 
     def _wl_ctx(self, pos, lw, lst_name):
         item = lw.itemAt(pos)
@@ -1091,6 +1204,10 @@ class MatrixPage(QWidget):
             if self._norm_title(kt) == norm:
                 del watching[k]
         save_json(MATRIX_PROGRESS, md); self.refresh()
+        # Without this, the next cloud pull (launch or 5-min poll) sees the
+        # old progress still sitting in Supabase and silently re-fills it,
+        # making removal look like it "doesn't work".
+        self._request_cloud_push.emit()
 
     def _find_subtitle(self, video_path: str) -> str:
         """
@@ -1112,90 +1229,25 @@ class MatrixPage(QWidget):
         return ""
 
 
-    # Fansub release-group tags commonly wrapping a folder/file name, e.g.
-    # "[Judas] Sket Dance S1 [1080p]" — stripped entirely, they carry no
-    # title information.
-    _FANSUB_TAG_RE = re.compile(
-        r'[\[\(](?:SubsPlease|Erai-raws|Anime|HorribleSubs|ASW|Judas|EMBER|'
-        r'Ohys-Raws|DB|Coalgirls|FFF|DameDesuYo|Leopard-Raws)[\]\)]',
-        re.IGNORECASE,
-    )
-
-    # Bracketed encoding/quality/release junk. Matches if the bracket
-    # CONTAINS a quality token anywhere inside it (not just an exact full
-    # match) so compound tags like "[BD 1080p]" or "[BDRip x265 10bit]"
-    # are stripped as a whole, not just left half-cleaned.
-    _QUALITY_BRACKET_RE = re.compile(
-        r'[\[\(][^\[\]\(\)]*?(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
-        r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
-        r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH|RAW)[^\[\]\(\)]*?[\]\)]',
-        re.IGNORECASE,
-    )
-
-    # Same junk when it's NOT bracketed, trailing off the end of the name
-    # with a separator in front, e.g. "One Piece - 1080p" -> "One Piece".
-    # (This is the unbracketed-suffix fix that was previously missing.)
-    _QUALITY_UNBRACKETED_RE = re.compile(
-        r'[\s_\-–]+(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
-        r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
-        r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH)\s*$',
-        re.IGNORECASE,
-    )
-
-    # Season/part/cour suffix — NOT stripped here (unlike _clean_media_title
-    # which strips it for API lookups). Instead it's normalized to a single
-    # canonical "S<n>" form so e.g. "Sket Dance Season 1" and
-    # "Sket Dance S1" resolve to the same display title: "Sket Dance S1".
-    # The leading separator (dash/space/underscore) is consumed as part of
-    # the match and NOT included in the replacement, which is what fixes
-    # the leftover-dash bug (e.g. "Re Zero - Season 2" -> "Re Zero S2"
-    # instead of "Re Zero - S2").
-    _SEASON_SUFFIX_RE = re.compile(
-        r'[\s_\-–]*\(?\[?(?:'
-        r'S(?:eason)?\.?\s*(\d{1,2})'
-        r'|(\d{1,2})(?:st|nd|rd|th)\s*Season'
-        r'|Part\s*(\d{1,2})'
-        r'|Cour\s*(\d{1,2})'
-        r')\)?\]?',
-        re.IGNORECASE,
-    )
-
-    @staticmethod
-    def _season_suffix_repl(m: "re.Match") -> str:
-        num = next(g for g in m.groups() if g)
-        return f' S{int(num)}'
-
     def _clean_folder_name(self, raw_folder: str) -> str:
         """
-        Pure cleaning step (no Planning-list side effects) — strips fansub
-        tags, quality junk (bracketed and unbracketed), and normalizes
-        season/part/cour suffixes to "S<n>". Shared by both
+        Pure cleaning step (no Planning-list side effects) — delegates to
+        `great_sage_core.clean_show_title`, the single canonical cleaner
+        (strips fansub tags generically, quality/audio/group junk, and
+        normalizes season/part/cour suffixes to "S<n>"). This used to be a
+        second, independently-maintained copy of that logic living here —
+        it drifted (e.g. it whitelisted specific fansub-group names instead
+        of stripping any leading bracket, and didn't cover a release group
+        glued onto a quality token like "x265-EMBER"), which is exactly the
+        kind of divergence that let stale-looking titles slip through at
+        playback time even though the background self-healing pass in
+        great_sage_core cleaned the same title correctly. Shared by both
         `_resolve_show_name` (used for fresh playback) and
         `_migrate_legacy_show_names` (used to retroactively clean up
         Continue Watching entries that were stored before this resolver
         existed).
         """
-        name = raw_folder
-
-        name = self._FANSUB_TAG_RE.sub('', name)
-        name = self._QUALITY_BRACKET_RE.sub('', name)
-        name = self._QUALITY_UNBRACKETED_RE.sub('', name)
-        name = self._SEASON_SUFFIX_RE.sub(self._season_suffix_repl, name)
-
-        # Clean up empty bracket/paren remnants and separators left behind
-        # by the strips above.
-        name = re.sub(r'\[\s*\]', '', name)
-        name = re.sub(r'\(\s*\)', '', name)
-        name = re.sub(r'[._]+', ' ', name)
-        name = re.sub(r'\s{2,}', ' ', name).strip()
-        # Defensive cleanup — strip any leading/trailing dash that's still
-        # exposed after the strips above (covers edge cases the season
-        # regex's own separator-consumption doesn't catch, e.g. quality
-        # junk that left a dash before an otherwise-untouched tail).
-        name = re.sub(r'^[-\u2013\s]+', '', name)
-        name = re.sub(r'[\s\-\u2013]+$', '', name)
-
-        return name if name else raw_folder.strip()
+        return clean_show_title(raw_folder)
 
     def _resolve_show_name(self, raw_folder: str) -> str:
         """
@@ -1234,11 +1286,12 @@ class MatrixPage(QWidget):
                 removed = planning.pop(match_idx)
                 wl["planning"] = planning
                 save_json(MATRIX_PROGRESS, md)
-                matched_title = (
-                    removed.get("title", name) if isinstance(removed, dict) else str(removed)
-                )
-                if matched_title:
-                    name = matched_title
+                # NOTE: previously this overwrote `name` with the matched
+                # Planning entry's stored title, which discarded season info
+                # the cleaned folder name already had (e.g. "Gintama S1"
+                # would collapse back down to just "Gintama"). The cleaned,
+                # folder-derived name is kept as-is now — Planning removal
+                # is the only side effect of finding a match.
         except Exception as e:
             log.warning("Operation failed", error=str(e), location="_resolve_show_name")
 
@@ -1524,6 +1577,14 @@ class MatrixPage(QWidget):
                     for e in wl["watching"]
                 )
                 if in_watching: return
+                # If the user deliberately moved this to Dropped or Completed,
+                # respect that — don't silently resurrect it into Watching just
+                # because a file happened to get played (resume/misclick/autoplay).
+                in_dropped_or_completed = any(
+                    (e.get("title","") if isinstance(e,dict) else str(e)).lower() == show_name.lower()
+                    for k in ("dropped","completed") for e in wl[k]
+                )
+                if in_dropped_or_completed: return
                 # Remove from planning (only — don't touch completed/dropped)
                 wl["planning"] = [
                     e for e in wl["planning"]

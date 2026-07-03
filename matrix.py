@@ -1002,16 +1002,13 @@ class Storage:
             for key in ('planning', 'watching', 'dropped', 'completed'):
                 if key not in data['watchlist']:
                     data['watchlist'][key] = []
-        # Move items in data['watching'] progress into watchlist['watching'] if not there
-        for title in data.get('watching', {}).keys():
-            wl = data.get('watchlist', {})
-            all_titles = [e.get('title','').lower() for lst in wl.values() for e in lst]
-            if title.lower() not in all_titles:
-                wl.setdefault('watching', []).append({
-                    'title': title, 'watched': False,
-                    'added': time.time(), 'is_anime': False,
-                    'notes': 'Migrated from Continue Watching'
-                })
+        # NOTE: This used to auto-copy any orphaned title from data['watching']
+        # (the continue-watching progress dict) into watchlist['watching'] on
+        # every single load. That was a one-time migration for the old flat
+        # watchlist format and should never have kept running — it had no way
+        # to tell a real anime bookmark apart from a stray/leaked entry (e.g.
+        # Legion novels that leaked in via a since-fixed sync bug), so it kept
+        # silently resurrecting deleted entries forever. Removed for good.
         return data
     
     def save(self):

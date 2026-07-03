@@ -95,7 +95,8 @@ _ANY_BRACKET_RE = re.compile(r'[\[\(][^\[\]\(\)]*[\]\)]')
 _QUALITY_UNBRACKETED_RE = re.compile(
     r'[\s_\-–]+(?:\d{3,4}p|HEVC|x26[45]|AVC|AAC|AC3|10[\s-]?bit|'
     r'8[\s-]?bit|WEB[-\s]?DL|WEBRip|BluRay|BD(?:Rip|MV)?|HDTV|DVDRip|'
-    r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH|Eng[-\s]?Subs?|RAW)\s*$',
+    r'BRRip|FLAC|DUAL[-\s]?AUDIO|BATCH|Eng[-\s]?Subs?|RAW|DD\+|DDP\+?)'
+    r'(?:-[A-Za-z0-9]+)?\s*$',
     re.IGNORECASE,
 )
 _SEASON_SUFFIX_RE = re.compile(
@@ -133,7 +134,14 @@ def clean_show_title(raw: str) -> str:
     name = raw
     name = _FANSUB_TAG_RE.sub('', name)
     name = _strip_non_season_brackets(name)
-    name = _QUALITY_UNBRACKETED_RE.sub('', name)
+    # Loop to a fixed point instead of a single pass, so chained trailing
+    # junk ("1080p Dual Audio WEBRip DD+ x265-EMBER") gets peeled off one
+    # token at a time from the end rather than requiring one regex to match
+    # the whole chain in a single shot.
+    prev = None
+    while prev != name:
+        prev = name
+        name = _QUALITY_UNBRACKETED_RE.sub('', name)
     name = _SEASON_SUFFIX_RE.sub(_season_suffix_repl, name)
     name = re.sub(r'\[\s*\]', '', name)
     name = re.sub(r'\(\s*\)', '', name)
@@ -241,11 +249,20 @@ def _clean_dedupe_matrix_data(data: dict) -> dict:
             changed = True
 
     # --- Ensure every Continue Watching title is represented in Watching ---
+    # Only auto-inject if the title isn't already tracked in ANY sub-list —
+    # if the user deliberately moved it to Dropped/Completed/Planning, that
+    # status is intentional and must not be silently overridden just because
+    # stale mpv resume-progress still exists for it.
     existing_watching_norms = {
         norm_show_title(e.get("title", "")) for e in wl.get("watching", []) if isinstance(e, dict)
     }
+    existing_any_norms = {
+        norm_show_title(e.get("title", ""))
+        for lst in ("planning", "watching", "dropped", "completed")
+        for e in wl.get(lst, []) if isinstance(e, dict)
+    }
     for title in (watching_progress.keys() if isinstance(watching_progress, dict) else []):
-        if title and not fuzzy_title_in(title, existing_watching_norms):
+        if title and not fuzzy_title_in(title, existing_any_norms):
             wl.setdefault("watching", []).append({
                 "title": title, "is_anime": False,
                 "added": time.time(), "watched": False,
@@ -253,6 +270,7 @@ def _clean_dedupe_matrix_data(data: dict) -> dict:
                 "updated_at": _wl_now(),
             })
             existing_watching_norms.add(norm_show_title(title))
+            existing_any_norms.add(norm_show_title(title))
             changed = True
 
     # --- Drop stale Planning entries matching something already active ---
