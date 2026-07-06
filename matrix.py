@@ -955,16 +955,20 @@ class Storage:
         self.data = self._load()
     
     def _load(self) -> Dict:
-        """Load all data from file"""
+        """Load all data from file."""
         try:
-            if os.path.exists(PROGRESS_FILE):
-                with open(PROGRESS_FILE, 'r') as f:
-                    data = json.load(f)
-                    return self._migrate_data(data)
+            # Fix: was a raw open()/json.load() with zero coordination against
+            # great_sage_core.save_json's per-path lock, despite PROGRESS_FILE
+            # being the identical file gs_matrix_ui.py and gs_sync.py write to
+            # through that lock. load_json_cached shares the same registry.
+            from great_sage_core import load_json_cached
+            data = load_json_cached(PROGRESS_FILE, None)
+            if data:
+                return self._migrate_data(data)
         except Exception as e:
             log.warning(f"Error loading data: {e}")
             log.error("Storage._load failed", path=PROGRESS_FILE, error=str(e))
-        
+
         return self._get_default_data()
     
     def _get_default_data(self) -> Dict:
@@ -1012,21 +1016,25 @@ class Storage:
         return data
     
     def save(self):
-        """Save all data to file. Uses atomic write (tmp → rename) to prevent
-        corruption if the process is killed mid-write."""
+        """Save all data to file.
+        NOTE: this writes whatever snapshot is currently held in self.data,
+        which was loaded once at Storage() construction time. If this class
+        is ever wired back up (e.g. for AniList import via
+        merge_external_lists) while the main GUI/autosync is also running,
+        callers should do `self.data = self._load()` immediately before any
+        save() call, or this can silently overwrite newer writes from
+        gs_matrix_ui.py or the sync scheduler with a stale in-memory copy.
+        """
         try:
-            tmp_path = PROGRESS_FILE + ".tmp"
-            with open(tmp_path, 'w') as f:
-                json.dump(self.data, f, indent=2)
-            os.replace(tmp_path, PROGRESS_FILE)   # atomic on Linux
-            # Rolling backup — one generation, catches mid-crash scenarios
-            bak_path = PROGRESS_FILE + ".bak"
-            try:
-                import shutil as _sh
-                _sh.copy2(PROGRESS_FILE, bak_path)
-            except Exception:
-                pass
-            return True
+            # Fix: was a raw temp-write + os.replace with no lock at all,
+            # racing against great_sage_core.save_json's locked writes to
+            # this identical file. save_json also gives us its guard against
+            # overwriting real data with a near-empty payload, for free.
+            from great_sage_core import save_json
+            ok = save_json(PROGRESS_FILE, self.data)
+            if not ok:
+                log.warning("Storage.save: save_json declined the write")
+            return ok
         except Exception as e:
             log.warning(f"Error saving data: {e}")
             log.error("Storage.save failed", path=PROGRESS_FILE, error=str(e))

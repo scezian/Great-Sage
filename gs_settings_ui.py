@@ -643,12 +643,10 @@ class SettingsPage(QWidget):
     # ── Cloud Sync helpers ────────────────────────────────────────────────────
 
     def _get_sync(self):
-        """Lazy-import GreatSageSync — returns None if gs_sync not available."""
+        """Return the shared GreatSageSync singleton — returns None if gs_sync not available."""
         try:
             from gs_sync import GreatSageSync
-            if not hasattr(self, "_sync_client"):
-                self._sync_client = GreatSageSync()
-            return self._sync_client
+            return GreatSageSync.get()
         except ImportError:
             return None
 
@@ -743,63 +741,34 @@ class SettingsPage(QWidget):
         threading.Thread(target=_do, daemon=True).start()
 
     def _start_autosync_timer(self):
-        """Sync cycle every 3 minutes: pull first (merge cloud changes) then push."""
-        if not hasattr(self, "_autosync_timer"):
-            self._autosync_timer = QTimer(self)
-            self._autosync_timer.timeout.connect(self._sync_cycle)
-        self._autosync_timer.start(3 * 60 * 1000)
+        """
+        Register this page with the single shared sync scheduler instead of
+        running a private QTimer cycle. gs_sync_scheduler owns the actual
+        pull/legion-restore/drain/push sequence now; this just asks to be
+        told when a cycle finishes so it can check for an expired session.
+        """
+        from gs_sync_scheduler import sync_scheduler
+        sync_scheduler.register_pull_listener(self._on_scheduler_cycle_complete)
+        sync_scheduler.start()
         # Delay rec polling by 5s so the main window is fully visible before
         # any notification dialog tries to attach to it as a parent.
         QTimer.singleShot(5000, self._start_rec_polling)
 
-    def _sync_cycle(self):
-        """Pull cloud changes (last-write-wins merge) then push local state."""
-        import logging as _logging
-        _log = _logging.getLogger("great_sage.sync")
+    def _on_scheduler_cycle_complete(self):
+        """
+        Called by the shared sync_scheduler (background thread) after each
+        completed sync cycle. Preserves the old "session expired" toast by
+        doing a cheap post-cycle auth check, without duplicating the actual
+        pull/push work the scheduler already did.
+        """
         sync = self._get_sync()
-        if not sync:
-            return
-
-        def _do():
-            auth_failed = False
-            try:
-                sync.restore_to_disk()
-            except Exception as e:
-                err = str(e)
-                _log.warning(f"[cloud] Sync-cycle pull error: {e}")
-                if "Not logged in" in err or "401" in err or "token" in err.lower():
-                    auth_failed = True
-            # ── Legion pull (mirror of restore_to_disk for webnovels) ─────────
-            try:
-                from gs_legion_sync import legion_restore_to_disk, drain_pending_pushes
-                legion_restore_to_disk()
-                drain_pending_pushes()
-            except Exception as e:
-                _log.warning(f"[cloud] Legion restore error: {e}")
-            try:
-                ok = sync.push()
-                if ok:
-                    _log.info("[cloud] Sync-cycle push complete")
-                else:
-                    _log.warning("[cloud] Sync-cycle push returned False")
-            except Exception as e:
-                err = str(e)
-                _log.error(f"[cloud] Sync-cycle push error: {e}")
-                if "Not logged in" in err or "401" in err or "token" in err.lower():
-                    auth_failed = True
-            # Legion progress is pushed in real time by gs_legion_sync.push_book /
-            # push_reader_progress — no bulk backfill needed here. Running
-            # backfill_library() on every cycle resets all webnovel progress to 0.
-
-            if auth_failed:
-                push_notification(
-                    title="Cloud sync — session expired",
-                    body="Your session expired. Open Settings → Cloud to sign back in.",
-                    notif_type="warning",
-                    notif_id="cloud_not_logged_in",
-                )
-
-        threading.Thread(target=_do, daemon=True, name="gs_sync_cycle").start()
+        if sync and not sync.is_logged_in():
+            push_notification(
+                title="Cloud sync — session expired",
+                body="Your session expired. Open Settings → Cloud to sign back in.",
+                notif_type="warning",
+                notif_id="cloud_not_logged_in",
+            )
 
     def _start_rec_polling(self):
         """Poll recommendations inbox every 2 minutes while signed in."""

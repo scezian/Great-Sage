@@ -55,7 +55,7 @@ progress.json structure (Great Sage local)
 
 from __future__ import annotations
 
-import base64
+import hashlib
 import json
 import os
 import time
@@ -67,7 +67,21 @@ from typing import Optional
 
 import requests
 
-logger = logging.getLogger(__name__)
+# Fix: base64 is encoding, not encryption — a stored password was previously
+# recoverable in plaintext by anyone who could read the token cache file.
+# keyring stores it in the OS credential store (Secret Service on
+# EndeavourOS/Hyprland) instead. Falls back to not persisting the password
+# at all if keyring isn't installed, rather than falling back to base64.
+try:
+    import keyring
+    _HAS_KEYRING = True
+except ImportError:
+    keyring = None
+    _HAS_KEYRING = False
+
+KEYRING_SERVICE = "great_sage_matrix_sync"
+
+logger = logging.getLogger("great_sage.sync")
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -124,6 +138,25 @@ class GreatSageSync:
     Talks directly to Supabase's auto-generated PostgREST API.
     No extra dependencies — just requests.
     """
+
+    # Fix: this class was documented as "singleton in practice" but was
+    # actually instantiated fresh in every gs_matrix_ui.py / gs_legion_sync.py
+    # call site, while gs_settings_ui.py cached its own instance separately.
+    # Multiple independent instances meant multiple independent in-memory
+    # tokens all racing to read/write the same TOKEN_CACHE_PATH file, so a
+    # refresh by one instance could silently invalidate another's still-live
+    # token. GreatSageSync.get() is now the one supported way to obtain a
+    # client; the bare constructor still works for tests but isn't shared.
+    _instance = None
+    _instance_lock = threading.Lock()
+
+    @classmethod
+    def get(cls) -> "GreatSageSync":
+        """Return the single shared GreatSageSync instance for this process."""
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
 
     def __init__(self):
         self._token:    Optional[str] = None
@@ -211,6 +244,34 @@ class GreatSageSync:
             order="created_at.desc",
         )
 
+        # The type=neq.webnovel filter above only excludes rows that are
+        # *correctly* tagged "webnovel" in Supabase. It does nothing for rows
+        # that leaked in mistagged (e.g. "show"/"Anime") — which is exactly
+        # what happened before this filter existed. So cross-check against
+        # Legion's own library here too, client-side, as a second line of
+        # defense that doesn't depend on trusting Supabase's stored type.
+        legion_titles: set[str] = set()
+        try:
+            from great_sage_core import LEGION_PROGRESS
+            with open(LEGION_PROGRESS, "r") as f:
+                _legion_data = json.load(f)
+            legion_titles = {
+                t.strip().lower() for t in _legion_data.get("books", {}).keys()
+            }
+        except Exception as e:
+            logger.warning(f"[gs_sync] could not load Legion titles for pull cross-check: {e}")
+
+        skipped = 0
+        filtered_rows = []
+        for row in rows:
+            if row.get("title", "").strip().lower() in legion_titles:
+                skipped += 1
+                continue
+            filtered_rows.append(row)
+        if skipped:
+            logger.info(f"[gs_sync] pull: skipped {skipped} leaked novel row(s) from cloud")
+        rows = filtered_rows
+
         # Keys must be lowercase — great_sage_core.get_matrix_data() only
         # recognises lowercase bucket names ("planning", "watching", etc.).
         watchlist: dict[str, list] = {
@@ -273,18 +334,52 @@ class GreatSageSync:
         # These appear when Legion books were incorrectly pulled into progress.json
         # before the type=neq.webnovel filter was in place. Remove them now so
         # they don't persist through the merge.
+        #
+        # Matching on a stored "type" field alone isn't reliable — a leaked
+        # entry can be mistagged (e.g. "Anime") from before proper type
+        # tagging existed. So in addition to the type check, cross-reference
+        # against Legion's own library so any title Legion actually owns gets
+        # purged from Matrix's stores regardless of what type it was saved as.
+        legion_titles: set[str] = set()
+        try:
+            from great_sage_core import LEGION_PROGRESS
+            with open(LEGION_PROGRESS, "r") as f:
+                _legion_data = json.load(f)
+            legion_titles = {
+                t.strip().lower() for t in _legion_data.get("books", {}).keys()
+            }
+        except Exception as e:
+            logger.warning(f"[gs_sync] could not load Legion titles for purge cross-check: {e}")
+
         local_wl = existing.get("watchlist", {})
-        _novel_types = {"Novel", "Webnovel", "webnovel", "novel"}
+        _novel_types = {"novel", "webnovel"}
         purged = 0
+
+        def _is_leaked_novel(entry: dict) -> bool:
+            title = entry.get("title", "").strip().lower()
+            etype = str(entry.get("type", "")).strip().lower()
+            return etype in _novel_types or title in legion_titles
+
         for bucket in list(local_wl.keys()):
             before = len(local_wl[bucket])
             local_wl[bucket] = [
                 e for e in local_wl[bucket]
-                if not (isinstance(e, dict) and e.get("type", "") in _novel_types)
+                if not (isinstance(e, dict) and _is_leaked_novel(e))
             ]
             purged += before - len(local_wl[bucket])
+
+        # Also purge the continue-watching progress dict — this is the dict
+        # that previously fed a since-removed auto-resurrect step in Matrix,
+        # so any leaked title sitting here needs to go too, or it'll keep
+        # coming back through any future migration/merge logic.
+        local_watching = existing.get("watching", {})
+        for title in list(local_watching.keys()):
+            if title.strip().lower() in legion_titles:
+                del local_watching[title]
+                purged += 1
+
         if purged:
-            logger.info(f"[gs_sync] purged {purged} novel entry/entries from Matrix watchlist")
+            logger.info(f"[gs_sync] purged {purged} novel entry/entries from Matrix stores")
 
         # Build a flat index of local entries: title.lower() → (bucket, entry)
         local_index: dict[str, tuple[str, dict]] = {}
@@ -380,7 +475,17 @@ class GreatSageSync:
         watchlist = watchlist or local.get("watchlist", {})
         watching  = watching  or local.get("watching", {})
 
+        # Fix: track a content hash per title so we only bump updated_at (and
+        # actually push) items that changed since the last push. Previously
+        # every call re-stamped every row with datetime.now(), which meant an
+        # unrelated local edit would push a fresh timestamp for untouched
+        # items too — beating a real, older, unpulled remote edit and
+        # causing restore_to_disk()'s last-write-wins merge to silently
+        # discard it.
+        last_pushed_hashes = local.get("_last_pushed_hashes", {})
+        new_hashes = {}
         rows = []
+        from datetime import datetime, timezone as _tz
         for gs_status_raw, items in watchlist.items():
             # Normalise to lowercase so push works regardless of whether the
             # user's progress.json has capitalised or lowercase bucket names.
@@ -413,7 +518,20 @@ class GreatSageSync:
                     prog_info = watching[title]
                     progress = prog_info.get("current_episode") or prog_info.get("episode") or 0
 
-                from datetime import datetime, timezone as _tz
+                # Fix: stable content fingerprint (hashlib, not builtin hash()
+                # — the latter is per-process salted for strings and can't be
+                # compared across runs) used to detect real changes.
+                content_key = "|".join([
+                    supa_status, str(item.get("notes", "")),
+                    str(item.get("rating") or ""), str(progress),
+                    str(item.get("cover_url", "")),
+                ])
+                content_hash = hashlib.sha256(content_key.encode("utf-8")).hexdigest()
+                new_hashes[title] = content_hash
+
+                if last_pushed_hashes.get(title) == content_hash:
+                    continue  # unchanged since last push — don't touch its timestamp
+
                 rows.append({
                     "user_id":    self._user_id,
                     "title":      title,
@@ -426,13 +544,18 @@ class GreatSageSync:
                     "updated_at": datetime.now(_tz.utc).isoformat(),
                 })
 
+        # Persist the fingerprint map regardless of whether there were rows
+        # to push, so items that later change get detected correctly.
+        local["_last_pushed_hashes"] = new_hashes
+        self._save_progress(local)
+
         if not rows:
-            logger.info("[gs_sync] Nothing to push")
+            logger.info("[gs_sync] Nothing changed — skipping push")
             return True
 
         try:
             self._upsert("watchlist", rows, on_conflict="user_id,title")
-            logger.info(f"[gs_sync] Pushed {len(rows)} items")
+            logger.info(f"[gs_sync] Pushed {len(rows)} changed item(s)")
             return True
         except Exception as e:
             logger.error(f"[gs_sync] Push failed: {e}")
@@ -685,6 +808,34 @@ class GreatSageSync:
         resp.raise_for_status()
         return resp.json()
 
+    def _delete(self, table: str, query: str) -> None:
+        """DELETE rows matching a PostgREST filter query, e.g. 'title=eq.Foo'."""
+        self._ensure_fresh_token()
+        url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
+        resp = self._session.delete(url, headers=self._auth_headers(), timeout=10)
+        resp.raise_for_status()
+
+    def purge_leaked_novels_from_cloud(self, titles: list[str]) -> int:
+        """
+        One-time cleanup: permanently delete specific leaked novel rows from
+        the Supabase 'watchlist' table by exact title. Use for titles that
+        got pushed there by mistake before proper novel-type tagging existed.
+        Returns the number of titles attempted.
+        """
+        self._ensure_fresh_token()
+        count = 0
+        for title in titles:
+            try:
+                # PostgREST filter values need URL-safe encoding for spaces/punctuation
+                from urllib.parse import quote
+                query = f"user_id=eq.{self._user_id}&title=eq.{quote(title)}"
+                self._delete("watchlist", query)
+                logger.info(f"[gs_sync] deleted cloud row for leaked title: {title}")
+                count += 1
+            except Exception as e:
+                logger.warning(f"[gs_sync] failed to delete cloud row '{title}': {e}")
+        return count
+
     def _upsert(self, table: str, rows: list, on_conflict: str = "") -> list:
         """
         Upsert rows using PostgREST's native merge-duplicates resolution.
@@ -717,33 +868,60 @@ class GreatSageSync:
 
     # ── Token cache ───────────────────────────────────────────────────────────
 
+    # Fix: all reads/writes of TOKEN_CACHE_PATH now go through this lock.
+    # Previously unguarded — with the GreatSageSync singleton fix, multiple
+    # threads (UI edit thread, autosync thread) can still call into the same
+    # instance concurrently, so the file itself still needs protecting.
+    _token_cache_lock = threading.Lock()
+
     def _cache_token(self, data: dict, email: str = "", password: str = ""):
-        TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        existing = {}
-        if TOKEN_CACHE_PATH.exists():
-            try:
-                existing = json.loads(TOKEN_CACHE_PATH.read_text())
-            except Exception:
-                pass
-        cache = {
-            "access_token":  data["access_token"],
-            "refresh_token": data.get("refresh_token", ""),
-            "user_id":       data["user"]["id"],
-            "expires_at":    data.get("expires_at", 0),
-            # Preserve stored credentials if not provided
-            "email":         email or existing.get("email", ""),
-            "password":      base64.b64encode(password.encode()).decode() if password
-                             else existing.get("password", ""),
-        }
-        TOKEN_CACHE_PATH.write_text(json.dumps(cache, indent=2))
-        # Keep in-memory expiry in sync so _ensure_fresh_token avoids disk reads
-        self._token_expires_at = float(data.get("expires_at", 0))
+        with self._token_cache_lock:
+            TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            existing = {}
+            if TOKEN_CACHE_PATH.exists():
+                try:
+                    existing = json.loads(TOKEN_CACHE_PATH.read_text())
+                except Exception:
+                    pass
+            resolved_email = email or existing.get("email", "")
+            cache = {
+                "access_token":  data["access_token"],
+                "refresh_token": data.get("refresh_token", ""),
+                "user_id":       data["user"]["id"],
+                "expires_at":    data.get("expires_at", 0),
+                "email":         resolved_email,
+                # Fix: no more "password" field written to disk in any form.
+            }
+            # Fix: password now goes to the OS keyring, keyed by email,
+            # instead of base64 in the JSON cache file. If a legacy
+            # base64-encoded password exists from before this fix, drop it
+            # from the file — its being removed here means it stops being
+            # readable by anything scanning the config directory.
+            if password and _HAS_KEYRING and resolved_email:
+                try:
+                    keyring.set_password(KEYRING_SERVICE, resolved_email, password)
+                except Exception as e:
+                    logger.warning(f"[gs_sync] keyring set_password failed: {e}")
+            TOKEN_CACHE_PATH.write_text(json.dumps(cache, indent=2))
+            # Keep in-memory expiry in sync so _ensure_fresh_token avoids disk reads
+            self._token_expires_at = float(data.get("expires_at", 0))
+
+    def _get_stored_password(self, email: str) -> str:
+        """Fetch the saved password for silent re-login, from keyring only."""
+        if not email or not _HAS_KEYRING:
+            return ""
+        try:
+            return keyring.get_password(KEYRING_SERVICE, email) or ""
+        except Exception as e:
+            logger.warning(f"[gs_sync] keyring get_password failed: {e}")
+            return ""
 
     def _load_cached_token(self):
         if not TOKEN_CACHE_PATH.exists():
             return
         try:
-            cache = json.loads(TOKEN_CACHE_PATH.read_text())
+            with self._token_cache_lock:
+                cache = json.loads(TOKEN_CACHE_PATH.read_text())
             # Always load cached token first so user is never silently logged out
             self._token            = cache.get("access_token")
             self._user_id          = cache.get("user_id")
@@ -767,7 +945,8 @@ class GreatSageSync:
         if time.time() > self._token_expires_at - 300:
             logger.info("[gs_sync] Token near/past expiry — refreshing mid-session")
             try:
-                cache = json.loads(TOKEN_CACHE_PATH.read_text())
+                with self._token_cache_lock:
+                    cache = json.loads(TOKEN_CACHE_PATH.read_text())
                 self._refresh_token(cache.get("refresh_token", ""))
             except Exception as e:
                 logger.warning(f"[gs_sync] _ensure_fresh_token error: {e}")
@@ -778,10 +957,11 @@ class GreatSageSync:
         email = ""
         password = ""
         try:
-            cache = json.loads(TOKEN_CACHE_PATH.read_text())
+            with self._token_cache_lock:
+                cache = json.loads(TOKEN_CACHE_PATH.read_text())
             email    = cache.get("email", "")
-            raw_pw   = cache.get("password", "")
-            password = base64.b64decode(raw_pw).decode() if raw_pw else ""
+            # Fix: password now comes from keyring, not a base64 field.
+            password = self._get_stored_password(email)
         except Exception:
             pass
 
@@ -820,17 +1000,24 @@ class GreatSageSync:
     # ── Local file helpers ────────────────────────────────────────────────────
 
     def _load_progress(self) -> dict:
-        if not PROGRESS_PATH.exists():
-            return {}
+        # Fix: was a raw json.loads() with no coordination against
+        # gs_matrix_ui.py's locked save_json() writes to this same file.
+        # load_json_cached shares the same lock + mtime-cache registry.
         try:
-            return json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
+            from great_sage_core import load_json_cached
+            return load_json_cached(str(PROGRESS_PATH), {}) or {}
         except Exception as e:
             logger.error(f"[gs_sync] Failed to read progress.json: {e}")
             return {}
 
-    def _save_progress(self, data: dict):
-        PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # Write to temp file first, then rename (atomic)
-        tmp = PROGRESS_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(PROGRESS_PATH)
+    def _save_progress(self, data: dict) -> bool:
+        # Fix: was a raw write with no lock, racing against gs_matrix_ui.py's
+        # locked save_json() writes to the identical file. save_json() also
+        # gives us its guard against overwriting real data with a near-empty
+        # payload, for free.
+        try:
+            from great_sage_core import save_json
+            return save_json(str(PROGRESS_PATH), data)
+        except Exception as e:
+            logger.error(f"[gs_sync] Failed to write progress.json: {e}")
+            return False

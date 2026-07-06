@@ -78,7 +78,7 @@ def push_book(title: str, category: str, cover_url: str = "",
     def _do():
         try:
             from gs_sync import GreatSageSync
-            s = GreatSageSync()
+            s = GreatSageSync.get()  # Fix: shared singleton, not a fresh client per call
             if not s.is_logged_in():
                 return
 
@@ -116,7 +116,7 @@ def delete_book(title: str) -> None:
     def _do():
         try:
             from gs_sync import GreatSageSync
-            s = GreatSageSync()
+            s = GreatSageSync.get()  # Fix: shared singleton, not a fresh client per call
             if not s.is_logged_in():
                 return
             s.delete_item(title)
@@ -208,7 +208,7 @@ def push_reader_progress(title: str, reader_url: str,
     def _do():
         try:
             from gs_sync import GreatSageSync
-            s = GreatSageSync()
+            s = GreatSageSync.get()  # Fix: shared singleton, not a fresh client per call
             if not s.is_logged_in():
                 if not _from_queue:
                     _save_pending_push(title, reader_url, book_url, source, cover_url, chapter_num)
@@ -281,7 +281,7 @@ def legion_restore_to_disk() -> bool:
             LEGION_BOOKMARKS, LEGION_PROGRESS,
         )
 
-        s = GreatSageSync()
+        s = GreatSageSync.get()  # Fix: shared singleton, not a fresh client per call
         if not s.is_logged_in():
             return False
 
@@ -478,7 +478,7 @@ def backfill_library(on_progress=None, on_done=None, on_error=None):
             from great_sage_core import get_bookmarks_data, load_json_cached, LEGION_PROGRESS
             from datetime import datetime, timezone
 
-            s = GreatSageSync()
+            s = GreatSageSync.get()  # Fix: shared singleton, not a fresh client per call
             if not s.is_logged_in():
                 _on_error("Not logged in — cannot backfill.")
                 return

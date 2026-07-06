@@ -332,62 +332,35 @@ class MatrixPage(QWidget):
         # Instantiate cloud-sync toast (parented to self so it overlays MatrixPage)
         self._cloud_toast = SyncToast(self)
         self._cloud_toast.hide()
-        # Pull from cloud on launch (delayed so token refresh has time to complete)
-        QTimer.singleShot(3000, self._cloud_pull_on_launch)
+        # Fix: previously started a private 5-minute pull loop
+        # (_cloud_pull_on_launch) that ran independently of, and unaware of,
+        # gs_settings_ui.py's own 3-minute autosync cycle — two uncoordinated
+        # read-merge-write loops racing on the same cloud table and local
+        # file. Now there is exactly one scheduler; this page just asks to
+        # be notified when a cycle completes so it can refresh its view.
+        from gs_sync_scheduler import sync_scheduler
+        sync_scheduler.register_pull_listener(self._on_cloud_sync_complete)
+        sync_scheduler.start()
 
-    def _cloud_pull_on_launch(self):
+    def _on_cloud_sync_complete(self):
         """
-        Pull latest watchlist from Supabase on launch, then keep polling every
-        5 minutes so TrackFlix additions appear in Great Sage without a restart.
+        Called by the shared sync_scheduler (gs_sync_scheduler.py) after each
+        completed sync cycle, from a background thread — marshal back to the
+        Qt main thread before touching any widgets.
         """
-        POLL_INTERVAL = 300  # seconds between watchlist pulls
-
-        def _do():
-            try:
-                from gs_sync import GreatSageSync
-                s = GreatSageSync()
-                if not s.is_logged_in():
-                    log.sync.warning("[cloud] Not logged in — skipping pull")
-                    self._request_toast.emit(
-                        "☁  Cloud sync: not logged in — sign in in Settings", "warn"
-                    )
-                    return
-
-                # ── First pull immediately on launch ─────────────────────────
-                try:
-                    s.restore_to_disk()
-                    log.sync.info("[cloud] Pull on launch complete")
-                    QTimer.singleShot(0, self.refresh)
-                    QTimer.singleShot(2000, self._wl_start_cover_backfill)
-                except Exception as e:
-                    log.sync.warning("[cloud] Pull on launch failed", error=str(e))
-
-                # ── Keep polling every POLL_INTERVAL seconds ──────────────────
-                while True:
-                    import time as _time
-                    _time.sleep(POLL_INTERVAL)
-                    try:
-                        ok = s.restore_to_disk()
-                        if ok:
-                            log.sync.info("[cloud] Periodic pull complete")
-                            QTimer.singleShot(0, self.refresh)
-                            QTimer.singleShot(2000, self._wl_start_cover_backfill)
-                        else:
-                            log.sync.warning("[cloud] Periodic pull returned False")
-                    except Exception as e:
-                        log.sync.warning("[cloud] Periodic pull failed", error=str(e))
-
-            except Exception as e:
-                log.sync.warning("[cloud] Pull thread crashed", error=str(e))
-
-        threading.Thread(target=_do, daemon=True, name="gs_cloud_pull").start()
+        QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(2000, self._wl_start_cover_backfill)
 
     def _cloud_push(self):
         """Push current progress to Supabase in the background."""
         def _do():
             try:
                 from gs_sync import GreatSageSync
-                s = GreatSageSync()
+                # Fix: use the shared singleton instead of constructing a
+                # fresh client — a fresh instance per call meant multiple
+                # independent in-memory tokens all racing to read/write the
+                # same on-disk token cache.
+                s = GreatSageSync.get()
                 if s.is_logged_in():
                     s.push()
                     log.sync.info("[cloud] Push complete")

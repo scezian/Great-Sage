@@ -434,51 +434,56 @@ def save_json(path: str, data: dict) -> bool:
             # 2. Create backup
             if original_file_exists_at_start:
                 try:
-                    # Check if the existing file is valid JSON before backing up
-                    with open(path, "r") as f_orig:
+                    # Fix: read/replace via abs_path (same resolved path used for
+                    # the lock, tmp, and bak above) instead of the raw, possibly
+                    # symlinked `path` argument, so all of this stays consistent.
+                    with open(abs_path, "r") as f_orig:
                         json.load(f_orig)  # Check if original is valid JSON
-                    log.debug(f"Creating backup of {path} to {bak}")
-                    os.replace(path, bak)  # Atomically replace original with backup
+                    log.debug(f"Creating backup of {abs_path} to {bak}")
+                    os.replace(abs_path, bak)  # Atomically replace original with backup
                     backup_created = True
                     log.info(f"Backup created: {bak}")
                 except json.JSONDecodeError:
-                    log.warning(f"Original file {path} is corrupt or not valid JSON; not creating backup.")
+                    log.warning(f"Original file {abs_path} is corrupt or not valid JSON; not creating backup.")
                 except Exception as e:
-                    log.exc(f"Failed to create backup for {path}", e, path=path, bak=bak)
+                    log.exc(f"Failed to create backup for {abs_path}", e, path=abs_path, bak=bak)
             else:
-                log.debug(f"No existing file at {path} to backup.")
+                log.debug(f"No existing file at {abs_path} to backup.")
 
             # Replace original with new temp file
-            log.info(f"Replacing {path} with content from {tmp}")
-            os.replace(tmp, path)
-            log.info(f"Replace successful for {path}")
+            log.info(f"Replacing {abs_path} with content from {tmp}")
+            os.replace(tmp, abs_path)
+            log.info(f"Replace successful for {abs_path}")
 
-            _json_cache.pop(str(path), None)
+            # Fix: pop the SAME key load_json_cached uses (realpath'd), not the
+            # raw path — previously this could leave a stale cache entry alive
+            # under the resolved key after a successful save.
+            _json_cache.pop(abs_path, None)
             return True  # 6. Return boolean
 
         except json.JSONDecodeError as e:
-            log.exc(f"Failed to save JSON: Invalid JSON detected during validation or original file was corrupt", e, path=path, tmp=tmp)
+            log.exc(f"Failed to save JSON: Invalid JSON detected during validation or original file was corrupt", e, path=abs_path, tmp=tmp)
             # 4. Recovery from backup (only if backup was successfully created)
             if original_file_exists_at_start and backup_created:
                 try:
-                    log.warning(f"Attempting to restore {path} from backup {bak}")
-                    os.replace(bak, path)  # Restore from backup
-                    log.info(f"Successfully restored {path} from backup {bak}")
-                    _json_cache.pop(str(path), None)  # Invalidate cache for restored file
+                    log.warning(f"Attempting to restore {abs_path} from backup {bak}")
+                    os.replace(bak, abs_path)  # Restore from backup
+                    log.info(f"Successfully restored {abs_path} from backup {bak}")
+                    _json_cache.pop(abs_path, None)  # Invalidate cache for restored file
                 except Exception as e_restore:
-                    log.exc(f"Failed to restore {path} from backup {bak}", e_restore, path=path, bak=bak)
+                    log.exc(f"Failed to restore {abs_path} from backup {bak}", e_restore, path=abs_path, bak=bak)
             return False  # 6. Return boolean
         except Exception as e:
-            log.exc(f"Failed to save JSON to {path} due to an unexpected error", e, path=path, tmp=tmp)
+            log.exc(f"Failed to save JSON to {abs_path} due to an unexpected error", e, path=abs_path, tmp=tmp)
             # 4. Recovery from backup (only if backup was successfully created)
             if original_file_exists_at_start and backup_created:
                 try:
-                    log.warning(f"Attempting to restore {path} from backup {bak}")
-                    os.replace(bak, path)  # Restore from backup
-                    log.info(f"Successfully restored {path} from backup {bak}")
-                    _json_cache.pop(str(path), None)  # Invalidate cache for restored file
+                    log.warning(f"Attempting to restore {abs_path} from backup {bak}")
+                    os.replace(bak, abs_path)  # Restore from backup
+                    log.info(f"Successfully restored {abs_path} from backup {bak}")
+                    _json_cache.pop(abs_path, None)  # Invalidate cache for restored file
                 except Exception as e_restore:
-                    log.exc(f"Failed to restore {path} from backup {bak}", e_restore, path=path, bak=bak)
+                    log.exc(f"Failed to restore {abs_path} from backup {bak}", e_restore, path=abs_path, bak=bak)
             return False  # 6. Return boolean
 
 # ── Data accessors ─────────────────────────────────────────────────────────────
@@ -518,9 +523,14 @@ def get_matrix_data() -> dict:
         data["_version"] = MATRIX_DATA_VERSION
         # Save immediately to disk so migration persists
         save_json(MATRIX_PROGRESS, data)
-        # Also update the cache — guard against missing file after save
+        # Also update the cache — guard against missing file after save.
+        # Fix: key on the same realpath'd path load_json_cached uses, not
+        # the raw MATRIX_PROGRESS string — otherwise this warms a cache
+        # entry under a key that's never actually looked up, and on a
+        # symlinked config dir the real (resolved) key stays stale.
         try:
-            _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+            _abs = os.path.realpath(os.path.expanduser(MATRIX_PROGRESS))
+            _json_cache[_abs] = (os.path.getmtime(_abs), data)
         except OSError:
             pass
         log.info("Matrix data migration complete", new_version=MATRIX_DATA_VERSION)
@@ -539,8 +549,10 @@ def get_matrix_data() -> dict:
     data, dedupe_changed = _clean_dedupe_matrix_data(data)
     if dedupe_changed:
         save_json(MATRIX_PROGRESS, data)
+        # Fix: same realpath'd cache-key correction as above.
         try:
-            _json_cache[str(MATRIX_PROGRESS)] = (os.path.getmtime(MATRIX_PROGRESS), data)
+            _abs = os.path.realpath(os.path.expanduser(MATRIX_PROGRESS))
+            _json_cache[_abs] = (os.path.getmtime(_abs), data)
         except OSError:
             pass
 

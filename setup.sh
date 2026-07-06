@@ -176,6 +176,7 @@ PACKAGES=(
     "markdown-it-py"
     "Pygments"
     "pypdf"
+    "keyring"
 )
 
 "$SCRIPT_DIR/venv/bin/pip" install --quiet --upgrade pip &>/dev/null
