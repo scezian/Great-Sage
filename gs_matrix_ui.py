@@ -44,7 +44,7 @@ from great_sage_core import (
     legion_data, matrix_data, bookmarks_data,
     legion_mod, matrix_mod, sage_mod,
     _catalogue_panel_class, _clean_media_title, _strip_markdown, _detect_genre,
-    _detect_show_genre, clean_show_title,
+    _detect_show_genre, clean_show_title, norm_show_title,
     _grep_book_for_term,
     sage_memory_load, sage_memory_append, sage_memory_extract,
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
@@ -2850,17 +2850,27 @@ class MatrixPage(QWidget):
 
     @staticmethod
     def _norm_title(t: str) -> str:
-        """Normalize a title for fuzzy matching — lowercase, collapse all
-        punctuation/whitespace to single spaces. This lets slug-derived
-        titles ('Solo Leveling Season 2 Arise From The Shadow') and
-        page-heading titles ('Solo Leveling Season 2: Arise from the
-        Shadow') match as the same show."""
-        return re.sub(r'[^a-z0-9]+', ' ', t.lower()).strip()
+        """Deprecated: kept only so any external callers don't break.
+        Delegates to great_sage_core.norm_show_title — the shared
+        normalizer used everywhere else, so scraped titles here and
+        folder-derived titles in _resolve_show_name are compared the same
+        way instead of drifting apart under two separately-maintained
+        regexes."""
+        return norm_show_title(t)
 
     def _auto_track(self, title: str, ep: int):
         """Write episode progress to matrix_progress.json + auto-move lists."""
         if not hasattr(self, '_track_lock'):
             self._track_lock = threading.Lock()
+        # Fix: previously stored the raw scraped title verbatim (e.g.
+        # "[Anime Time] Shangri-La Frontier Season 2"). The fuzzy-match
+        # check below only decided *whether* to add a new row — it never
+        # cleaned the text that actually got written — so differently
+        # formatted scrapes of the same show/season ("S2" vs "Season 2",
+        # with or without a fansub tag) each created their own separate
+        # watchlist entry. Clean it the same way every other write path
+        # does before it's used for comparison or storage.
+        title = clean_show_title(title)
         try:
             with self._track_lock:
                 md = matrix_data()
@@ -2869,7 +2879,7 @@ class MatrixPage(QWidget):
                 planning  = wl.setdefault("planning", [])
                 wl_watching = wl.setdefault("watching", [])
 
-                norm_title = self._norm_title(title)
+                norm_title = norm_show_title(title)
 
                 # Fuzzy key match in watching dict (normalized comparison so
                 # minor punctuation/case differences between scrape sources
@@ -2877,14 +2887,14 @@ class MatrixPage(QWidget):
                 key = None
                 for k in watching:
                     kt = watching[k].get("title", k) if isinstance(watching[k], dict) else k
-                    if self._norm_title(kt) == norm_title:
+                    if norm_show_title(kt) == norm_title:
                         key = k
                         break
 
                 if key is None:
                     key = title
                     already_in_wl_watching = any(
-                        self._norm_title(x.get("title","") if isinstance(x,dict) else str(x)) == norm_title
+                        norm_show_title(x.get("title","") if isinstance(x,dict) else str(x)) == norm_title
                         for x in wl_watching
                     )
                     if not already_in_wl_watching:

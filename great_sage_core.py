@@ -754,35 +754,34 @@ def stream_watch_context() -> str:
 
 # ── Media title helpers ────────────────────────────────────────────────────────
 def _clean_media_title(raw: str) -> str:
-    s    = raw
-    junk = re.compile(
-        r'[\[\(]?'
-        r'(VOSTFR|VOSTA|SUBFRENCH|FRENCH|ENGLISH|MULTI|'
-        r'1080p?|720p?|480p?|2160p?|4K|UHD|HDR|SDR|'
-        r'BluRay|BDRip|BRRip|WEB(?:-?DL)?|WEBRip|HDTV|DVDRip|'
-        r'x264|x265|HEVC|AVC|AVI|MKV|MP4|'
-        r'AAC|AC3|DTS|DD5?\.?1|FLAC|TrueHD|'
-        r'H\.?264|H\.?265|10bit|8bit|S\d{2}E\d{2}|E\d{2,3})'
-        r'[\]\)]?.*$',
-        re.IGNORECASE
-    )
-    s = junk.sub("", s).strip(" .-_")
-    s = re.sub(r"\s*-\s*\w+Raws?\s*$", "", s, flags=re.IGNORECASE).strip()
-    s = re.sub(r"\*{1,3}", "", s).strip()
+    # Fix: this used to run its own standalone junk-stripping regex with no
+    # fansub-tag handling at all. clean_show_title() already strips fansub
+    # tags ([Yun], [Techmod], [SubsWhen], [MiniMTBB], [Anime Time], etc.)
+    # correctly for the *stored* title, but this function — used to build
+    # the TMDB/AniList search query — didn't share that logic. So a file
+    # like "[Yun] Fog Hill of Five Elements S1" got stored cleanly as
+    # "Fog Hill of Five Elements S1" while the metadata lookup silently
+    # searched for the literal string "[Yun] Fog Hill of Five Elements",
+    # which TMDB's search never matches — leaving cover_url blank forever
+    # for every fansub-tagged release. Delegate to the canonical cleaner
+    # instead of maintaining a second, incomplete copy of the same regex.
+    s = clean_show_title(raw)
 
-    # Strip standalone season/part/cour suffixes, roman-numeral season
-    # markers, and trailing release years — these are kept in the
-    # canonical display title (e.g. "Karakuri Circus S1") for
-    # disambiguation, but must NOT be sent to AniList/TMDB, which index
-    # shows under their base title without a season suffix. Applied
-    # repeatedly to handle stacked cases (e.g. "Show S2 (2024)" -> "Show").
-    _season_tail_re = re.compile(
+    # TMDB/AniList index shows under their base title without a season
+    # suffix, so strip the trailing " S<n>" that clean_show_title just
+    # normalized onto the end — kept in the *stored*/display title for
+    # disambiguation (e.g. "Karakuri Circus S1"), but not sent to the
+    # metadata lookup.
+    s = re.sub(r'\s+S\d{1,2}$', '', s, flags=re.IGNORECASE).strip()
+
+    # Strip stray asterisks, roman-numeral season markers, and trailing
+    # release years that clean_show_title doesn't touch (it only
+    # normalizes numeric/English season suffixes to "S<n>"). Applied
+    # repeatedly to handle stacked cases (e.g. "Show II (2024)" -> "Show").
+    s = re.sub(r'\*{1,3}', '', s).strip()
+    _tail_re = re.compile(
         r'[\s_\-–]*\(?\[?(?:'
-        r'S(?:eason)?\.?\s*\d{1,2}'
-        r'|\d{1,2}(?:st|nd|rd|th)\s*Season'
-        r'|Part\s*\d{1,2}'
-        r'|Cour\s*\d{1,2}'
-        r'|\b(?:I{1,3}|IV|V|VI{0,3}|IX)\b'
+        r'\b(?:I{1,3}|IV|V|VI{0,3}|IX)\b'
         r'|\(?(?:19|20)\d{2}\)?'
         r')\)?\]?\s*$',
         re.IGNORECASE,
@@ -790,7 +789,7 @@ def _clean_media_title(raw: str) -> str:
     prev = None
     while prev != s:
         prev = s
-        s = _season_tail_re.sub('', s).strip()
+        s = _tail_re.sub('', s).strip()
 
     return s or raw
 
