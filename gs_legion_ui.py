@@ -4174,6 +4174,21 @@ class ReaderPanel(QWidget):
         self._prev_btn.setEnabled(False)
         self._next_btn.setEnabled(False)
 
+        # Restore saved scroll position, if any (local books have no chapter
+        # concept, so progress is just a scroll fraction keyed by title).
+        resume_fraction = 0.0
+        if self._book:
+            try:
+                data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+                saved_entry = data.get("books", {}).get(self._book.title, {})
+                resume_fraction = float(saved_entry.get("scroll_fraction", 0.0))
+            except Exception:
+                pass
+        if resume_fraction > 0:
+            # Defer until after the QTextEdit has laid out content and
+            # computed a real scrollbar maximum.
+            QTimer.singleShot(50, lambda f=resume_fraction: self._restore_scroll_position(f))
+
     # ── Progress persistence ──────────────────────────────────────────────────
 
     def _load_progress(self, title: str) -> str | None:
