@@ -176,6 +176,7 @@ PACKAGES=(
     "markdown-it-py"
     "Pygments"
     "pypdf"
+    "PyMuPDF"
     "keyring"
 )
 

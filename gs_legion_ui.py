@@ -2534,21 +2534,88 @@ def _parse_epub(path: str) -> tuple:
     return paragraphs, cover_bytes
 
 
-def _parse_pdf(path: str) -> list:
-    """Parse a PDF and return list of paragraph strings."""
+def _merge_lines_to_paragraphs(page_texts) -> list:
+    """Shared line-merging logic for both PDF backends.
+
+    Both pypdf and PyMuPDF return one string per *visual* line on the
+    page, not one per logical paragraph. Treating each of those lines as
+    its own paragraph produces thousands of tiny <p> blocks for a normal
+    book, which makes QTextEdit.setHtml() (run synchronously on the main
+    thread) extremely slow to lay out. So we merge wrapped lines back
+    together and only break paragraphs on blank lines or lines that end
+    with terminal punctuation.
+    """
     paragraphs: list = []
+    buffer = ""
+    for text in page_texts:
+        for raw_line in (text or "").split("\n"):
+            line = raw_line.strip()
+            if not line:
+                # Blank line = paragraph break.
+                if buffer:
+                    paragraphs.append(buffer)
+                    buffer = ""
+                continue
+            buffer = f"{buffer} {line}".strip() if buffer else line
+            # A line ending in sentence-terminal punctuation usually
+            # marks the end of a paragraph in extracted PDF text.
+            if buffer[-1] in ".!?\"'”’" and len(buffer) > 8:
+                paragraphs.append(buffer)
+                buffer = ""
+    if buffer:
+        paragraphs.append(buffer)
+    return [p for p in paragraphs if len(p) > 8]
+
+
+def _parse_pdf_fitz(path: str):
+    """Fast PDF text extraction via PyMuPDF. Returns None (not a raise) if
+    PyMuPDF isn't installed or the parse fails for any reason, so the
+    caller can transparently fall back to the slower pypdf path — this
+    keeps Great Sage self-healing on machines where PyMuPDF hasn't been
+    installed yet, instead of erroring out for the user.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return None
+    try:
+        doc = fitz.open(path)
+        try:
+            page_texts = [page.get_text() for page in doc]
+        finally:
+            doc.close()
+        paragraphs = _merge_lines_to_paragraphs(page_texts)
+        return paragraphs if paragraphs else None
+    except Exception:
+        return None
+
+
+def _parse_pdf_pypdf(path: str) -> list:
+    """Fallback PDF text extraction via pypdf. Slower on PDFs with
+    Type0/CID-mapped fonts (e.g. calibre exports), but has no extra
+    system dependencies, so it stays as the safety net.
+    """
     try:
         from pypdf import PdfReader
         reader = PdfReader(path)
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            for line in text.split("\n"):
-                line = line.strip()
-                if line and len(line) > 8:
-                    paragraphs.append(line)
+        page_texts = [page.extract_text() for page in reader.pages]
+        return _merge_lines_to_paragraphs(page_texts)
     except Exception as e:
-        paragraphs.append(f"Could not read PDF: {e}")
-    return paragraphs
+        return [f"Could not read PDF: {e}"]
+
+
+def _parse_pdf(path: str) -> list:
+    """Parse a PDF and return list of paragraph strings.
+
+    Tries PyMuPDF first (typically 10-30x faster, especially on PDFs with
+    embedded CID-mapped fonts like calibre exports). Falls back to pypdf
+    if PyMuPDF isn't installed or fails on this particular file.
+    """
+    paragraphs = _parse_pdf_fitz(path)
+    if paragraphs is not None:
+        return paragraphs
+    return _parse_pdf_pypdf(path)
+
 
 
 def _parse_txt(path: str) -> list:
@@ -2571,6 +2638,45 @@ def _parse_txt(path: str) -> list:
     return paragraphs
 
 
+def _local_parse_cache_path(local_path: str) -> Path:
+    """Return the cache file path for a given local book's parsed content."""
+    from great_sage_core import SCRIPT_DIR
+    import hashlib
+    h = hashlib.sha1(local_path.encode("utf-8")).hexdigest()[:16]
+    cache_dir = Path(SCRIPT_DIR) / "Local" / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{h}.json"
+
+
+def _load_cached_paragraphs(local_path: str):
+    """Return cached paragraphs for local_path if the cache is still fresh
+    (source file's mtime unchanged since caching), else None.
+    """
+    try:
+        cache_file = _local_parse_cache_path(local_path)
+        if not cache_file.exists():
+            return None
+        with open(cache_file, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        if cached.get("mtime") == os.path.getmtime(local_path):
+            return cached.get("paragraphs")
+    except Exception:
+        pass
+    return None
+
+
+def _save_cached_paragraphs(local_path: str, paragraphs: list):
+    """Persist parsed paragraphs to disk so re-opening this book skips
+    parsing entirely, regardless of how slow the underlying parser is.
+    """
+    try:
+        cache_file = _local_parse_cache_path(local_path)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump({"mtime": os.path.getmtime(local_path), "paragraphs": paragraphs}, f)
+    except Exception:
+        pass
+
+
 class LocalFileWorker(QThread):
     """Parses a local EPUB/PDF/TXT file in a background thread."""
     done = pyqtSignal(list, object)  # (paragraphs, cover_bytes_or_None)
@@ -2585,6 +2691,16 @@ class LocalFileWorker(QThread):
 
     def run(self):
         try:
+            # Skip parsing entirely if we've already parsed this exact file
+            # (by path + mtime) before — this is what makes re-opening a
+            # book instant even when the underlying parser (pypdf especially)
+            # is slow on the first pass.
+            cached = _load_cached_paragraphs(self._book.local_path)
+            if cached is not None:
+                if not self._cancelled:
+                    self.done.emit(cached, None)
+                return
+
             ft = self._book.file_type.upper()
             if ft == "EPUB":
                 paragraphs, cover_bytes = _parse_epub(self._book.local_path)
@@ -2594,6 +2710,8 @@ class LocalFileWorker(QThread):
             else:
                 paragraphs = _parse_txt(self._book.local_path)
                 cover_bytes = None
+
+            _save_cached_paragraphs(self._book.local_path, paragraphs)
 
             if not self._cancelled:
                 self.done.emit(paragraphs, cover_bytes)
@@ -3646,6 +3764,12 @@ class ReaderPanel(QWidget):
         self._build()
         self._chapter_drawer = ChapterListDrawer(self)
         self._chapter_drawer.chapter_selected.connect(self._load_chapter)
+        # Flush any pending debounced scroll save on app quit — closing the
+        # whole window (instead of using in-reader "← Back") never hits
+        # _on_close, so without this a save mid-debounce-window is lost.
+        _app = QApplication.instance()
+        if _app is not None:
+            _app.aboutToQuit.connect(self._save_scroll_position)
         self.hide()
 
     def _build(self):
@@ -4140,6 +4264,13 @@ class ReaderPanel(QWidget):
 
     def open_local_book(self, book: BookItem):
         """Open a local EPUB/PDF/TXT file directly in the reader."""
+        # Stop any pending debounced save BEFORE clearing the text widget.
+        # self._text.clear() resets the scrollbar to 0, which fires
+        # valueChanged -> _on_scroll -> restarts the debounce timer. If left
+        # running, that timer fires ~800ms later (while the new file is
+        # still parsing in the background) and saves value=0/max=0,
+        # clobbering whatever real progress we just had on disk.
+        self._scroll_save_timer.stop()
         self._book     = book
         self._prev_url = None
         self._next_url = None
@@ -4212,7 +4343,12 @@ class ReaderPanel(QWidget):
             return
         bar = self._text.verticalScrollBar()
         max_val = bar.maximum()
-        fraction = (bar.value() / max_val) if max_val > 0 else 0.0
+        if max_val <= 0:
+            # No real content laid out yet (e.g. mid-load, or right after
+            # self._text.clear()). Saving here would write fraction=0.0 and
+            # clobber real progress from a previous session — just skip it.
+            return
+        fraction = bar.value() / max_val
         try:
             data = load_json_cached(LEGION_PROGRESS, {"books": {}})
             data.setdefault("books", {}).setdefault(self._book.title, {})
@@ -4220,7 +4356,6 @@ class ReaderPanel(QWidget):
             save_json(LEGION_PROGRESS, data)
         except Exception:
             pass
-
     def _restore_scroll_position(self, fraction: float):
         """Apply a saved scroll fraction once the chapter content has rendered."""
         if fraction <= 0:
@@ -5246,7 +5381,17 @@ class LegionPage(QWidget):
                     for e in lib_data.get(cat, []):
                         if isinstance(e, dict) and e.get("title"):
                             lib_titles.add(e["title"])
-                orphans = [t for t in ld.get("books", {}) if t not in lib_titles]
+                # Only prune entries belonging to the online chapter-download
+                # sources this cleanup was designed for. Local EPUB/PDF/TXT
+                # books (opened from the Local tab) are never added to the
+                # tracked Library/Jump In list, so treating their absence
+                # from lib_titles as "orphaned" was wiping their saved
+                # scroll_fraction on every single app launch.
+                _ONLINE_SOURCES = ("royalroad", "libread", "gutenberg")
+                orphans = [
+                    t for t, entry in ld.get("books", {}).items()
+                    if entry.get("source") in _ONLINE_SOURCES and t not in lib_titles
+                ]
                 if orphans:
                     for t in orphans:
                         _DownloadRegistry.stop(t)
