@@ -218,11 +218,6 @@ def _nav_btn_active_paint(btn_widget, theme):
         W, H = self.width(), self.height()
         base = QColor(bg); base.setAlpha(200)
         p.fillRect(0, 0, W, H, QBrush(base))
-        # Left accent bar with glow
-        for i, alpha in [(4, 30), (3, 60), (2, 120), (1, 200), (0, 255)]:
-            c = QColor(acc); c.setAlpha(alpha)
-            p.setPen(QPen(c, 1))
-            p.drawLine(i, 0, i, H)
         p.end()
 
     def _paint_btn_neon(self, event):
@@ -230,11 +225,6 @@ def _nav_btn_active_paint(btn_widget, theme):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         W, H = self.width(), self.height()
         p.fillRect(0, 0, W, H, QBrush(QColor(bg)))
-        # Neon left bar
-        for i, alpha in [(3, 40), (2, 100), (1, 200), (0, 255)]:
-            c = QColor(acc); c.setAlpha(alpha)
-            p.setPen(QPen(c, 1))
-            p.drawLine(i, 4, i, H - 4)
         # Subtle neon background glow
         glow = QRadialGradient(QPointF(0, H / 2), W * 1.2)
         c = QColor(acc); c.setAlpha(25)
@@ -252,11 +242,6 @@ def _nav_btn_active_paint(btn_widget, theme):
         grad.setColorAt(0, c1)
         grad.setColorAt(1, QColor(bg))
         p.fillRect(0, 0, W, H, QBrush(grad))
-        # Gold left accent
-        for i, alpha in [(2, 80), (1, 180), (0, 255)]:
-            c = QColor(acc); c.setAlpha(alpha)
-            p.setPen(QPen(c, 1))
-            p.drawLine(i, 6, i, H - 6)
         p.end()
 
     def _paint_btn_anime(self, event):
@@ -270,11 +255,6 @@ def _nav_btn_active_paint(btn_widget, theme):
         glow.setColorAt(0, c)
         glow.setColorAt(1, QColor(0, 0, 0, 0))
         p.fillRect(0, 0, W, H, QBrush(glow))
-        # Sharp left bar
-        for i, alpha in [(2, 60), (1, 180), (0, 255)]:
-            c = QColor(acc); c.setAlpha(alpha)
-            p.setPen(QPen(c, 1))
-            p.drawLine(i, 0, i, H)
         p.end()
 
     paint_fn = {
@@ -288,13 +268,13 @@ def _nav_btn_active_paint(btn_widget, theme):
         btn_widget.paintEvent = types.MethodType(paint_fn, btn_widget)
     else:
         btn_widget.setStyleSheet(
-            f"QWidget{{background:{bg};border-left:2px solid {acc};}}")
+            f"QWidget{{background:{bg};}}")
 
     if hasattr(btn_widget, "_ico"):
         btn_widget._ico.setStyleSheet(
-            f"background:transparent;font-size:17px;color:{ico_col};")
+            f"background:transparent;font-size:20px;color:{ico_col};")
         btn_widget._txt.setStyleSheet(
-            f"background:transparent;font-size:7px;letter-spacing:0.5px;color:{ico_col};")
+            f"background:transparent;font-size:13px;letter-spacing:0.5px;color:{ico_col};")
     btn_widget.update()
 
 
@@ -433,9 +413,9 @@ def apply_theme(theme_name, api=None):
                 if hasattr(widget, "_ico"):
                     muted = th["nav_ico_muted"]
                     widget._ico.setStyleSheet(
-                        f"background:transparent;font-size:17px;color:{muted};")
+                        f"background:transparent;font-size:20px;color:{muted};")
                     widget._txt.setStyleSheet(
-                        f"background:transparent;font-size:9px;letter-spacing:0.5px;color:{muted};")
+                        f"background:transparent;font-size:13px;letter-spacing:0.5px;color:{muted};")
             widget.update()
 
         nav._apply_style = types.MethodType(_themed_apply, nav)
@@ -474,7 +454,7 @@ class _ThemeTile(QWidget):
         self._name_lbl = QLabel(self._name)
         self._desc_lbl = QLabel(THEMES[self._name]["desc"])
         self._desc_lbl.setStyleSheet(
-            "background:transparent;border:none;font-size:9px;letter-spacing:0.5px;")
+            "background:transparent;border:none;font-size:13px;letter-spacing:0.5px;")
         lay.addWidget(self._name_lbl)
         lay.addWidget(self._desc_lbl)
         self._refresh()
@@ -496,10 +476,10 @@ class _ThemeTile(QWidget):
         sub_c  = t["nav_active_bar"] if self._selected else "#454555"
         self._name_lbl.setStyleSheet(
             f"background:transparent;border:none;color:{text_c};"
-            f"font-size:12px;font-weight:bold;letter-spacing:0.5px;")
+            f"font-size:14px;font-weight:bold;letter-spacing:0.5px;")
         self._desc_lbl.setStyleSheet(
             f"background:transparent;border:none;color:{sub_c};"
-            f"font-size:9px;letter-spacing:0.5px;")
+            f"font-size:13px;letter-spacing:0.5px;")
 
     def set_selected(self, v):
         if self._selected != v:
@@ -545,7 +525,7 @@ def build_page(parent, api):
     hh = QHBoxLayout(hdr); hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("◈  THEME ENGINE")
     tl.setStyleSheet(
-        f"color:{colours['ACCENT']};font-size:13px;font-weight:bold;letter-spacing:3px;")
+        f"color:{colours['ACCENT']};font-size:15px;font-weight:bold;letter-spacing:3px;")
     hh.addWidget(tl); hh.addStretch()
     root.addWidget(hdr)
 
@@ -563,7 +543,7 @@ def build_page(parent, api):
     def _sec(text):
         l = QLabel(text)
         l.setStyleSheet(
-            f"color:{colours['MUTED']};font-size:9px;letter-spacing:3px;background:transparent;")
+            f"color:{colours['MUTED']};font-size:13px;letter-spacing:3px;background:transparent;")
         return l
 
     bv.addWidget(_sec("CHOOSE A THEME"))
@@ -593,7 +573,7 @@ def build_page(parent, api):
         "Your choice is saved and applied automatically on next launch.")
     note.setStyleSheet(
         f"background:{colours['BG2']};color:{colours['TEXT2']};"
-        f"font-size:12px;padding:14px;border-radius:6px;"
+        f"font-size:14px;padding:14px;border-radius:6px;"
         f"border:1px solid {colours['BORDER']};")
     note.setWordWrap(True)
     bv.addWidget(note)

@@ -30,8 +30,8 @@ BLUE    = "#4A90D9"
 PURPLE  = "#8B6FD4"
 
 TEXT    = "#E8E4DC"   # warm off-white — primary text
-TEXT2   = "#A0A0B4"   # cool slate — secondary text
-MUTED   = "#606070"   # muted — hints, labels
+TEXT2   = "#C0C0D4"   # cool slate — secondary text (brightened)
+MUTED   = "#82829A"   # muted — hints, labels (brightened)
 
 FONT_BODY    = "Palatino Linotype, Palatino, Book Antiqua, Georgia, serif"
 FONT_UI      = "JetBrains Mono, Fira Code, Consolas, monospace"
@@ -39,11 +39,11 @@ FONT_DISPLAY = "Palatino Linotype, Palatino, Book Antiqua, serif"
 
 # ── Global stylesheet ──────────────────────────────────────────────────────────
 QSS = f"""
-* {{ font-family:{FONT_UI}; font-size:14px; color:{TEXT}; }}
+* {{ font-family:{FONT_UI}; font-size:16px; font-weight:500; color:{TEXT}; }}
 QMainWindow, QWidget, QDialog {{ background:{BG}; }}
 QToolTip {{
     background:{PANEL}; border:1px solid {BORDER2}; color:{TEXT};
-    padding:4px 8px; font-size:11px;
+    padding:4px 8px; font-size:13px;
 }}
 
 /* ── Buttons ── */
@@ -79,7 +79,7 @@ QTextEdit {{
     border: none;
     padding: 20px 28px;
     font-family: {FONT_BODY};
-    font-size: 18px;
+    font-size: 21px;
     color: {TEXT};
     selection-background-color: #2A3020;
 }}
@@ -137,7 +137,7 @@ QTabBar::tab {{
     border: none;
     border-bottom: 1px solid transparent;
     padding: 8px 20px;
-    font-size: 11px;
+    font-size: 13px;
     letter-spacing: 1.5px;
     font-weight: bold;
 }}
@@ -178,7 +178,7 @@ QGroupBox {{
     border-radius: 4px;
     margin-top: 14px;
     padding: 12px 10px 10px 10px;
-    font-size: 10px;
+    font-size: 12px;
     letter-spacing: 1.5px;
     color: {MUTED};
 }}
@@ -187,7 +187,7 @@ QGroupBox::title {{
     left: 12px;
     padding: 0 6px;
     color: {ACCENT};
-    font-size: 9px;
+    font-size: 13px;
     letter-spacing: 2px;
 }}
 
@@ -206,7 +206,7 @@ QMenu::separator {{ height: 1px; background: {BORDER}; margin: 3px 0; }}
 QStatusBar {{
     background: {BG2};
     color: {MUTED};
-    font-size: 10px;
+    font-size: 12px;
     border-top: 1px solid {BORDER};
 }}
 """
@@ -234,13 +234,13 @@ def nav_btn_style(active=False):
         return (
             f"QPushButton {{ background:{BG2}; color:{ACCENT}; border:none; "
             f"border-left:2px solid {ACCENT}; border-radius:0px; text-align:left; "
-            f"padding:11px 20px 11px 18px; font-size:11px; letter-spacing:1.5px; }}"
+            f"padding:11px 20px 11px 18px; font-size:13px; letter-spacing:1.5px; }}"
             f"QPushButton:hover {{ background:{BG2}; color:{ACCENT}; }}"
         )
     return (
         f"QPushButton {{ background:transparent; color:{MUTED}; border:none; "
         f"border-left:2px solid transparent; border-radius:0px; text-align:left; "
-        f"padding:11px 20px 11px 18px; font-size:11px; letter-spacing:1.5px; }}"
+        f"padding:11px 20px 11px 18px; font-size:13px; letter-spacing:1.5px; }}"
         f"QPushButton:hover {{ background:{BG2}; color:{TEXT2}; }}"
     )
 

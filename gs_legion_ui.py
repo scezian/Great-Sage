@@ -1374,7 +1374,7 @@ class CoverCard(QWidget):
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self._title_lbl.setStyleSheet(
-            f"color:{TEXT2}; font-size:14px; background:transparent; border:none;")
+            f"color:{TEXT2}; font-size:16px; background:transparent; border:none;")
         self._title_lbl.setMaximumHeight(80)
         lay.addWidget(self._title_lbl)
 
@@ -1383,7 +1383,7 @@ class CoverCard(QWidget):
             badge = QLabel(self.book.file_type)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
-                f"background:{BG3}; color:{ACCENT}; font-size:8px; "
+                f"background:{BG3}; color:{ACCENT}; font-size:12px; "
                 f"letter-spacing:1px; border:1px solid {BORDER2}; border-radius:3px; "
                 f"padding:1px 4px;")
             lay.addWidget(badge)
@@ -1394,7 +1394,7 @@ class CoverCard(QWidget):
         self._del_btn.move(COVER_W - 26, 4)
         self._del_btn.setStyleSheet(
             "QPushButton{background:#c0392b; color:white; border:none; "
-            "border-radius:11px; font-size:11px; font-weight:bold;}"
+            "border-radius:11px; font-size:13px; font-weight:bold;}"
             "QPushButton:hover{background:#e74c3c;}")
         self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._del_btn.clicked.connect(lambda: self.delete_requested.emit(self.book))
@@ -1405,7 +1405,7 @@ class CoverCard(QWidget):
         self._cover.setText(icon)
         self._cover.setStyleSheet(
             f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px; "
-            f"font-size:28px; color:{BORDER2};")
+            f"font-size:32px; color:{BORDER2};")
 
     def _load_cover(self):
         _COVER_POOL.request(self.book.cover_url, self._on_cover)
@@ -1448,9 +1448,9 @@ class CoverCard(QWidget):
     def enterEvent(self, e):
         self._cover.setStyleSheet(
             f"background:{BG2}; border:1px solid {ACCENT}; border-radius:5px;"
-            + ("" if self._pixmap else f" font-size:28px; color:{BORDER2};"))
+            + ("" if self._pixmap else f" font-size:32px; color:{BORDER2};"))
         self._title_lbl.setStyleSheet(
-            f"color:{TEXT}; font-size:10px; background:transparent; border:none;")
+            f"color:{TEXT}; font-size:12px; background:transparent; border:none;")
         if self._pixmap:
             self._cover.setPixmap(self._pixmap)
         super().enterEvent(e)
@@ -1458,9 +1458,9 @@ class CoverCard(QWidget):
     def leaveEvent(self, e):
         self._cover.setStyleSheet(
             f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px;"
-            + ("" if self._pixmap else f" font-size:28px; color:{BORDER2};"))
+            + ("" if self._pixmap else f" font-size:32px; color:{BORDER2};"))
         self._title_lbl.setStyleSheet(
-            f"color:{TEXT2}; font-size:10px; background:transparent; border:none;")
+            f"color:{TEXT2}; font-size:12px; background:transparent; border:none;")
         if self._pixmap:
             self._cover.setPixmap(self._pixmap)
         super().leaveEvent(e)
@@ -1583,7 +1583,7 @@ class DetailPanel(QWidget):
         back_btn = QPushButton("← Back")
         back_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:none; color:{MUTED}; "
-            f"font-size:11px; letter-spacing:0.5px;}}"
+            f"font-size:13px; letter-spacing:0.5px;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self.close_panel)
@@ -1616,7 +1616,7 @@ class DetailPanel(QWidget):
         self._detail_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._detail_cover.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; "
-            f"font-size:48px;")
+            f"font-size:55px;")
         self._detail_cover.setText("📚")
         meta_row.addWidget(self._detail_cover)
 
@@ -1626,7 +1626,7 @@ class DetailPanel(QWidget):
 
         self._detail_source = QLabel()
         self._detail_source.setStyleSheet(
-            f"color:{ACCENT}; font-size:9px; letter-spacing:3px; "
+            f"color:{ACCENT}; font-size:13px; letter-spacing:3px; "
             f"font-weight:bold; background:transparent;")
         meta_col.addWidget(self._detail_source)
 
@@ -1635,13 +1635,13 @@ class DetailPanel(QWidget):
         self._detail_title.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._detail_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._detail_title.setStyleSheet(
-            f"color:{TEXT}; font-size:20px; font-weight:bold; "
+            f"color:{TEXT}; font-size:23px; font-weight:bold; "
             f"line-height:1.3; background:transparent;")
         meta_col.addWidget(self._detail_title)
 
         self._detail_author = QLabel()
         self._detail_author.setStyleSheet(
-            f"color:{TEXT2}; font-size:13px; background:transparent;")
+            f"color:{TEXT2}; font-size:15px; background:transparent;")
         meta_col.addWidget(self._detail_author)
 
         meta_col.addSpacing(10)
@@ -1680,7 +1680,7 @@ class DetailPanel(QWidget):
         self._read_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._read_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT}; border:none; color:{BG}; "
-            f"font-size:10px; font-weight:700; letter-spacing:1px; "
+            f"font-size:12px; font-weight:700; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 16px;}}"
             f"QPushButton:hover{{background:#D4B460;}}")
         btn_row.addWidget(self._read_btn)
@@ -1691,7 +1691,7 @@ class DetailPanel(QWidget):
         self._cat_combo.setFixedWidth(110)
         self._cat_combo.setStyleSheet(
             f"QComboBox{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"border-radius:4px; color:{TEXT2}; font-size:10px; padding:4px 8px;}}"
+            f"border-radius:4px; color:{TEXT2}; font-size:12px; padding:4px 8px;}}"
             f"QComboBox:hover{{border-color:{ACCENT};}}"
             f"QComboBox::drop-down{{border:none; width:16px;}}"
             f"QComboBox QAbstractItemView{{background:{BG2}; border:1px solid {BORDER2}; "
@@ -1702,7 +1702,7 @@ class DetailPanel(QWidget):
         self._add_lib_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_lib_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:1px solid {BORDER2}; "
-            f"color:{TEXT2}; font-size:10px; letter-spacing:1px; "
+            f"color:{TEXT2}; font-size:12px; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 12px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
         btn_row.addWidget(self._add_lib_btn)
@@ -1712,7 +1712,7 @@ class DetailPanel(QWidget):
         self._remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._remove_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:1px solid #3D1A20; "
-            f"color:{RED}; font-size:10px; letter-spacing:1px; "
+            f"color:{RED}; font-size:12px; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 12px;}}"
             f"QPushButton:hover{{background:#2A0E14; border-color:{RED};}}")
         self._remove_btn.hide()
@@ -1723,7 +1723,7 @@ class DetailPanel(QWidget):
         self._clean_btn.setToolTip("Strip junk lines from downloaded chapters")
         self._clean_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:1px solid #2A2A3A; "
-            f"color:{MUTED}; font-size:10px; letter-spacing:1px; "
+            f"color:{MUTED}; font-size:12px; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 12px;}}"
             f"QPushButton:hover{{background:#1E1E2E; border-color:{ACCENT}; color:{ACCENT};}}")
         self._clean_btn.hide()
@@ -1734,7 +1734,7 @@ class DetailPanel(QWidget):
         self._preview_btn.setToolTip("AI analysis of the first chapters")
         self._preview_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:1px solid #2A2A3A; "
-            f"color:{MUTED}; font-size:10px; letter-spacing:1px; "
+            f"color:{MUTED}; font-size:12px; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 12px;}}"
             f"QPushButton:hover{{background:#1E1E2E; border-color:{ACCENT}; color:{ACCENT};}}")
         self._preview_btn.hide()
@@ -1746,7 +1746,7 @@ class DetailPanel(QWidget):
         # In-library badge
         self._lib_badge = QLabel()
         self._lib_badge.setStyleSheet(
-            f"color:{ACCENT}; font-size:9px; letter-spacing:1px; background:transparent;")
+            f"color:{ACCENT}; font-size:13px; letter-spacing:1px; background:transparent;")
         self._lib_badge.hide()
         meta_col.addWidget(self._lib_badge)
 
@@ -1756,13 +1756,13 @@ class DetailPanel(QWidget):
         # Synopsis
         syn_label = QLabel("SYNOPSIS")
         syn_label.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         iv.addWidget(syn_label)
 
         self._synopsis = QTextBrowser()
         self._synopsis.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
-            f"color:{TEXT}; font-size:15px; padding:14px; line-height:1.6;")
+            f"color:{TEXT}; font-size:17px; padding:14px; line-height:1.6;")
         self._synopsis.setMinimumHeight(400)
         self._synopsis.setMaximumHeight(800)
         self._synopsis.setOpenExternalLinks(False)
@@ -1771,12 +1771,12 @@ class DetailPanel(QWidget):
         # Chapters section
         self._ch_label = QLabel("CHAPTERS")
         self._ch_label.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         iv.addWidget(self._ch_label)
 
         self._ch_loading = QLabel("Loading chapters…")
         self._ch_loading.setStyleSheet(
-            f"color:{MUTED}; font-size:11px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; background:transparent;")
         iv.addWidget(self._ch_loading)
 
         self._ch_scroll = QScrollArea()
@@ -1815,10 +1815,10 @@ class DetailPanel(QWidget):
         lay.setSpacing(3)
         lbl = QLabel(label.upper())
         lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:2px; background:transparent; border:none;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:2px; background:transparent; border:none;")
         val = QLabel(value)
         val.setStyleSheet(
-            f"color:{TEXT}; font-size:13px; font-weight:bold; background:transparent; border:none;")
+            f"color:{TEXT}; font-size:15px; font-weight:bold; background:transparent; border:none;")
         val.setObjectName("stat_val")
         lay.addWidget(lbl)
         lay.addWidget(val)
@@ -1831,13 +1831,13 @@ class DetailPanel(QWidget):
 
     def _update_stats(self, book: BookItem):
         status_map = {
-            "reading":   ("● Ongoing",   f"color:{GREEN}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
-            "planning":  ("◉ Planning",  f"color:{MUTED}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
-            "dropped":   ("✕ Dropped",   f"color:{RED}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
-            "completed": ("✓ Completed", f"color:{ACCENT}; font-size:13px; font-weight:bold; background:transparent; border:none;"),
+            "reading":   ("● Ongoing",   f"color:{GREEN}; font-size:15px; font-weight:bold; background:transparent; border:none;"),
+            "planning":  ("◉ Planning",  f"color:{MUTED}; font-size:15px; font-weight:bold; background:transparent; border:none;"),
+            "dropped":   ("✕ Dropped",   f"color:{RED}; font-size:15px; font-weight:bold; background:transparent; border:none;"),
+            "completed": ("✓ Completed", f"color:{ACCENT}; font-size:15px; font-weight:bold; background:transparent; border:none;"),
         }
         cat = library_get_category(book.title)
-        label_text, label_style = status_map.get(cat or "", ("—", f"color:{MUTED}; font-size:13px; font-weight:bold; background:transparent; border:none;"))
+        label_text, label_style = status_map.get(cat or "", ("—", f"color:{MUTED}; font-size:15px; font-weight:bold; background:transparent; border:none;"))
         val = self._stat_status.findChild(QLabel, "stat_val")
         if val:
             val.setText(label_text)
@@ -1917,7 +1917,7 @@ class DetailPanel(QWidget):
             chip.setStyleSheet(
                 f"color:{ACCENT}; background:transparent; "
                 f"border:1px solid {BORDER2}; border-radius:10px; "
-                f"font-size:11px; padding:2px 10px;")
+                f"font-size:13px; padding:2px 10px;")
             self._genre_layout.addWidget(chip)
         self._genre_wrap.show()
         self._genre_wrap.updateGeometry()
@@ -1930,7 +1930,7 @@ class DetailPanel(QWidget):
         self._detail_cover.setText("📚")
         self._detail_cover.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
-            f"font-size:36px;")
+            f"font-size:41px;")
         if book.cover_url:
             w = CoverWorker(book.cover_url)
             w.done.connect(self._on_detail_cover)
@@ -2237,14 +2237,14 @@ class DetailPanel(QWidget):
         self._first_chapter_url = chapters[0].get("url", "") if chapters else ""
         count_lbl = QLabel(f"{len(chapters)} chapters")
         count_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:1px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:1px; background:transparent;")
         self._ch_layout.addWidget(count_lbl)
 
         for ch in chapters:
             btn = QPushButton(ch["title"])
             btn.setStyleSheet(
                 f"QPushButton{{background:transparent; border:none; "
-                f"color:{TEXT2}; font-size:11px; text-align:left; padding:5px 6px;}}"
+                f"color:{TEXT2}; font-size:13px; text-align:left; padding:5px 6px;}}"
                 f"QPushButton:hover{{color:{ACCENT}; background:{BG2}; border-radius:3px;}}")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             ch_url = ch["url"]
@@ -2312,7 +2312,7 @@ class BooksGrid(QWidget):
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setWordWrap(True)
         self._empty_label.setStyleSheet(
-            f"color:{MUTED}; font-size:13px; background:transparent; padding:40px;")
+            f"color:{MUTED}; font-size:15px; background:transparent; padding:40px;")
         self._empty_label.hide()
         lay.addWidget(self._empty_label, 1)
 
@@ -3035,7 +3035,7 @@ class LocalDetailPanel(QWidget):
         back_btn = QPushButton("← Back")
         back_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:none; color:{MUTED}; "
-            f"font-size:11px; letter-spacing:0.5px;}}"
+            f"font-size:13px; letter-spacing:0.5px;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self._on_close)
@@ -3067,7 +3067,7 @@ class LocalDetailPanel(QWidget):
         self._cover_lbl.setFixedSize(180, 270)
         self._cover_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._cover_lbl.setStyleSheet(
-            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:48px;")
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:55px;")
         self._cover_lbl.setText("📄")
         meta_row.addWidget(self._cover_lbl)
 
@@ -3078,14 +3078,14 @@ class LocalDetailPanel(QWidget):
         # Source badge
         src_lbl = QLabel("LOCAL LIBRARY")
         src_lbl.setStyleSheet(
-            f"color:{ACCENT}; font-size:9px; letter-spacing:3px; font-weight:bold; background:transparent;")
+            f"color:{ACCENT}; font-size:13px; letter-spacing:3px; font-weight:bold; background:transparent;")
         meta_col.addWidget(src_lbl)
 
         # Title
         self._title_lbl = QLabel()
         self._title_lbl.setWordWrap(True)
         self._title_lbl.setStyleSheet(
-            f"color:{TEXT}; font-size:20px; font-weight:bold; line-height:1.3; background:transparent;")
+            f"color:{TEXT}; font-size:23px; font-weight:bold; line-height:1.3; background:transparent;")
         meta_col.addWidget(self._title_lbl)
 
         # File type badge + size on same row
@@ -3094,10 +3094,10 @@ class LocalDetailPanel(QWidget):
         self._type_badge = QLabel()
         self._type_badge.setStyleSheet(
             f"background:{BG3}; color:{ACCENT}; border:1px solid {ACCENT}44; "
-            f"border-radius:3px; font-size:9px; letter-spacing:2px; padding:2px 8px;")
+            f"border-radius:3px; font-size:13px; letter-spacing:2px; padding:2px 8px;")
         info_row.addWidget(self._type_badge)
         self._size_lbl = QLabel()
-        self._size_lbl.setStyleSheet(f"color:{MUTED}; font-size:11px; background:transparent;")
+        self._size_lbl.setStyleSheet(f"color:{MUTED}; font-size:13px; background:transparent;")
         info_row.addWidget(self._size_lbl)
         info_row.addStretch()
         meta_col.addLayout(info_row)
@@ -3110,7 +3110,7 @@ class LocalDetailPanel(QWidget):
         self._read_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._read_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT}; border:none; color:{BG}; "
-            f"font-size:10px; font-weight:700; letter-spacing:1px; "
+            f"font-size:12px; font-weight:700; letter-spacing:1px; "
             f"border-radius:4px; padding:8px 16px;}}"
             f"QPushButton:hover{{background:#D4B460;}}")
         self._read_btn.clicked.connect(self._on_read)
@@ -3122,14 +3122,14 @@ class LocalDetailPanel(QWidget):
         # Path info
         path_hdr = QLabel("FILE PATH")
         path_hdr.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         iv.addWidget(path_hdr)
 
         self._path_lbl = QLabel()
         self._path_lbl.setWordWrap(True)
         self._path_lbl.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; border-radius:6px; "
-            f"color:{TEXT2}; font-size:11px; padding:10px 14px; font-family:monospace;")
+            f"color:{TEXT2}; font-size:13px; padding:10px 14px; font-family:monospace;")
         iv.addWidget(self._path_lbl)
 
         iv.addStretch()
@@ -3157,7 +3157,7 @@ class LocalDetailPanel(QWidget):
         icon = {"EPUB": "📖", "PDF": "📄", "TXT": "📝"}.get(book.file_type, "📄")
         self._cover_lbl.setText(icon)
         self._cover_lbl.setStyleSheet(
-            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:48px;")
+            f"background:{BG3}; border:1px solid {BORDER}; border-radius:8px; font-size:55px;")
         self._cover_lbl.setPixmap(QPixmap())  # clear any previous pixmap
 
         self.show()
@@ -3558,7 +3558,7 @@ class ChapterListDrawer(QFrame):
 
         title_lbl = QLabel("CHAPTERS")
         title_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:2px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:2px; background:transparent;")
         hdr.addWidget(title_lbl)
 
         hdr.addStretch()
@@ -3570,7 +3570,7 @@ class ChapterListDrawer(QFrame):
         self._jump_input.setFixedHeight(26)
         self._jump_input.setStyleSheet(
             f"QLineEdit{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"border-radius:3px; color:{TEXT}; font-size:11px; padding:0 8px;}}"
+            f"border-radius:3px; color:{TEXT}; font-size:13px; padding:0 8px;}}"
             f"QLineEdit:focus{{border-color:{ACCENT};}}")
         self._jump_input.returnPressed.connect(self._on_jump)
         hdr.addWidget(self._jump_input)
@@ -3580,7 +3580,7 @@ class ChapterListDrawer(QFrame):
         jump_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         jump_btn.setStyleSheet(
             f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"color:{TEXT2}; border-radius:3px; font-size:10px;}}"
+            f"color:{TEXT2}; border-radius:3px; font-size:12px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
         jump_btn.clicked.connect(self._on_jump)
         hdr.addWidget(jump_btn)
@@ -3590,7 +3590,7 @@ class ChapterListDrawer(QFrame):
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:none; "
-            f"color:{MUTED}; font-size:12px;}}"
+            f"color:{MUTED}; font-size:14px;}}"
             f"QPushButton:hover{{color:{TEXT};}}")
         close_btn.clicked.connect(self.hide)
         hdr.addWidget(close_btn)
@@ -3602,7 +3602,7 @@ class ChapterListDrawer(QFrame):
         self._list.setStyleSheet(
             f"QListWidget{{"
             f"  background:{BG3}; border:1px solid {BORDER}; border-radius:4px;"
-            f"  color:{TEXT2}; font-size:11px; outline:none;"
+            f"  color:{TEXT2}; font-size:13px; outline:none;"
             f"}}"
             f"QListWidget::item{{"
             f"  padding:6px 10px; border-bottom:1px solid {BORDER};"
@@ -3624,7 +3624,7 @@ class ChapterListDrawer(QFrame):
         # ── Chapter count label ───────────────────────────────────────────────
         self._count_lbl = QLabel()
         self._count_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:1px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:1px; background:transparent;")
         lay.addWidget(self._count_lbl)
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -3790,20 +3790,20 @@ class ReaderPanel(QWidget):
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:none; color:{TEXT2}; "
-            f"font-size:11px; letter-spacing:1px; padding:4px 10px;}}"
+            f"font-size:13px; letter-spacing:1px; padding:4px 10px;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         back_btn.clicked.connect(self._on_close)
         bar_lay.addWidget(back_btn)
 
         self._chapter_title = QLabel()
         self._chapter_title.setStyleSheet(
-            f"color:{TEXT}; font-size:12px; letter-spacing:1px; background:transparent;")
+            f"color:{TEXT}; font-size:14px; letter-spacing:1px; background:transparent;")
         self._chapter_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar_lay.addWidget(self._chapter_title, 1)
 
         # Font size controls
         font_lbl = QLabel("A")
-        font_lbl.setStyleSheet(f"color:{MUTED}; font-size:10px; background:transparent;")
+        font_lbl.setStyleSheet(f"color:{MUTED}; font-size:12px; background:transparent;")
         bar_lay.addWidget(font_lbl)
 
         self._font_dec = QPushButton("−")
@@ -3811,7 +3811,7 @@ class ReaderPanel(QWidget):
         self._font_dec.setCursor(Qt.CursorShape.PointingHandCursor)
         _font_btn_ss = (
             f"QPushButton{{background:{BG3}; border:1px solid {BORDER}; "
-            f"color:{TEXT2}; border-radius:4px; font-size:14px; padding:0;}}"
+            f"color:{TEXT2}; border-radius:4px; font-size:16px; padding:0;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
         self._font_dec.setStyleSheet(_font_btn_ss)
         self._font_dec.clicked.connect(self._decrease_font)
@@ -3821,7 +3821,7 @@ class ReaderPanel(QWidget):
         self._font_lbl.setFixedWidth(28)
         self._font_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._font_lbl.setStyleSheet(
-            f"color:{TEXT2}; font-size:11px; background:transparent;")
+            f"color:{TEXT2}; font-size:13px; background:transparent;")
         bar_lay.addWidget(self._font_lbl)
 
         self._font_inc = QPushButton("+")
@@ -3839,7 +3839,7 @@ class ReaderPanel(QWidget):
         self._sage_toggle_btn.setChecked(True)
         self._sage_toggle_btn.setStyleSheet(
             f"QPushButton{{background:{BG3}; border:1px solid {BORDER}; "
-            f"color:{MUTED}; border-radius:4px; font-size:10px; "
+            f"color:{MUTED}; border-radius:4px; font-size:12px; "
             f"letter-spacing:1px; padding:0 10px;}}"
             f"QPushButton:checked{{background:#0D0A18; border-color:{ACCENT}; color:{ACCENT};}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
@@ -3896,7 +3896,7 @@ class ReaderPanel(QWidget):
 
         _tpl_ss = (
             f"QPushButton{{background:#0F0D1A; border:1px solid #2A2040; "
-            f"color:#7060A0; border-radius:3px; font-size:9px; "
+            f"color:#7060A0; border-radius:3px; font-size:13px; "
             f"letter-spacing:1px; padding:5px 8px; font-family:{FONT_UI};}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
 
@@ -3926,7 +3926,7 @@ class ReaderPanel(QWidget):
         self._sage_input.setPlaceholderText("Character, place, power…")
         self._sage_input.setStyleSheet(
             f"QLineEdit{{background:#0F0D1A; border:1px solid #2A2040; "
-            f"border-radius:3px; color:{TEXT}; font-size:12px; "
+            f"border-radius:3px; color:{TEXT}; font-size:14px; "
             f"padding:6px 10px; font-family:{FONT_UI};}}"
             f"QLineEdit:focus{{border-color:{ACCENT};}}")
         self._sage_input.returnPressed.connect(self._ask_sage)
@@ -3945,7 +3945,7 @@ class ReaderPanel(QWidget):
         self._browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._browse_btn.setStyleSheet(
             f"QPushButton{{background:#0F0D1A; border:1px solid #2A2040; "
-            f"color:#7060A0; border-radius:3px; font-size:10px; "
+            f"color:#7060A0; border-radius:3px; font-size:12px; "
             f"letter-spacing:0.5px; padding:0 12px; font-family:{FONT_UI};}}"
             f"QPushButton:hover{{border-color:#5040A0; color:#A090E0;}}"
             f"QPushButton:disabled{{color:#302840; border-color:#1A1628;}}")
@@ -3957,7 +3957,7 @@ class ReaderPanel(QWidget):
         self._ask_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ask_btn.setStyleSheet(
             f"QPushButton{{background:#1A0F2E; border:1px solid {ACCENT}; "
-            f"color:{ACCENT}; border-radius:3px; font-size:10px; "
+            f"color:{ACCENT}; border-radius:3px; font-size:12px; "
             f"letter-spacing:0.5px; padding:0 12px; font-family:{FONT_UI};}}"
             f"QPushButton:hover{{background:#220F3E; border-color:#D4B870;}}"
             f"QPushButton:disabled{{background:#0D0A18; border-color:#2A2040; "
@@ -3979,7 +3979,7 @@ class ReaderPanel(QWidget):
         self._sage_output.setFrameShape(QFrame.Shape.NoFrame)
         self._sage_output.setStyleSheet(
             f"QTextEdit{{background:transparent; color:{TEXT}; border:none; "
-            f"font-size:12px; font-family:{FONT_UI}; padding:14px 14px;}}"
+            f"font-size:14px; font-family:{FONT_UI}; padding:14px 14px;}}"
             f"QScrollBar:vertical{{background:#0D0B18; width:6px; border:none; margin:0;}}"
             f"QScrollBar::handle:vertical{{background:#2A2040; border-radius:3px; min-height:30px;}}"
             f"QScrollBar::handle:vertical:hover{{background:{ACCENT};}}"
@@ -3994,7 +3994,7 @@ class ReaderPanel(QWidget):
         self._sage_status = QLabel()
         self._sage_status.setFixedHeight(24)
         self._sage_status.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:1px; "
+            f"color:{MUTED}; font-size:13px; letter-spacing:1px; "
             f"background:#0D0B18; border-top:1px solid {BORDER}; "
             f"padding:0 14px; font-family:{FONT_UI};")
         sb.addWidget(self._sage_status)
@@ -4006,7 +4006,7 @@ class ReaderPanel(QWidget):
         self._loading_lbl = QLabel("Loading chapter…")
         self._loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._loading_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:13px; background:{BG};")
+            f"color:{MUTED}; font-size:15px; background:{BG};")
         self._loading_lbl.hide()
 
         # ── Bottom nav bar ─────────────────────────────────────────────────────
@@ -4023,7 +4023,7 @@ class ReaderPanel(QWidget):
         self._prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         _nav_btn_ss = (
             f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"color:{TEXT2}; border-radius:4px; padding:0 20px; font-size:11px; letter-spacing:1px;}}"
+            f"color:{TEXT2}; border-radius:4px; padding:0 20px; font-size:13px; letter-spacing:1px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
             f"QPushButton:disabled{{color:{MUTED}; border-color:{BORDER};}}")
         self._prev_btn.setStyleSheet(_nav_btn_ss)
@@ -4035,7 +4035,7 @@ class ReaderPanel(QWidget):
         self._nav_label = QLabel()
         self._nav_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._nav_label.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; letter-spacing:1px; background:transparent;")
+            f"color:{MUTED}; font-size:12px; letter-spacing:1px; background:transparent;")
         nav_lay.addWidget(self._nav_label)
 
         self._chapters_btn = QPushButton("≡  Chapters")
@@ -4043,7 +4043,7 @@ class ReaderPanel(QWidget):
         self._chapters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._chapters_btn.setStyleSheet(
             f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"color:{TEXT2}; border-radius:4px; padding:0 16px; font-size:11px; letter-spacing:1px;}}"
+            f"color:{TEXT2}; border-radius:4px; padding:0 16px; font-size:13px; letter-spacing:1px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
             f"QPushButton:checked{{background:#1E1040; border-color:{ACCENT}; color:{ACCENT};}}")
         self._chapters_btn.setCheckable(True)
@@ -4577,7 +4577,7 @@ class LegionPage(QWidget):
         sh.setContentsMargins(16, 0, 16, 0)
         module_lbl = QLabel("LEGION")
         module_lbl.setStyleSheet(
-            f"color:{ACCENT}; font-size:10px; letter-spacing:3px; "
+            f"color:{ACCENT}; font-size:12px; letter-spacing:3px; "
             f"background:transparent;")
         sh.addWidget(module_lbl)
         sh.addStretch()
@@ -4586,11 +4586,11 @@ class LegionPage(QWidget):
         # Tab buttons
         _active_style = (
             f"background:{BG3}; color:{ACCENT}; border:none; "
-            f"border-left:2px solid {ACCENT}; font-size:12px; "
+            f"border-left:2px solid {ACCENT}; font-size:14px; "
             f"padding:12px 16px; text-align:left; border-radius:0;")
         _idle_style = (
             f"background:transparent; color:{MUTED}; border:none; "
-            f"border-left:2px solid transparent; font-size:12px; "
+            f"border-left:2px solid transparent; font-size:14px; "
             f"padding:12px 16px; text-align:left; border-radius:0;")
         self._tab_style_active = _active_style
         self._tab_style_idle   = _idle_style
@@ -4610,7 +4610,7 @@ class LegionPage(QWidget):
         ref_b = QPushButton("↻  Refresh")
         ref_b.setStyleSheet(
             f"background:transparent; border:none; color:{MUTED}; "
-            f"font-size:11px; padding:10px 16px; text-align:left;")
+            f"font-size:13px; padding:10px 16px; text-align:left;")
         ref_b.setCursor(Qt.CursorShape.PointingHandCursor)
         ref_b.clicked.connect(self.refresh)
         sv.addWidget(ref_b)
@@ -4637,7 +4637,7 @@ class LegionPage(QWidget):
         self._search_box.setPlaceholderText("Search novels, books, authors…")
         self._search_box.setStyleSheet(
             f"QLineEdit{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"border-radius:5px; color:{TEXT}; font-size:12px; padding:6px 12px;}}"
+            f"border-radius:5px; color:{TEXT}; font-size:14px; padding:6px 12px;}}"
             f"QLineEdit:focus{{border-color:{ACCENT};}}")
         self._search_box.textChanged.connect(self._on_search_changed)
         self._search_box.returnPressed.connect(self._on_search_commit)
@@ -4648,7 +4648,7 @@ class LegionPage(QWidget):
         self._search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._search_btn.setStyleSheet(
             f"QPushButton{{background:{ACCENT}; color:{BG}; border:none; "
-            f"border-radius:5px; font-size:12px; font-weight:bold; padding:0 18px;}}"
+            f"border-radius:5px; font-size:14px; font-weight:bold; padding:0 18px;}}"
             f"QPushButton:hover{{background:{ACCENT}dd;}}"
             f"QPushButton:pressed{{background:{ACCENT}aa;}}")
         self._search_btn.clicked.connect(self._on_search_commit)
@@ -4660,7 +4660,7 @@ class LegionPage(QWidget):
         self._source_combo.setFixedWidth(140)
         self._source_combo.setStyleSheet(
             f"QComboBox{{background:{BG3}; border:1px solid {BORDER2}; "
-            f"border-radius:5px; color:{TEXT2}; font-size:11px; padding:5px 10px;}}"
+            f"border-radius:5px; color:{TEXT2}; font-size:13px; padding:5px 10px;}}"
             f"QComboBox:hover{{border-color:{ACCENT};}}"
             f"QComboBox::drop-down{{border:none; width:20px;}}"
             f"QComboBox QAbstractItemView{{background:{BG2}; border:1px solid {BORDER2}; "
@@ -4674,7 +4674,7 @@ class LegionPage(QWidget):
         self._status_bar = QLabel("Loading…")
         self._status_bar.setFixedHeight(24)
         self._status_bar.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:1px; "
+            f"color:{MUTED}; font-size:13px; letter-spacing:1px; "
             f"padding:0 20px; background:{BG2}; border-bottom:1px solid {BORDER};")
         main_lay.addWidget(self._status_bar)
 
@@ -4691,7 +4691,7 @@ class LegionPage(QWidget):
 
         self._section_label = QLabel("TRENDING")
         self._section_label.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; "
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; "
             f"padding:12px 20px 4px; background:transparent;")
         dp_lay.addWidget(self._section_label)
 
@@ -4724,7 +4724,7 @@ class LegionPage(QWidget):
 
         btn_style = (
             f"QPushButton{{background:{BG3}; color:{TEXT2}; border:1px solid {BORDER2}; "
-            f"border-radius:5px; font-size:12px; padding:4px 18px;}}"
+            f"border-radius:5px; font-size:14px; padding:4px 18px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
             f"QPushButton:disabled{{color:{MUTED}; border-color:{BORDER};}}")
 
@@ -4739,7 +4739,7 @@ class LegionPage(QWidget):
         self._page_label = QLabel("Page 1")
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._page_label.setStyleSheet(
-            f"color:{TEXT2}; font-size:12px; background:transparent;")
+            f"color:{TEXT2}; font-size:14px; background:transparent;")
         pag_lay.addWidget(self._page_label, 1)
 
         self._next_btn = QPushButton("Next →")
@@ -4763,13 +4763,13 @@ class LegionPage(QWidget):
         ji_top.setContentsMargins(0, 0, 0, 0)
         ji_hdr = QLabel("CONTINUE READING")
         ji_hdr.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         ji_top.addWidget(ji_hdr)
         ji_top.addStretch()
         self._ji_edit_btn = QPushButton("Edit")
         self._ji_edit_btn.setStyleSheet(
             f"QPushButton{{background:transparent; border:1px solid {BORDER2}; "
-            f"color:{MUTED}; font-size:9px; letter-spacing:1px; padding:3px 10px; "
+            f"color:{MUTED}; font-size:13px; letter-spacing:1px; padding:3px 10px; "
             f"border-radius:3px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}")
         self._ji_edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4790,7 +4790,7 @@ class LegionPage(QWidget):
         self._ji_empty = QLabel("No books in progress yet.\nDiscover a book and start reading!")
         self._ji_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._ji_empty.setStyleSheet(
-            f"color:{MUTED}; font-size:12px; background:transparent;")
+            f"color:{MUTED}; font-size:14px; background:transparent;")
         self._ji_empty.hide()
         ji_lay.addWidget(self._ji_empty)
         self._content_stack.addWidget(ji_page)         # index 1
@@ -4815,11 +4815,11 @@ class LegionPage(QWidget):
         self._lib_active_cat = 0
         _cat_active = (
             f"QPushButton{{background:transparent; color:{ACCENT}; border:none; "
-            f"border-bottom:2px solid {ACCENT}; font-size:11px; "
+            f"border-bottom:2px solid {ACCENT}; font-size:13px; "
             f"letter-spacing:1px; padding:0 16px;}}")
         _cat_idle = (
             f"QPushButton{{background:transparent; color:{MUTED}; border:none; "
-            f"border-bottom:2px solid transparent; font-size:11px; "
+            f"border-bottom:2px solid transparent; font-size:13px; "
             f"letter-spacing:1px; padding:0 16px;}}"
             f"QPushButton:hover{{color:{TEXT2};}}")
         self._lib_cat_active_style = _cat_active
@@ -4850,7 +4850,7 @@ class LegionPage(QWidget):
         self._lib_empty = QLabel("Nothing here yet.")
         self._lib_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lib_empty.setStyleSheet(
-            f"color:{MUTED}; font-size:12px; background:transparent;")
+            f"color:{MUTED}; font-size:14px; background:transparent;")
         self._lib_empty.hide()
         lc_lay.addWidget(self._lib_empty)
 
@@ -4866,7 +4866,7 @@ class LegionPage(QWidget):
 
         loc_hdr = QLabel("LOCAL BOOKS")
         loc_hdr.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         loc_lay.addWidget(loc_hdr)
 
         self._local_grid = BooksGrid()

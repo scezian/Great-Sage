@@ -499,7 +499,7 @@ class VisualizerWidget(QWidget):
             b.setFixedHeight(20)
             b.setStyleSheet(
                 "QPushButton{background:transparent;border:none;"
-                "color:#303045;font-size:9px;letter-spacing:1.5px;padding:0 6px;}"
+                "color:#303045;font-size:13px;letter-spacing:1.5px;padding:0 6px;}"
                 "QPushButton:hover{color:#C9A84C;}")
             b.clicked.connect(cb)
             return b
@@ -509,7 +509,7 @@ class VisualizerWidget(QWidget):
         self._mir_btn   = _btn("⇌ MIR",                            "Toggle mirror",   self._toggle_mirror)
         self._pause_btn = _btn("⏸",                                "Pause",           self._toggle_pause)
         self._err_lbl   = QLabel("")
-        self._err_lbl.setStyleSheet("color:#6A2030; font-size:9px;")
+        self._err_lbl.setStyleSheet("color:#6A2030; font-size:13px;")
 
         ch.addWidget(self._pal_btn)
         ch.addWidget(self._mode_btn)
@@ -760,10 +760,10 @@ def build_page(parent, api):
     def _update_status():
         if cap.error:
             status_lbl.setText(f"⚠  {cap.error[:80]}")
-            status_lbl.setStyleSheet(f"color:{colours['RED']}; font-size:11px;")
+            status_lbl.setStyleSheet(f"color:{colours['RED']}; font-size:13px;")
         else:
             status_lbl.setText("● Capturing system audio")
-            status_lbl.setStyleSheet(f"color:{colours['ACCENT2']}; font-size:11px;")
+            status_lbl.setStyleSheet(f"color:{colours['ACCENT2']}; font-size:13px;")
     QTimer.singleShot(1500, _update_status)
 
     return page
@@ -777,10 +777,10 @@ def refresh(page):
             if "audio" in txt.lower() or "capture" in txt.lower() or "Starting" in txt:
                 if _capture and _capture.error:
                     child.setText(f"⚠  {_capture.error[:80]}")
-                    child.setStyleSheet("color:#E05C6A; font-size:11px;")
+                    child.setStyleSheet("color:#E05C6A; font-size:13px;")
                 elif _capture and _capture._running:
                     child.setText("● Capturing system audio")
-                    child.setStyleSheet("color:#4EC9A4; font-size:11px;")
+                    child.setStyleSheet("color:#4EC9A4; font-size:13px;")
                 break
     except Exception:
         pass

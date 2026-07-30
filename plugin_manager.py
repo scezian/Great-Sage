@@ -278,13 +278,13 @@ class PluginAPI:
         if accent:
             b.setStyleSheet(
                 f"QPushButton {{ background:{ACCENT}; color:{BG}; border:none; "
-                f"font-weight:bold; font-size:12px; letter-spacing:1px; "
+                f"font-weight:bold; font-size:14px; letter-spacing:1px; "
                 f"padding:8px 18px; border-radius:4px; }}"
                 f"QPushButton:hover {{ background:#F0D98A; }}")
         else:
             b.setStyleSheet(
                 f"QPushButton {{ background:transparent; color:{TEXT2}; "
-                f"border:1px solid {BORDER}; font-size:12px; padding:7px 16px; "
+                f"border:1px solid {BORDER}; font-size:14px; padding:7px 16px; "
                 f"border-radius:4px; }}"
                 f"QPushButton:hover {{ border-color:{ACCENT}; color:{ACCENT}; }}")
         return b
@@ -420,7 +420,7 @@ class SlotHost(QWidget):
             if entry["label"]:
                 lbl = QLabel(entry["label"])
                 lbl.setStyleSheet(
-                    f"color:{MUTED};font-size:9px;letter-spacing:2px;padding:2px 0 0 2px;")
+                    f"color:{MUTED};font-size:13px;letter-spacing:2px;padding:2px 0 0 2px;")
                 self._layout.addWidget(lbl)
             w = entry["widget"]
             w.setParent(self)
@@ -645,12 +645,12 @@ class PluginsPage(QWidget):
         back_b0 = QPushButton("← All Plugins")
         back_b0.setStyleSheet(
             f"QPushButton{{background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 0;}}"
+            f"font-size:13px;letter-spacing:1.5px;padding:4px 0;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         back_b0.clicked.connect(self._show_manager)
         self._back_bar_title = QLabel("")
         self._back_bar_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:12px;font-weight:bold;"
+            f"font-family:{FONT_DISPLAY};font-size:14px;font-weight:bold;"
             f"color:{ACCENT};letter-spacing:3px;margin-left:16px;background:transparent;")
         bbl0.addWidget(back_b0)
         bbl0.addWidget(self._back_bar_title)
@@ -695,17 +695,17 @@ class PluginsPage(QWidget):
         back_btn = QPushButton("← HOME")
         back_btn.setStyleSheet(
             f"QPushButton{{background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 0;}}"
+            f"font-size:13px;letter-spacing:1.5px;padding:4px 0;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         back_btn.clicked.connect(self.navigate_home.emit)
         tl = QLabel("PLUGINS")
         tl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;"
+            f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;"
             f"color:{ACCENT};letter-spacing:3px;margin-left:14px;background:transparent;")
         self._reload_btn = QPushButton("↻  SCAN FOR PLUGINS")
         self._reload_btn.setStyleSheet(
             f"QPushButton{{background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:6px 14px;border-radius:3px;}}"
+            f"font-size:13px;letter-spacing:1.5px;padding:6px 14px;border-radius:3px;}}"
             f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
         self._reload_btn.clicked.connect(self._do_reload)
         tb.addWidget(back_btn)
@@ -724,7 +724,7 @@ class PluginsPage(QWidget):
 
         # Plugin folder hint
         hint = QLabel(f"Plugin folder:  {self._engine.plugins_dir}")
-        hint.setStyleSheet(f"color:{MUTED};font-size:11px;")
+        hint.setStyleSheet(f"color:{MUTED};font-size:13px;")
         hint.setWordWrap(True)
         v.addWidget(hint)
 
@@ -753,7 +753,7 @@ class PluginsPage(QWidget):
         open_btn = QPushButton("📂  Open Plugins Folder")
         open_btn.setStyleSheet(
             f"background:transparent;border:1px solid {BORDER};color:{MUTED};"
-            f"font-size:11px;padding:8px 16px;border-radius:4px;")
+            f"font-size:13px;padding:8px 16px;border-radius:4px;")
         open_btn.clicked.connect(self._open_plugins_folder)
         v.addWidget(open_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -770,18 +770,18 @@ class PluginsPage(QWidget):
 
         # Icon + name + meta
         ico = QLabel(rec.icon)
-        ico.setStyleSheet(f"color:{rec.color};font-size:28px;background:transparent;")
+        ico.setStyleSheet(f"color:{rec.color};font-size:32px;background:transparent;")
         ico.setFixedWidth(36)
         cl.addWidget(ico)
 
         info = QVBoxLayout(); info.setSpacing(2)
         name_lbl = QLabel(rec.name)
         name_lbl.setStyleSheet(
-            f"color:{TEXT};font-size:13px;font-weight:bold;font-family:{FONT_UI};background:transparent;")
+            f"color:{TEXT};font-size:15px;font-weight:bold;font-family:{FONT_UI};background:transparent;")
         info.addWidget(name_lbl)
         if rec.description:
             desc_lbl = QLabel(rec.description)
-            desc_lbl.setStyleSheet(f"color:{TEXT2};font-size:11px;background:transparent;")
+            desc_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;background:transparent;")
             desc_lbl.setWordWrap(True)
             info.addWidget(desc_lbl)
         meta_parts = []
@@ -791,7 +791,7 @@ class PluginsPage(QWidget):
         if meta_parts:
             meta_lbl = QLabel("  ·  ".join(meta_parts))
             meta_lbl.setStyleSheet(
-                f"color:{'#E05C6A' if rec.error else MUTED};font-size:10px;background:transparent;")
+                f"color:{'#E05C6A' if rec.error else MUTED};font-size:12px;background:transparent;")
             info.addWidget(meta_lbl)
 
         cl.addLayout(info, 1)
@@ -801,7 +801,7 @@ class PluginsPage(QWidget):
             settings_btn = QPushButton("⚙ Settings")
             settings_btn.setStyleSheet(
                 f"QPushButton{{background:transparent;border:1px solid {BORDER};"
-                f"color:{MUTED};font-size:9px;letter-spacing:1px;"
+                f"color:{MUTED};font-size:13px;letter-spacing:1px;"
                 f"padding:5px 10px;border-radius:3px;}}"
                 f"QPushButton:hover{{border-color:{rec.color};color:{rec.color};}}")
             settings_btn.clicked.connect(lambda _, r=rec: self._open_plugin(r))
@@ -824,7 +824,7 @@ class PluginsPage(QWidget):
         del_btn.setToolTip("Delete plugin file")
         del_btn.setStyleSheet(
             f"QPushButton{{background:transparent;border:1px solid {BORDER};"
-            f"color:{MUTED};font-size:11px;border-radius:3px;}}"
+            f"color:{MUTED};font-size:13px;border-radius:3px;}}"
             f"QPushButton:hover{{background:#2A0E14;border-color:{RED};color:{RED};}}")
         del_btn.clicked.connect(lambda _, r=rec: self._delete_plugin(r))
         cl.addWidget(del_btn)
@@ -933,7 +933,7 @@ class PluginsPage(QWidget):
         # Show back bar with plugin name
         self._back_bar_title.setText(f"{rec.icon}  {rec.name.upper()}")
         self._back_bar_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:12px;font-weight:bold;"
+            f"font-family:{FONT_DISPLAY};font-size:14px;font-weight:bold;"
             f"color:{rec.color};letter-spacing:3px;margin-left:16px;background:transparent;")
         self._back_bar.show()
         rec.call_refresh()
@@ -964,7 +964,7 @@ class PluginsPage(QWidget):
 
         if not enabled:
             hint = QLabel("No plugins enabled")
-            hint.setStyleSheet(f"color:{MUTED};font-size:10px;padding:8px 18px;letter-spacing:1px;")
+            hint.setStyleSheet(f"color:{MUTED};font-size:12px;padding:8px 18px;letter-spacing:1px;")
             self._nav_layout.addWidget(hint)
 
     def _rebuild_manager_list(self):
@@ -979,7 +979,7 @@ class PluginsPage(QWidget):
             empty = QLabel(
                 f"No plugins found.\n\n"
                 f"Drop a .py plugin file into:\n{self._engine.plugins_dir}")
-            empty.setStyleSheet(f"color:{MUTED};font-size:12px;")
+            empty.setStyleSheet(f"color:{MUTED};font-size:14px;")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setWordWrap(True)
             self._mgr_layout.insertWidget(0, empty)

@@ -284,7 +284,7 @@ def build_page(parent, api):
     hh = QHBoxLayout(hdr); hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("📚  BOOK COVERS")
     tl.setStyleSheet(
-        f"color:{colours['ACCENT']};font-size:13px;font-weight:bold;letter-spacing:3px;")
+        f"color:{colours['ACCENT']};font-size:15px;font-weight:bold;letter-spacing:3px;")
     hh.addWidget(tl); hh.addStretch()
     root.addWidget(hdr)
 
@@ -300,14 +300,14 @@ def build_page(parent, api):
 
     def _sec(t):
         l = QLabel(t)
-        l.setStyleSheet(f"color:{colours['MUTED']};font-size:9px;letter-spacing:3px;background:transparent;")
+        l.setStyleSheet(f"color:{colours['MUTED']};font-size:13px;letter-spacing:3px;background:transparent;")
         return l
 
     bv.addWidget(_sec("STATUS"))
     cache_count = len(list(CACHE_DIR.glob("*.jpg")))
     status_lbl = QLabel(f"{cache_count} cover(s) cached in {CACHE_DIR}")
     status_lbl.setStyleSheet(
-        f"background:{colours['BG2']};color:{colours['TEXT2']};font-size:12px;"
+        f"background:{colours['BG2']};color:{colours['TEXT2']};font-size:14px;"
         f"padding:12px 16px;border-radius:6px;border:1px solid {colours['BORDER']};")
     status_lbl.setWordWrap(True)
     bv.addWidget(status_lbl)
@@ -326,14 +326,14 @@ def build_page(parent, api):
     clear_btn = QPushButton("🗑  Clear Cache")
     clear_btn.setStyleSheet(
         f"QPushButton{{background:transparent;border:1px solid {colours['BORDER']};"
-        f"color:{colours['MUTED']};font-size:11px;padding:10px 18px;border-radius:4px;}}"
+        f"color:{colours['MUTED']};font-size:13px;padding:10px 18px;border-radius:4px;}}"
         f"QPushButton:hover{{border-color:#E05A6A;color:#E05A6A;}}")
     clear_btn.clicked.connect(_clear)
 
     refetch_btn = QPushButton("↻  Re-fetch All")
     refetch_btn.setStyleSheet(
         f"QPushButton{{background:{colours['BG2']};border:1px solid {colours['BORDER']};"
-        f"color:{colours['TEXT2']};font-size:11px;padding:10px 18px;border-radius:4px;}}"
+        f"color:{colours['TEXT2']};font-size:13px;padding:10px 18px;border-radius:4px;}}"
         f"QPushButton:hover{{border-color:{colours['ACCENT']};color:{colours['ACCENT']};}}")
     refetch_btn.clicked.connect(_refetch)
 
@@ -346,7 +346,7 @@ def build_page(parent, api):
     manual_row = QHBoxLayout(); manual_row.setSpacing(10)
     manual_input = QLabel("Select a book in Legion, then set its cover manually:")
     manual_input.setStyleSheet(
-        f"background:transparent;color:{colours['TEXT2']};font-size:11px;")
+        f"background:transparent;color:{colours['TEXT2']};font-size:13px;")
     manual_input.setWordWrap(True)
     bv.addWidget(manual_input)
 
@@ -356,12 +356,12 @@ def build_page(parent, api):
     manual_title.setPlaceholderText("Book title (exact)…")
     manual_title.setStyleSheet(
         f"QLineEdit{{background:{colours['BG2']};border:1px solid {colours['BORDER']};"
-        f"color:{colours['TEXT']};font-size:11px;padding:6px 10px;border-radius:4px;}}"
+        f"color:{colours['TEXT']};font-size:13px;padding:6px 10px;border-radius:4px;}}"
         f"QLineEdit:focus{{border-color:{colours['ACCENT']};}}")
     manual_browse = QPushButton("Set Cover Image…")
     manual_browse.setStyleSheet(
         f"QPushButton{{background:{colours['BG2']};border:1px solid {colours['BORDER']};"
-        f"color:{colours['TEXT2']};font-size:11px;padding:7px 14px;border-radius:4px;}}"
+        f"color:{colours['TEXT2']};font-size:13px;padding:7px 14px;border-radius:4px;}}"
         f"QPushButton:hover{{border-color:{colours['ACCENT']};color:{colours['ACCENT']};}}")
 
     def _set_manual_cover():
@@ -417,7 +417,7 @@ def build_page(parent, api):
         "All covers cached locally — only fetched once.")
     tip.setStyleSheet(
         f"background:{colours['BG2']};color:{colours['MUTED']};"
-        f"font-size:11px;padding:14px;border-radius:6px;border:1px solid {colours['BORDER']};")
+        f"font-size:13px;padding:14px;border-radius:6px;border:1px solid {colours['BORDER']};")
     tip.setWordWrap(True)
     bv.addWidget(tip)
     bv.addStretch()

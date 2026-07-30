@@ -98,12 +98,12 @@ class ClockWidget(QWidget):
         self._time_lbl = QLabel()
         self._time_lbl.setStyleSheet(
             "background:transparent; color:#E8E4DC; "
-            "font-size:42px; font-weight:bold; letter-spacing:2px;")
+            "font-size:48px; font-weight:bold; letter-spacing:2px;")
 
         self._date_lbl = QLabel()
         self._date_lbl.setStyleSheet(
             "background:transparent; color:#606070; "
-            "font-size:12px; letter-spacing:3px;")
+            "font-size:14px; letter-spacing:3px;")
 
         left.addWidget(self._time_lbl)
         left.addWidget(self._date_lbl)
@@ -118,7 +118,7 @@ class ClockWidget(QWidget):
         self._quote_lbl = QLabel()
         self._quote_lbl.setStyleSheet(
             "background:transparent; color:#454565; "
-            "font-size:12px; font-style:italic; font-family:Palatino Linotype,Georgia,serif;")
+            "font-size:14px; font-style:italic; font-family:Palatino Linotype,Georgia,serif;")
         self._quote_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         self._quote_lbl.setWordWrap(True)
         self._quote_lbl.setMaximumWidth(480)
@@ -127,7 +127,7 @@ class ClockWidget(QWidget):
         self._src_lbl = QLabel()
         self._src_lbl.setStyleSheet(
             "background:transparent; color:#353550; "
-            "font-size:10px; letter-spacing:1px;")
+            "font-size:12px; letter-spacing:1px;")
         self._src_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         self._src_lbl.setVisible(False)
 
@@ -187,14 +187,14 @@ def build_page(parent, api):
     v.setSpacing(16)
 
     title = QLabel("◷  CLOCK")
-    title.setStyleSheet(f"color:{colours['ACCENT']};font-size:14px;"
+    title.setStyleSheet(f"color:{colours['ACCENT']};font-size:16px;"
                         f"font-weight:bold;letter-spacing:3px;")
     v.addWidget(title)
 
     desc = QLabel(
         "Displays a live clock and date on the dashboard.\n"
         "A random line from your current book appears as a quote on the right.")
-    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:13px;")
+    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:15px;")
     desc.setWordWrap(True)
     v.addWidget(desc)
 

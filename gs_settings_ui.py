@@ -66,20 +66,20 @@ class RecNotificationDialog(QDialog):
 
         # Header
         from_lbl = QLabel(f"<b>{rec.get('sender', 'Someone')}</b> recommends:")
-        from_lbl.setStyleSheet(f"font-size:12px;color:{TEXT2};background:transparent;")
+        from_lbl.setStyleSheet(f"font-size:14px;color:{TEXT2};background:transparent;")
         lay.addWidget(from_lbl)
 
         # Title
         title_lbl = QLabel(rec.get("title", ""))
         title_lbl.setStyleSheet(
-            f"font-size:18px;font-weight:bold;color:{TEXT};background:transparent;")
+            f"font-size:21px;font-weight:bold;color:{TEXT};background:transparent;")
         title_lbl.setWordWrap(True)
         lay.addWidget(title_lbl)
 
         # Type badge
         type_lbl = QLabel(rec.get("type", "Anime").upper())
         type_lbl.setStyleSheet(
-            f"font-size:9px;letter-spacing:2px;color:{ACCENT};background:transparent;")
+            f"font-size:13px;letter-spacing:2px;color:{ACCENT};background:transparent;")
         lay.addWidget(type_lbl)
 
         # Message
@@ -87,7 +87,7 @@ class RecNotificationDialog(QDialog):
         if msg:
             msg_lbl = QLabel(f'"{msg}"')
             msg_lbl.setStyleSheet(
-                f"font-size:12px;color:{TEXT2};font-style:italic;"
+                f"font-size:14px;color:{TEXT2};font-style:italic;"
                 f"background:transparent;")
             msg_lbl.setWordWrap(True)
             lay.addWidget(msg_lbl)
@@ -101,14 +101,14 @@ class RecNotificationDialog(QDialog):
         add_btn = QPushButton("Add to Watchlist")
         add_btn.setStyleSheet(
             f"background:{ACCENT};color:#fff;border:none;border-radius:6px;"
-            f"padding:8px 18px;font-size:12px;font-family:{FONT_UI};")
+            f"padding:8px 18px;font-size:14px;font-family:{FONT_UI};")
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self._on_add)
 
         dismiss_btn = QPushButton("Dismiss")
         dismiss_btn.setStyleSheet(
             f"background:transparent;color:{TEXT2};border:1px solid #444;"
-            f"border-radius:6px;padding:8px 18px;font-size:12px;font-family:{FONT_UI};")
+            f"border-radius:6px;padding:8px 18px;font-size:14px;font-family:{FONT_UI};")
         dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         dismiss_btn.clicked.connect(self._on_dismiss)
 
@@ -182,11 +182,11 @@ class SettingsPage(QWidget):
         back_b3 = QPushButton("← HOME")
         back_b3.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 0;")
+            f"font-size:13px;letter-spacing:1.5px;padding:4px 0;")
         back_b3.clicked.connect(lambda: self.window()._navigate("dashboard"))
         tl = QLabel("SETTINGS")
         tl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;"
+            f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;"
             f"color:{ACCENT};letter-spacing:4px;margin-left:14px;")
         hv.addWidget(back_b3); hv.addWidget(tl); hv.addStretch()
         root.addWidget(header_w)
@@ -218,7 +218,7 @@ class SettingsPage(QWidget):
         _nav_btn_base = (
             f"QPushButton{{background:transparent;border:none;"
             f"border-left:2px solid transparent;"
-            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"font-family:{FONT_UI};font-size:13px;letter-spacing:2px;"
             f"color:#505068;text-align:left;padding:10px 20px;}}"
             f"QPushButton:hover{{background:#0f0f18;color:#9898b8;"
             f"border-left:2px solid #303048;}}"
@@ -226,7 +226,7 @@ class SettingsPage(QWidget):
         _nav_btn_active = (
             f"QPushButton{{background:#0f0f18;border:none;"
             f"border-left:2px solid {ACCENT};"
-            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"font-family:{FONT_UI};font-size:13px;letter-spacing:2px;"
             f"color:{ACCENT};text-align:left;padding:10px 20px;}}"
         )
         self._nav_buttons = {}
@@ -245,13 +245,14 @@ class SettingsPage(QWidget):
         _make_nav_btn("VOICE",      2)
         _make_nav_btn("COMPANION",  3)
         _make_nav_btn("CLOUD SYNC", 4)
+        _make_nav_btn("REPORT BUG",  5)
         nav_v.addStretch()
 
         # Shared field/label style helpers
         def _section_lbl(text):
             l = QLabel(text)
             l.setStyleSheet(
-                f"color:#505068;font-size:9px;letter-spacing:3px;"
+                f"color:#505068;font-size:13px;letter-spacing:3px;"
                 f"font-family:{FONT_UI};background:transparent;")
             return l
 
@@ -264,13 +265,13 @@ class SettingsPage(QWidget):
         def _field_label(text):
             l = QLabel(text)
             l.setStyleSheet(
-                f"color:#6868a0;font-size:9px;letter-spacing:1px;"
+                f"color:#6868a0;font-size:13px;letter-spacing:1px;"
                 f"font-family:{FONT_UI};background:transparent;")
             return l
 
         def _hint(text):
             l = QLabel(text)
-            l.setStyleSheet(f"color:#404058;font-size:10px;background:transparent;")
+            l.setStyleSheet(f"color:#404058;font-size:12px;background:transparent;")
             l.setWordWrap(True)
             return l
 
@@ -295,7 +296,7 @@ class SettingsPage(QWidget):
             b = QPushButton("SAVE SETTINGS")
             b.setStyleSheet(
                 f"QPushButton{{background:{ACCENT};color:#0d0d14;border:none;"
-                f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+                f"border-radius:4px;font-family:{FONT_UI};font-size:13px;"
                 f"letter-spacing:2px;font-weight:bold;padding:9px 28px;}}"
                 f"QPushButton:hover{{background:#dbb85c;}}")
             b.clicked.connect(self._save)
@@ -315,7 +316,7 @@ class SettingsPage(QWidget):
         for field in (self.key_edit, self.model_edit):
             field.setStyleSheet(
                 f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-                f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+                f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
                 f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
         gf0.addRow(_field_label("API KEY"), self.key_edit)
         gf0.addRow(_field_label("MODEL"),   self.model_edit)
@@ -330,7 +331,7 @@ class SettingsPage(QWidget):
         self.tmdb_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.tmdb_key_edit.setStyleSheet(
             f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
             f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
         gf1.addRow(_field_label("API KEY"), self.tmdb_key_edit)
         p0.addLayout(gf1)
@@ -347,13 +348,13 @@ class SettingsPage(QWidget):
         self.dl_edit = QLineEdit(os.path.expanduser("~/Videos"))
         self.dl_edit.setStyleSheet(
             f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
             f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
         browse_b = QPushButton("BROWSE")
         browse_b.setStyleSheet(
             f"QPushButton{{background:#1a1a28;border:1px solid #2a2a3a;"
             f"border-radius:4px;color:#6868a0;font-family:{FONT_UI};"
-            f"font-size:9px;letter-spacing:1px;padding:7px 14px;}}"
+            f"font-size:13px;letter-spacing:1px;padding:7px 14px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}44;color:{ACCENT};}}")
         browse_b.clicked.connect(lambda: self.dl_edit.setText(
             QFileDialog.getExistingDirectory(self, "Download Dir") or self.dl_edit.text()))
@@ -375,9 +376,9 @@ class SettingsPage(QWidget):
             row_w = QWidget(); row_w.setStyleSheet("background:transparent;")
             row_v = QVBoxLayout(row_w); row_v.setContentsMargins(0,4,0,4); row_v.setSpacing(2)
             lbl_top = QLabel(lab)
-            lbl_top.setStyleSheet(f"color:#6868a0;font-size:9px;letter-spacing:1px;background:transparent;")
+            lbl_top.setStyleSheet(f"color:#6868a0;font-size:13px;letter-spacing:1px;background:transparent;")
             lbl_path = QLabel(path)
-            lbl_path.setStyleSheet(f"color:#7878a8;font-size:11px;background:transparent;")
+            lbl_path.setStyleSheet(f"color:#7878a8;font-size:13px;background:transparent;")
             lbl_path.setWordWrap(True)
             row_v.addWidget(lbl_top); row_v.addWidget(lbl_path)
             p1.addWidget(row_w)
@@ -391,7 +392,7 @@ class SettingsPage(QWidget):
         p2.addWidget(_section_lbl("SAGE VOICE  —  PIPER TTS"))
         self.voice_chk = QCheckBox("Enable Sage Voice — read responses aloud")
         self.voice_chk.setStyleSheet(
-            f"QCheckBox{{color:{TEXT};font-size:12px;background:transparent;}}"
+            f"QCheckBox{{color:{TEXT};font-size:14px;background:transparent;}}"
             f"QCheckBox::indicator{{width:14px;height:14px;}}")
         p2.addWidget(self.voice_chk)
         gf3 = QFormLayout()
@@ -404,7 +405,7 @@ class SettingsPage(QWidget):
         for field in (self.piper_edit, self.model_voice_edit):
             field.setStyleSheet(
                 f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-                f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+                f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
                 f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
         gf3.addRow(_field_label("PIPER BINARY"), self.piper_edit)
         gf3.addRow(_field_label("VOICE MODEL"),  self.model_voice_edit)
@@ -426,12 +427,12 @@ class SettingsPage(QWidget):
             local_ip = "localhost"
         url = f"http://{local_ip}:{_mobile_server_port}"
         open_lbl = QLabel("Open on your phone:")
-        open_lbl.setStyleSheet(f"color:{TEXT2};font-size:12px;background:transparent;")
+        open_lbl.setStyleSheet(f"color:{TEXT2};font-size:14px;background:transparent;")
         url_lbl = QLabel(f"<b style='color:{NEON};'>{url}</b>")
-        url_lbl.setStyleSheet(f"font-size:14px;background:transparent;")
+        url_lbl.setStyleSheet(f"font-size:16px;background:transparent;")
         url_lbl.setTextFormat(Qt.TextFormat.RichText)
         wifi_lbl = QLabel("Make sure your phone is on the same Wi-Fi network.")
-        wifi_lbl.setStyleSheet(f"color:{MUTED};font-size:11px;background:transparent;")
+        wifi_lbl.setStyleSheet(f"color:{MUTED};font-size:13px;background:transparent;")
         p3.addWidget(open_lbl)
         p3.addWidget(url_lbl)
         p3.addWidget(wifi_lbl)
@@ -444,11 +445,11 @@ class SettingsPage(QWidget):
         # Status banner
         self._sync_status_lbl = QLabel("NOT SIGNED IN")
         self._sync_status_lbl.setStyleSheet(
-            f"color:#505068;font-size:9px;letter-spacing:3px;"
+            f"color:#505068;font-size:13px;letter-spacing:3px;"
             f"font-family:{FONT_UI};background:transparent;")
         self._sync_user_lbl = QLabel("")
         self._sync_user_lbl.setStyleSheet(
-            f"color:{ACCENT};font-size:12px;background:transparent;")
+            f"color:{ACCENT};font-size:14px;background:transparent;")
 
         p4.addWidget(_section_lbl("GREAT SAGE CLOUD  —  BACKUP & SYNC"))
         p4.addWidget(self._sync_status_lbl)
@@ -469,7 +470,7 @@ class SettingsPage(QWidget):
 
         _field_ss = (
             f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-            f"border-radius:4px;color:{TEXT};font-size:12px;padding:7px 10px;}}"
+            f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
             f"QLineEdit:focus{{border-color:{ACCENT}44;}}"
         )
         self._sync_email_edit = QLineEdit()
@@ -487,20 +488,20 @@ class SettingsPage(QWidget):
 
         self._sync_msg_lbl = QLabel("")
         self._sync_msg_lbl.setStyleSheet(
-            f"color:#e06c6c;font-size:11px;background:transparent;")
+            f"color:#e06c6c;font-size:13px;background:transparent;")
         self._sync_msg_lbl.setWordWrap(True)
         lv.addWidget(self._sync_msg_lbl)
 
         _btn_ss = (
             f"QPushButton{{background:{ACCENT};color:#0d0d14;border:none;"
-            f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+            f"border-radius:4px;font-family:{FONT_UI};font-size:13px;"
             f"letter-spacing:2px;font-weight:bold;padding:9px 28px;}}"
             f"QPushButton:hover{{background:#dbb85c;}}"
             f"QPushButton:disabled{{background:#2a2a3a;color:#505068;}}"
         )
         _btn_ghost_ss = (
             f"QPushButton{{background:transparent;border:1px solid #2a2a3a;"
-            f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+            f"border-radius:4px;font-family:{FONT_UI};font-size:13px;"
             f"letter-spacing:2px;color:#6868a0;padding:9px 28px;}}"
             f"QPushButton:hover{{border-color:{ACCENT}44;color:{ACCENT};}}"
         )
@@ -521,7 +522,7 @@ class SettingsPage(QWidget):
             f"style='color:{ACCENT};'>Create your account on TrackFlix</a>"
             " — then come back here to sign in."
         )
-        signup_link.setStyleSheet(f"color:#404058;font-size:10px;background:transparent;")
+        signup_link.setStyleSheet(f"color:#404058;font-size:12px;background:transparent;")
         signup_link.setWordWrap(True)
         signup_link.setOpenExternalLinks(True)
         signup_link.setTextFormat(Qt.TextFormat.RichText)
@@ -553,7 +554,7 @@ class SettingsPage(QWidget):
 
         self._sync_action_msg = QLabel("")
         self._sync_action_msg.setStyleSheet(
-            f"color:#6ca86c;font-size:11px;background:transparent;")
+            f"color:#6ca86c;font-size:13px;background:transparent;")
         self._sync_action_msg.setWordWrap(True)
 
         trackflix_btn = QPushButton("🌐  OPEN TRACKFLIX")
@@ -575,6 +576,21 @@ class SettingsPage(QWidget):
 
         p4.addStretch()
         self._settings_stack.addWidget(p4_scroll)
+
+        # Panel 5: Report a Bug
+        p5_scroll, p5 = _panel_scroll()
+        p5.addWidget(_section_lbl("REPORT A BUG"))
+        p5.addWidget(_hint(
+            "Found a bug or something acting up? Open the bug reporter to log "
+            "details, attach logs, and send it through."
+        ))
+        report_btn = QPushButton("OPEN BUG REPORTER")
+        report_btn.setStyleSheet(_btn_ss)
+        report_btn.clicked.connect(lambda: self.window()._navigate("bugreport"))
+        p5.addWidget(report_btn)
+        p5.addStretch()
+        self._settings_stack.addWidget(p5_scroll)
+
 
         self._load()
         self._sync_refresh_ui()
@@ -659,7 +675,7 @@ class SettingsPage(QWidget):
                 name = profile.get("display_name") or profile.get("username", "")
             self._sync_status_lbl.setText("SIGNED IN")
             self._sync_status_lbl.setStyleSheet(
-                f"color:#6ca86c;font-size:9px;letter-spacing:3px;"
+                f"color:#6ca86c;font-size:13px;letter-spacing:3px;"
                 f"font-family:{FONT_UI};background:transparent;")
             self._sync_user_lbl.setText(f"@{name}" if name else "")
             self._sync_login_widget.hide()
@@ -670,7 +686,7 @@ class SettingsPage(QWidget):
         else:
             self._sync_status_lbl.setText("NOT SIGNED IN")
             self._sync_status_lbl.setStyleSheet(
-                f"color:#505068;font-size:9px;letter-spacing:3px;"
+                f"color:#505068;font-size:13px;letter-spacing:3px;"
                 f"font-family:{FONT_UI};background:transparent;")
             self._sync_user_lbl.setText("")
             self._sync_login_widget.show()
@@ -718,7 +734,7 @@ class SettingsPage(QWidget):
             return
         if not silent:
             self._sync_action_msg.setStyleSheet(
-                f"color:#6868a0;font-size:11px;background:transparent;")
+                f"color:#6868a0;font-size:13px;background:transparent;")
             self._sync_action_msg.setText("Backing up…")
             QApplication.processEvents()
 
@@ -900,23 +916,23 @@ class SettingsPage(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         self._sync_action_msg.setStyleSheet(
-            f"color:#6868a0;font-size:11px;background:transparent;")
+            f"color:#6868a0;font-size:13px;background:transparent;")
         self._sync_action_msg.setText("Restoring…")
         QApplication.processEvents()
         try:
             ok = sync.restore_to_disk()
             if ok:
                 self._sync_action_msg.setStyleSheet(
-                    f"color:#6ca86c;font-size:11px;background:transparent;")
+                    f"color:#6ca86c;font-size:13px;background:transparent;")
                 self._sync_action_msg.setText(
                     "✓ Restored. Restart Great Sage to see changes.")
             else:
                 self._sync_action_msg.setStyleSheet(
-                    f"color:#e06c6c;font-size:11px;background:transparent;")
+                    f"color:#e06c6c;font-size:13px;background:transparent;")
                 self._sync_action_msg.setText("Restore failed — check logs.")
         except Exception as e:
             self._sync_action_msg.setStyleSheet(
-                f"color:#e06c6c;font-size:11px;background:transparent;")
+                f"color:#e06c6c;font-size:13px;background:transparent;")
             self._sync_action_msg.setText(f"Error: {str(e)[:80]}")
 
     def _sync_logout(self):

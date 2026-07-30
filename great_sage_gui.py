@@ -131,7 +131,7 @@ except ImportError as _artemis_err:
                 "Check that artemis.py is present in the same directory as great_sage_gui.py.",
             )
             msg.setStyleSheet(
-                f"color: {MUTED}; font-size: 13px; qproperty-alignment: AlignCenter;"
+                f"color: {MUTED}; font-size: 15px; qproperty-alignment: AlignCenter;"
             )
             msg.setWordWrap(True)
             layout.addStretch()
@@ -269,7 +269,7 @@ class DashboardPage(QWidget):
         qa_v.setSpacing(8)
         qa_label = QLabel("QUICK ACTIONS")
         qa_label.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; letter-spacing:3px; background:transparent;")
+            f"color:{MUTED}; font-size:13px; letter-spacing:3px; background:transparent;")
         qa_v.addWidget(qa_label)
         qa_row = QHBoxLayout()
         qa_row.setSpacing(10)
@@ -286,7 +286,7 @@ class DashboardPage(QWidget):
             b = QPushButton(text)
             b.setStyleSheet(
                 f"QPushButton{{background:transparent;border:1px solid {BORDER};"
-                f"border-radius:3px;color:{TEXT2};font-size:10px;letter-spacing:1px;"
+                f"border-radius:3px;color:{TEXT2};font-size:12px;letter-spacing:1px;"
                 f"padding:8px 14px;}}"
                 f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
             b.clicked.connect(cb)
@@ -324,10 +324,10 @@ class DashboardPage(QWidget):
         h.setSpacing(0)
         val_lbl = QLabel(value)
         val_lbl.setStyleSheet(
-            f"color:{ACCENT};font-size:13px;font-weight:bold;"
+            f"color:{ACCENT};font-size:15px;font-weight:bold;"
             f"background:transparent;border-left:2px solid {BORDER2};padding-left:16px;")
         unit_lbl = QLabel(f" {label}")
-        unit_lbl.setStyleSheet(f"color:{TEXT2};font-size:11px;background:transparent;")
+        unit_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;background:transparent;")
         h.addWidget(val_lbl)
         h.addWidget(unit_lbl)
         h.addSpacing(24)
@@ -346,19 +346,19 @@ class DashboardPage(QWidget):
         cv.setSpacing(6)
         icon_lbl = QLabel(icon)
         icon_lbl.setStyleSheet(
-            f"font-size:18px;color:{ACCENT};background:transparent;border:none;")
+            f"font-size:21px;color:{ACCENT};background:transparent;border:none;")
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size:9px;letter-spacing:2px;color:{MUTED};"
+            f"font-size:13px;letter-spacing:2px;color:{MUTED};"
             f"background:transparent;border:none;")
         val_lbl = QLabel("—")
         val_lbl.setStyleSheet(
-            f"font-size:14px;color:{TEXT};font-weight:bold;"
+            f"font-size:16px;color:{TEXT};font-weight:bold;"
             f"background:transparent;border:none;")
         val_lbl.setWordWrap(True)
         sub_lbl = QLabel("")
         sub_lbl.setStyleSheet(
-            f"font-size:10px;color:{TEXT2};background:transparent;border:none;")
+            f"font-size:12px;color:{TEXT2};background:transparent;border:none;")
         cv.addWidget(icon_lbl)
         cv.addWidget(title_lbl)
         cv.addWidget(val_lbl)
@@ -564,14 +564,14 @@ class MainWindow(QMainWindow):
         tv.setSpacing(0)
         self._page_title_lbl = QLabel("GREAT SAGE")
         self._page_title_lbl.setStyleSheet(
-            f"color:{TEXT2};font-size:10px;letter-spacing:3px;background:transparent;")
+            f"color:{TEXT2};font-size:12px;letter-spacing:3px;background:transparent;")
         tv.addWidget(self._page_title_lbl)
         tv.addStretch()
         menu_btn = QPushButton("⋯")
         menu_btn.setFixedSize(36, 30)
         menu_btn.setStyleSheet(
             f"QPushButton{{background:{BG3};border:1px solid {BORDER2};"
-            f"color:{TEXT2};font-size:16px;border-radius:6px;}}"
+            f"color:{TEXT2};font-size:18px;border-radius:6px;}}"
             f"QPushButton:hover{{background:{PANEL};border-color:{ACCENT};color:{ACCENT};}}"
             f"QPushButton:pressed{{background:{BG};}}")
         menu_btn.clicked.connect(self._open_menu)
@@ -579,7 +579,7 @@ class MainWindow(QMainWindow):
         bug_btn.setFixedHeight(30)
         bug_btn.setStyleSheet(
             f"QPushButton{{background:{BG3};border:1px solid {BORDER2};"
-            f"color:{MUTED};font-size:8px;letter-spacing:1.5px;"
+            f"color:{MUTED};font-size:12px;letter-spacing:1.5px;"
             f"border-radius:6px;padding:0 10px;margin-right:6px;}}"
             f"QPushButton:hover{{background:{PANEL};border-color:#e05555;color:#e05555;}}"
             f"QPushButton:pressed{{background:{BG};}}")
@@ -599,11 +599,11 @@ class MainWindow(QMainWindow):
         ub_layout.setSpacing(10)
         self._update_banner_lbl = QLabel("✦ A new version of Great Sage is available — run  git pull  to update.")
         self._update_banner_lbl.setStyleSheet(
-            f"color:{ACCENT};font-size:11px;letter-spacing:0.5px;background:transparent;")
+            f"color:{ACCENT};font-size:13px;letter-spacing:0.5px;background:transparent;")
         ub_dismiss = QPushButton("✕")
         ub_dismiss.setFixedSize(20, 20)
         ub_dismiss.setStyleSheet(
-            f"QPushButton{{background:transparent;border:none;color:{MUTED};font-size:11px;}}"
+            f"QPushButton{{background:transparent;border:none;color:{MUTED};font-size:13px;}}"
             f"QPushButton:hover{{color:{ACCENT};}}")
         ub_dismiss.clicked.connect(lambda: self._update_banner.setVisible(False))
         ub_layout.addWidget(self._update_banner_lbl, 1)

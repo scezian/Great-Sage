@@ -88,7 +88,7 @@ def _patch_card(card, key, preset, preset_name, opacity):
         if not child.objectName():
             child.setStyleSheet(
                 f"QPushButton{{background:transparent;border:1px solid {border};"
-                f"color:{text2c};font-size:10px;letter-spacing:1.5px;"
+                f"color:{text2c};font-size:12px;letter-spacing:1.5px;"
                 f"padding:7px 14px;border-radius:2px;text-align:left;}}"
                 f"QPushButton:hover{{border-color:{accent};color:{accent};}}")
 
@@ -222,7 +222,7 @@ def build_page(parent, api):
     hh = QHBoxLayout(hdr)
     hh.setContentsMargins(28,0,28,0)
     ht = QLabel("◧  CARD STYLER")
-    ht.setStyleSheet(f"color:{ACCENT};font-size:14px;font-weight:bold;letter-spacing:3px;")
+    ht.setStyleSheet(f"color:{ACCENT};font-size:16px;font-weight:bold;letter-spacing:3px;")
     hh.addWidget(ht); hh.addStretch()
     lay.addWidget(hdr)
 
@@ -238,13 +238,13 @@ def build_page(parent, api):
 
     def _sec(txt):
         l = QLabel(txt)
-        l.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:3px;")
+        l.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:3px;")
         l.setFixedHeight(20)
         return l
 
     def _row_lbl(txt):
         l = QLabel(txt)
-        l.setStyleSheet(f"color:{TEXT2};font-size:13px;")
+        l.setStyleSheet(f"color:{TEXT2};font-size:15px;")
         return l
 
     # ── PRESET label ──────────────────────────────────────────────────────────
@@ -267,10 +267,10 @@ def build_page(parent, api):
         if len(labels) >= 2:
             labels[0].setStyleSheet(
                 f"color:{'#F0EDE8' if sel else '#C8C8DC'};"
-                f"font-size:13px;font-weight:bold;")
+                f"font-size:15px;font-weight:bold;")
             labels[1].setStyleSheet(
                 f"color:{'#C9A84C' if sel else '#7A7A8A'};"
-                f"font-size:10px;letter-spacing:1px;")
+                f"font-size:12px;letter-spacing:1px;")
 
     def _on_click(name):
         state["preset"] = name
@@ -311,11 +311,11 @@ def build_page(parent, api):
             nl = QLabel(name)
             nl.setStyleSheet(
                 f"color:{'#F0EDE8' if sel else '#C8C8DC'};"
-                f"font-size:13px;font-weight:bold;")
+                f"font-size:15px;font-weight:bold;")
             sl = QLabel(PRESETS[name]["mode"].capitalize())
             sl.setStyleSheet(
                 f"color:{'#C9A84C' if sel else '#7A7A8A'};"
-                f"font-size:10px;letter-spacing:1px;")
+                f"font-size:12px;letter-spacing:1px;")
 
             tl.addWidget(nl)
             tl.addWidget(sl)
@@ -335,7 +335,7 @@ def build_page(parent, api):
     cbv = QVBoxLayout(custom_box)
     cbv.setContentsMargins(20,16,20,16); cbv.setSpacing(12)
     ch = QLabel("CUSTOM OPTIONS")
-    ch.setStyleSheet(f"color:{MUTED};font-size:9px;letter-spacing:2px;")
+    ch.setStyleSheet(f"color:{MUTED};font-size:13px;letter-spacing:2px;")
     cbv.addWidget(ch)
 
     def _swatch(hex_col, on_change):
@@ -375,7 +375,7 @@ def build_page(parent, api):
                       "QSlider::sub-page:horizontal{background:#C9A84C;border-radius:2px;}"
                       "QSlider::handle:horizontal{background:#C9A84C;width:12px;height:12px;margin:-5px 0;border-radius:6px;}")
     rlbl = QLabel(f"{PRESETS['Custom'].get('radius',8)}px")
-    rlbl.setStyleSheet(f"color:{TEXT2};font-size:11px;min-width:30px;")
+    rlbl.setStyleSheet(f"color:{TEXT2};font-size:13px;min-width:30px;")
     def _rch(v): PRESETS["Custom"]["radius"]=v; rlbl.setText(f"{v}px"); _apply(); _save()
     rsl.valueChanged.connect(_rch)
     rrow.addWidget(rsl); rrow.addWidget(rlbl); rrow.addStretch()
@@ -392,7 +392,7 @@ def build_page(parent, api):
                        "QSlider::sub-page:horizontal{background:#C9A84C;border-radius:2px;}"
                        "QSlider::handle:horizontal{background:#C9A84C;width:12px;height:12px;margin:-5px 0;border-radius:6px;}")
     oplbl = QLabel(f"{state['opacity']}%")
-    oplbl.setStyleSheet(f"color:{TEXT2};font-size:12px;min-width:36px;")
+    oplbl.setStyleSheet(f"color:{TEXT2};font-size:14px;min-width:36px;")
     def _opch(v): state["opacity"]=v; oplbl.setText(f"{v}%"); _apply(); _save()
     opsl.valueChanged.connect(_opch)
     oprow.addWidget(opsl); oprow.addWidget(oplbl); oprow.addStretch()
@@ -400,7 +400,7 @@ def build_page(parent, api):
 
     hint = QLabel("Opacity affects the card background fill. "
                   "Lower values let the ambient background show through.")
-    hint.setStyleSheet(f"color:{MUTED};font-size:11px;")
+    hint.setStyleSheet(f"color:{MUTED};font-size:13px;")
     hint.setWordWrap(True)
     cv.addWidget(hint)
 

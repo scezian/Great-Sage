@@ -92,9 +92,9 @@ class TrailerPickerDialog(QDialog):
         hv.setContentsMargins(24,0,24,0)
         hl = QLabel("Multiple matches found")
         hl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:14px; font-weight:bold; color:{TEXT};")
+            f"font-family:{FONT_DISPLAY}; font-size:16px; font-weight:bold; color:{TEXT};")
         sub = QLabel(f"  for '{title}'")
-        sub.setStyleSheet(f"color:{MUTED}; font-size:12px;")
+        sub.setStyleSheet(f"color:{MUTED}; font-size:14px;")
         hv.addWidget(hl); hv.addWidget(sub); hv.addStretch()
         root.addWidget(hdr)
 
@@ -104,7 +104,7 @@ class TrailerPickerDialog(QDialog):
         bv.setContentsMargins(20,16,20,16); bv.setSpacing(6)
 
         hint = QLabel("Which one did you mean?")
-        hint.setStyleSheet(f"color:{MUTED}; font-size:11px; letter-spacing:.5px;")
+        hint.setStyleSheet(f"color:{MUTED}; font-size:13px; letter-spacing:.5px;")
         bv.addWidget(hint)
         bv.addSpacing(8)
 
@@ -129,13 +129,13 @@ class TrailerPickerDialog(QDialog):
             color = BLUE if c["type"] == "tv" else PURPLE
             type_badge.setStyleSheet(
                 f"background:transparent; border:1px solid {color}; color:{color};"
-                f"font-size:9px; letter-spacing:1px; padding:2px 4px; border-radius:3px;")
+                f"font-size:13px; letter-spacing:1px; padding:2px 4px; border-radius:3px;")
 
             title_lbl = QLabel(c["title"])
-            title_lbl.setStyleSheet(f"font-size:13px; color:{TEXT};")
+            title_lbl.setStyleSheet(f"font-size:15px; color:{TEXT};")
 
             year_lbl = QLabel(c["year"] or "—")
-            year_lbl.setStyleSheet(f"font-size:12px; color:{MUTED};")
+            year_lbl.setStyleSheet(f"font-size:14px; color:{MUTED};")
             year_lbl.setFixedWidth(40)
 
             rv.addWidget(radio); rv.addWidget(type_badge)
@@ -163,11 +163,11 @@ class TrailerPickerDialog(QDialog):
         cancel_btn = QPushButton("CANCEL")
         cancel_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:9px; letter-spacing:1.5px; padding:8px 20px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1.5px; padding:8px 20px; border-radius:3px;")
         cancel_btn.clicked.connect(self.reject)
         watch_btn = QPushButton("▶  WATCH TRAILER")
         watch_btn.setStyleSheet(
-            f"background:{ACCENT}; color:{BG}; border:none; font-size:10px; font-weight:700;"
+            f"background:{ACCENT}; color:{BG}; border:none; font-size:12px; font-weight:700;"
             f"letter-spacing:1.5px; padding:9px 22px; border-radius:3px;")
         watch_btn.clicked.connect(self._confirm)
         fv.addStretch(); fv.addWidget(cancel_btn); fv.addWidget(watch_btn)
@@ -222,15 +222,15 @@ class TrailerDialog(QDialog):
         hv.setContentsMargins(20,0,12,0)
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:15px; color:{TEXT}; letter-spacing:1px;")
+            f"font-family:{FONT_DISPLAY}; font-size:17px; color:{TEXT}; letter-spacing:1px;")
         badge = QLabel("▶ YouTube")
         badge.setStyleSheet(
-            f"background:#FF0000; color:white; font-size:9px; font-weight:700;"
+            f"background:#FF0000; color:white; font-size:13px; font-weight:700;"
             f"letter-spacing:1px; padding:3px 8px; border-radius:3px;")
         close_btn = QPushButton("✕  CLOSE")
         close_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:9px; letter-spacing:1px; padding:6px 14px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1px; padding:6px 14px; border-radius:3px;")
         close_btn.clicked.connect(self._close_and_stop)
         hv.addWidget(title_lbl); hv.addSpacing(12); hv.addWidget(badge)
         hv.addStretch(); hv.addWidget(close_btn)
@@ -254,7 +254,7 @@ class TrailerDialog(QDialog):
         bv = QHBoxLayout(bot)
         bv.setContentsMargins(20,0,20,0)
         hint = QLabel("Click a result to play  ·  Esc to close")
-        hint.setStyleSheet(f"color:{MUTED}; font-size:10px;")
+        hint.setStyleSheet(f"color:{MUTED}; font-size:12px;")
         bv.addWidget(hint)
         root.addWidget(bot)
 
@@ -380,16 +380,15 @@ class MatrixPage(QWidget):
         root.setContentsMargins(0,0,0,0)
         root.setSpacing(0)
 
+        from gs_widgets import GlowTabBar
+
         tabs = QTabWidget()
         tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border: none; background: {BG}; }}
             QTabBar {{ background: {BG2}; }}
-            QTabBar::tab {{ background: transparent; color: {MUTED}; border: none;
-                border-bottom: 1px solid transparent; padding: 14px 28px;
-                font-size: 9px; letter-spacing: 2.5px; font-weight: bold; }}
-            QTabBar::tab:selected {{ color: {BLUE}; border-bottom: 1px solid {BLUE}; }}
-            QTabBar::tab:hover {{ color: {TEXT2}; background: {BG3}; }}
         """)
+        tabs.setTabBar(GlowTabBar(accent=BLUE, muted=MUTED, text=TEXT,
+                                   text2=TEXT2, bg2=BG2, bg3=BG3))
         tabs.addTab(self._build_watchlist(),  "WATCHLIST")
         tabs.addTab(self._build_browser(),    "BROWSE")
         tabs.addTab(self._build_continue(),   "CONTINUE")
@@ -434,17 +433,17 @@ class MatrixPage(QWidget):
         self.wl_input.setPlaceholderText("Add a title to your list...")
         self.wl_input.setStyleSheet(
             f"QLineEdit{{background:{BG};border:1px solid {BORDER2};"
-            f"border-radius:4px;color:{TEXT};font-size:12px;padding:6px 12px;}}"
+            f"border-radius:4px;color:{TEXT};font-size:14px;padding:6px 12px;}}"
             f"QLineEdit:focus{{border-color:{BLUE};}}")
         self.wl_input.returnPressed.connect(self._wl_add)
         self.wl_target = QComboBox()
         self.wl_target.setStyleSheet(
             f"QComboBox{{background:{BG};border:1px solid {BORDER2};"
-            f"color:{TEXT2};font-size:11px;padding:5px 10px;border-radius:4px;}}"
+            f"color:{TEXT2};font-size:13px;padding:5px 10px;border-radius:4px;}}"
             f"QComboBox::drop-down{{border:none;}}")
         for n in ("planning","watching","dropped","completed"): self.wl_target.addItem(n.capitalize(),n)
         self.wl_anime = QCheckBox("Anime")
-        self.wl_anime.setStyleSheet(f"color:{TEXT2};font-size:11px;background:transparent;")
+        self.wl_anime.setStyleSheet(f"color:{TEXT2};font-size:13px;background:transparent;")
         add_row.addWidget(self.wl_input, 1)
         add_row.addWidget(self.wl_target)
         add_row.addWidget(self.wl_anime)
@@ -461,23 +460,22 @@ class MatrixPage(QWidget):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0,0,0,0)
         lv.setSpacing(0)
+        from gs_widgets import GlowTabBar
+
         self.wl_tabs = QTabWidget()
         self.wl_tabs.setStyleSheet(f"""
             QTabWidget::pane {{ border:none; background:{BG}; }}
             QTabBar {{ background:{BG}; border-bottom:1px solid {BORDER}; }}
-            QTabBar::tab {{ background:transparent; color:{MUTED};
-                border:none; border-bottom:2px solid transparent;
-                padding:10px 20px; font-size:9px; letter-spacing:1.5px; }}
-            QTabBar::tab:selected {{ color:{BLUE}; border-bottom:2px solid {BLUE}; }}
-            QTabBar::tab:hover {{ color:{TEXT}; background:{BG3}; }}
         """)
+        self.wl_tabs.setTabBar(GlowTabBar(accent=BLUE, muted=MUTED, text=TEXT,
+                                           text2=TEXT2, bg2=BG2, bg3=BG3))
         self.wl_lists = {}
         for n in ("planning","watching","dropped","completed"):
             lw = QListWidget()
             lw.setStyleSheet(
                 f"QListWidget{{background:transparent;border:none;padding:6px;}}"
                 f"QListWidget::item{{color:{TEXT2};padding:10px 16px;"
-                f"border-bottom:1px solid {BORDER};font-size:13px;}}"
+                f"border-bottom:1px solid {BORDER};font-size:15px;}}"
                 f"QListWidget::item:hover{{color:{TEXT};background:{BG2};}}"
                 f"QListWidget::item:selected{{color:{BLUE};background:{BG3};"
                 f"border-left:3px solid {BLUE};}}"
@@ -502,7 +500,7 @@ class MatrixPage(QWidget):
         rv.setSpacing(0)
 
         self.wl_placeholder = QLabel("Click any title to see details")
-        self.wl_placeholder.setStyleSheet(f"color:{MUTED};font-size:13px;letter-spacing:.5px;")
+        self.wl_placeholder.setStyleSheet(f"color:{MUTED};font-size:15px;letter-spacing:.5px;")
         self.wl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rv.addWidget(self.wl_placeholder, 1)
 
@@ -531,12 +529,12 @@ class MatrixPage(QWidget):
 
         self.wl_d_title = QLabel("")
         self.wl_d_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:26px;font-weight:bold;color:{TEXT};letter-spacing:1px;")
+            f"font-family:{FONT_DISPLAY};font-size:30px;font-weight:bold;color:{TEXT};letter-spacing:1px;")
         self.wl_d_title.setWordWrap(True)
         dv.addWidget(self.wl_d_title); dv.addSpacing(6)
 
         self.wl_d_meta = QLabel("")
-        self.wl_d_meta.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:.5px;")
+        self.wl_d_meta.setStyleSheet(f"color:{MUTED};font-size:14px;letter-spacing:.5px;")
         dv.addWidget(self.wl_d_meta); dv.addSpacing(16)
 
         div = QFrame()
@@ -545,7 +543,7 @@ class MatrixPage(QWidget):
 
         self.wl_d_synopsis = QLabel("")
         self.wl_d_synopsis.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:15px;color:{TEXT2};line-height:1.8;")
+            f"font-family:{FONT_DISPLAY};font-size:17px;color:{TEXT2};line-height:1.8;")
         self.wl_d_synopsis.setWordWrap(True)
         self.wl_d_synopsis.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         dv.addWidget(self.wl_d_synopsis, 1); dv.addSpacing(20)
@@ -554,13 +552,13 @@ class MatrixPage(QWidget):
         btn_row.setSpacing(8)
         self.wl_d_trailer_btn = QPushButton("▶  WATCH TRAILER")
         self.wl_d_trailer_btn.setStyleSheet(
-            f"background:{BLUE};color:{BG};border:none;font-size:10px;font-weight:700;"
+            f"background:{BLUE};color:{BG};border:none;font-size:12px;font-weight:700;"
             f"letter-spacing:1.5px;padding:10px 20px;border-radius:3px;")
         self.wl_d_trailer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.wl_d_trailer_btn.clicked.connect(self._trailer_btn_clicked)
         self.wl_d_trailer_btn.hide()
         self.wl_d_src_lbl = QLabel("")
-        self.wl_d_src_lbl.setStyleSheet(f"color:{MUTED};font-size:10px;letter-spacing:.5px;")
+        self.wl_d_src_lbl.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:.5px;")
         btn_row.addWidget(self.wl_d_trailer_btn); btn_row.addStretch(); btn_row.addWidget(self.wl_d_src_lbl)
         dv.addLayout(btn_row)
 
@@ -750,14 +748,14 @@ class MatrixPage(QWidget):
             slider.setRange(0, 10); slider.setValue(0); slider.setTickInterval(1)
             slider.setTickPosition(QSlider.TickPosition.TicksBelow)
             score_lbl = QLabel("Skip (no rating)")
-            score_lbl.setStyleSheet(f"color:{TEXT2}; font-size:11px;")
+            score_lbl.setStyleSheet(f"color:{TEXT2}; font-size:13px;")
             score_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             def _upd(v): score_lbl.setText("Skip (no rating)" if v == 0 else f"{'★' * v}{'☆' * (10-v)}  {v}/10")
             slider.valueChanged.connect(_upd)
             sv.addWidget(slider); sv.addWidget(score_lbl)
             ok_btn = QPushButton("Save & Complete")
             ok_btn.setStyleSheet(
-                f"background:{ACCENT}; color:{BG}; border:none; font-size:10px;"
+                f"background:{ACCENT}; color:{BG}; border:none; font-size:12px;"
                 f"letter-spacing:1px; padding:8px 16px; border-radius:3px;")
             ok_btn.clicked.connect(score_dlg.accept)
             sv.addWidget(ok_btn)
@@ -2006,11 +2004,11 @@ class MatrixPage(QWidget):
 
         spinner = QLabel("◐")
         spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        spinner.setStyleSheet(f"font-size:32px; color:{ACCENT};")
+        spinner.setStyleSheet(f"font-size:37px; color:{ACCENT};")
 
         msg = QLabel("Loading stream…")
         msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        msg.setStyleSheet(f"color:{MUTED}; font-size:12px; letter-spacing:0.5px;")
+        msg.setStyleSheet(f"color:{MUTED}; font-size:14px; letter-spacing:0.5px;")
 
         phv.addWidget(spinner); phv.addSpacing(10); phv.addWidget(msg)
 
@@ -2088,10 +2086,10 @@ class MatrixPage(QWidget):
             phv = QVBoxLayout(ph)
             phv.setAlignment(Qt.AlignmentFlag.AlignCenter)
             ico = QLabel("📺"); ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ico.setStyleSheet("font-size:48px;")
+            ico.setStyleSheet("font-size:55px;")
             msg = QLabel("QtWebEngine not installed.\n\nRun:  sudo apt install python3-pyqt6.qtwebengine")
             msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            msg.setStyleSheet(f"color:{MUTED}; font-size:13px;")
+            msg.setStyleSheet(f"color:{MUTED}; font-size:15px;")
             phv.addWidget(ico); phv.addSpacing(12); phv.addWidget(msg)
             wv.addWidget(ph); return w
 
@@ -2144,7 +2142,7 @@ class MatrixPage(QWidget):
             b.setToolTip(tip)
             b.setStyleSheet(
                 f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-                f"font-size:15px; border-radius:3px; padding:2px 4px;")
+                f"font-size:17px; border-radius:3px; padding:2px 4px;")
             return b
 
         self._stream_back   = _nav_btn("←", "Back")
@@ -2159,7 +2157,7 @@ class MatrixPage(QWidget):
         self._stream_url_bar.setPlaceholderText("https://animekai.be")
         self._stream_url_bar.setStyleSheet(
             f"background:{BG3}; border:1px solid {BORDER}; color:{TEXT};"
-            f"font-size:12px; padding:4px 12px; border-radius:3px;")
+            f"font-size:14px; padding:4px 12px; border-radius:3px;")
         self._stream_url_bar.returnPressed.connect(self._stream_navigate)
 
         self._stream_landing_btn = QPushButton("⌂  HOME")
@@ -2167,7 +2165,7 @@ class MatrixPage(QWidget):
         self._stream_landing_btn.setToolTip("Return to StreamGate landing page")
         self._stream_landing_btn.setStyleSheet(
             f"background:{ACCENT}; border:none; color:#fff;"
-            f"font-size:11px; font-weight:bold; letter-spacing:1px; padding:5px 16px; border-radius:4px;")
+            f"font-size:13px; font-weight:bold; letter-spacing:1px; padding:5px 16px; border-radius:4px;")
         self._stream_landing_btn.clicked.connect(
             lambda: self._stream_show_landing())
 
@@ -2202,29 +2200,29 @@ class MatrixPage(QWidget):
         nwv.setContentsMargins(16,0,16,0); nwv.setSpacing(10)
 
         self._now_watch_dot = QLabel("●")
-        self._now_watch_dot.setStyleSheet(f"color:{ACCENT2}; font-size:9px;")
+        self._now_watch_dot.setStyleSheet(f"color:{ACCENT2}; font-size:13px;")
 
         self._now_watch_lbl = QLabel("")
         self._now_watch_lbl.setStyleSheet(
-            f"color:{TEXT}; font-size:13px; font-family:{FONT_UI};")
+            f"color:{TEXT}; font-size:15px; font-family:{FONT_UI};")
 
         self._now_watch_ep_badge = QLabel("")
         self._now_watch_ep_badge.setStyleSheet(
-            f"background:{ACCENT2}; color:#000; font-size:9px; font-weight:bold;"
+            f"background:{ACCENT2}; color:#000; font-size:13px; font-weight:bold;"
             f"padding:3px 8px; border-radius:3px; letter-spacing:1px;")
         self._now_watch_ep_badge.hide()
 
         self._now_watch_mark = QPushButton("✓  MARK WATCHED")
         self._now_watch_mark.setStyleSheet(
             f"background:transparent; border:1px solid {ACCENT2}; color:{ACCENT2};"
-            f"font-size:9px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
         self._now_watch_mark.setToolTip("Manually confirm this episode as watched")
         self._now_watch_mark.clicked.connect(self._manual_mark_watched)
 
         self._now_watch_wl_btn = QPushButton("+ WATCHLIST")
         self._now_watch_wl_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:9px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1px; padding:5px 14px; border-radius:3px;")
         self._now_watch_wl_btn.setToolTip("Add this show to your Watchlist")
         self._now_watch_wl_btn.clicked.connect(self._stream_add_to_watchlist)
 
@@ -2354,7 +2352,7 @@ class MatrixPage(QWidget):
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     color: #f0ecff;
     letter-spacing: -0.01em;
@@ -2381,7 +2379,7 @@ class MatrixPage(QWidget):
     pointer-events: none;
   }
   .hero-title {
-    font-size: 46px; font-weight: 700;
+    font-size: 53px; font-weight: 700;
     line-height: 1.12; letter-spacing: -0.025em;
     color: #f0ecff; max-width: 580px;
     margin-bottom: 18px; position: relative;
@@ -2389,7 +2387,7 @@ class MatrixPage(QWidget):
   .accent-purple { color: #9d8ff5; }
   .accent-pink { color: #e06090; }
   .hero-sub {
-    font-size: 14px; color: #8a82a0;
+    font-size: 16px; color: #8a82a0;
     max-width: 460px; line-height: 1.65;
     position: relative;
   }
@@ -2398,12 +2396,12 @@ class MatrixPage(QWidget):
     border-top: 1px solid #2e2a3a;
   }
   .eyebrow {
-    font-size: 10px; letter-spacing: 0.14em;
+    font-size: 12px; letter-spacing: 0.14em;
     color: #6a6282; margin-bottom: 8px;
     text-transform: uppercase;
   }
   .section-title {
-    font-size: 26px; font-weight: 700;
+    font-size: 30px; font-weight: 700;
     color: #f0ecff; letter-spacing: -0.015em;
     margin-bottom: 28px;
   }
@@ -2424,27 +2422,27 @@ class MatrixPage(QWidget):
   .p-icon {
     width: 42px; height: 42px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 20px; margin-bottom: 16px;
+    font-size: 23px; margin-bottom: 16px;
   }
   .p-icon-a { background: rgba(124,106,240,0.18); }
   .p-icon-y { background: rgba(224,37,27,0.16); }
   .p-name {
-    font-size: 17px; font-weight: 600;
+    font-size: 20px; font-weight: 600;
     color: #f0ecff; margin-bottom: 10px;
   }
   .p-desc {
-    font-size: 12px; color: #8a82a0;
+    font-size: 14px; color: #8a82a0;
     line-height: 1.65; margin-bottom: 16px;
   }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
   .tag {
-    font-size: 10px; padding: 3px 9px;
+    font-size: 12px; padding: 3px 9px;
     border-radius: 10px; background: #2a2638;
     color: #9e96b8; border: 1px solid #3a3450;
     letter-spacing: 0.03em;
   }
   .p-link {
-    font-size: 12px; font-weight: 500;
+    font-size: 14px; font-weight: 500;
     display: inline-flex; align-items: center; gap: 5px;
     text-decoration: none; cursor: pointer;
     background: none; border: none;
@@ -2472,18 +2470,18 @@ class MatrixPage(QWidget):
   .card-thumb {
     width: 100%; height: 100px;
     display: flex; align-items: center;
-    justify-content: center; font-size: 32px;
+    justify-content: center; font-size: 37px;
     position: relative;
   }
   .badge {
     position: absolute; top: 8px; left: 8px;
-    font-size: 9px; padding: 3px 8px;
+    font-size: 13px; padding: 3px 8px;
     border-radius: 8px; font-weight: 700;
     letter-spacing: 0.05em;
   }
   .src-tag {
     position: absolute; top: 8px; right: 8px;
-    font-size: 9px; padding: 3px 8px;
+    font-size: 13px; padding: 3px 8px;
     border-radius: 8px; letter-spacing: 0.04em;
   }
   .badge-trending { background: #7c6af0; color: #fff; }
@@ -2492,10 +2490,10 @@ class MatrixPage(QWidget):
   .src-a { background: rgba(124,106,240,0.28); color: #b5aaff; }
   .src-y { background: rgba(224,37,27,0.25); color: #ff9898; }
   .card-body { padding: 12px 14px; }
-  .card-title { font-size: 12px; font-weight: 500; color: #e8e0f0; margin-bottom: 5px; }
+  .card-title { font-size: 14px; font-weight: 500; color: #e8e0f0; margin-bottom: 5px; }
   .card-meta { display: flex; justify-content: space-between; align-items: center; }
-  .card-type { font-size: 10px; color: #6a6282; }
-  .card-rating { font-size: 10px; color: #e0a020; }
+  .card-type { font-size: 12px; color: #6a6282; }
+  .card-rating { font-size: 12px; color: #e0a020; }
 </style>
 </head>
 <body>
@@ -3536,7 +3534,7 @@ class HighlightsDialog(QDialog):
         hv = QHBoxLayout(hdr)
         hv.setContentsMargins(28,0,28,0)
         tl = QLabel("HIGHLIGHTS")
-        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;color:{ACCENT};letter-spacing:4px;")
+        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;color:{ACCENT};letter-spacing:4px;")
         hv.addWidget(tl); hv.addStretch()
         root.addWidget(hdr)
 
@@ -3575,8 +3573,8 @@ class HighlightsDialog(QDialog):
             hdr2.setStyleSheet(f"background:{BG3};border-bottom:1px solid {BORDER};border-radius:6px 6px 0 0;")
             hv2 = QHBoxLayout(hdr2)
             hv2.setContentsMargins(14,10,14,10)
-            hl = QLabel(col_title); hl.setStyleSheet(f"color:{color};font-size:9px;letter-spacing:2px;")
-            cnt = QLabel(str(len(items))); cnt.setStyleSheet(f"color:{MUTED};font-size:9px;")
+            hl = QLabel(col_title); hl.setStyleSheet(f"color:{color};font-size:13px;letter-spacing:2px;")
+            cnt = QLabel(str(len(items))); cnt.setStyleSheet(f"color:{MUTED};font-size:13px;")
             hv2.addWidget(hl); hv2.addStretch(); hv2.addWidget(cnt)
             cv.addWidget(hdr2)
             lst = QListWidget()
@@ -3598,7 +3596,7 @@ class HighlightsDialog(QDialog):
         close_btn.setStyleSheet(accent_btn_style())
         close_btn.setStyleSheet(
             f"background:{BG2};color:{MUTED};border:1px solid {BORDER};"
-            f"font-size:9px;letter-spacing:1px;padding:8px 20px;border-radius:3px;margin:0 20px 14px 20px;")
+            f"font-size:13px;letter-spacing:1px;padding:8px 20px;border-radius:3px;margin:0 20px 14px 20px;")
         close_btn.clicked.connect(self.accept)
         root.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
 
@@ -3631,7 +3629,7 @@ class CalendarDialog(QDialog):
             b.setFixedSize(80, 54)
             b.setStyleSheet(
                 f"QPushButton{{background:{BG3};border:1px solid {BORDER};"
-                f"border-radius:8px;color:{TEXT};font-size:12px;}}"
+                f"border-radius:8px;color:{TEXT};font-size:14px;}}"
                 f"QPushButton:checked{{background:{ACCENT};color:{BG};"
                 f"border-color:{ACCENT};font-weight:bold;}}"
                 f"QPushButton:hover{{border-color:{ACCENT};}}")

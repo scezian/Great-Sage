@@ -161,7 +161,7 @@ def _tag_chip(tag: str, color: str, checked: bool = False) -> QPushButton:
     b.setStyleSheet(f"""
         QPushButton {{
             background:transparent; border:1px solid {color};
-            color:{color}; font-size:10px; font-family:{FONT_UI};
+            color:{color}; font-size:12px; font-family:{FONT_UI};
             letter-spacing:1px; padding:0 8px; border-radius:11px;
         }}
         QPushButton:checked {{
@@ -208,7 +208,7 @@ class _NoteCard(QFrame):
         del_btn.setStyleSheet(f"""
             QPushButton {{
                 background:transparent; border:none;
-                color:{MUTED}; font-size:10px;
+                color:{MUTED}; font-size:12px;
             }}
             QPushButton:hover {{ color:{RED}; }}
         """)
@@ -223,7 +223,7 @@ class _NoteCard(QFrame):
         body.setStyleSheet(f"""
             QTextEdit {{
                 background:transparent; border:none;
-                color:{TEXT}; font-family:{FONT_BODY}; font-size:13px;
+                color:{TEXT}; font-family:{FONT_BODY}; font-size:15px;
             }}
         """)
         body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -316,7 +316,7 @@ class CataloguePanel(QFrame):
         hdr.addStretch()
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(20, 20)
-        close_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:11px;")
+        close_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:13px;")
         close_btn.clicked.connect(self.hide)
         hdr.addWidget(close_btn)
         root.addLayout(hdr)
@@ -324,7 +324,7 @@ class CataloguePanel(QFrame):
         # Context label
         self._ctx_label = QLabel("—")
         self._ctx_label.setWordWrap(True)
-        self._ctx_label.setStyleSheet(f"font-size:11px;font-family:{FONT_UI};background:transparent;")
+        self._ctx_label.setStyleSheet(f"font-size:13px;font-family:{FONT_UI};background:transparent;")
         root.addWidget(self._ctx_label)
 
         # ── Editor ────────────────────────────────────────────────────────────
@@ -335,7 +335,7 @@ class CataloguePanel(QFrame):
             QTextEdit {{
                 background:{BG3}; border:1px solid {BORDER};
                 border-radius:4px; color:{TEXT};
-                font-family:{FONT_BODY}; font-size:13px;
+                font-family:{FONT_BODY}; font-size:15px;
                 padding:6px;
             }}
             QTextEdit:focus {{ border-color:{ACCENT}; }}
@@ -355,13 +355,13 @@ class CataloguePanel(QFrame):
             fb2.setFixedSize(26, 22)
             fb2.setToolTip(tip)
             if symbol == "B":
-                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};font-weight:bold;font-size:12px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
+                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};font-weight:bold;font-size:14px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
             elif symbol == "I":
-                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};font-style:italic;font-size:12px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
+                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};font-style:italic;font-size:14px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
             elif symbol == "U":
-                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};text-decoration:underline;font-size:12px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
+                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{TEXT};text-decoration:underline;font-size:14px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}")
             else:
-                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{ACCENT};font-size:14px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};background:{PANEL};}}")
+                fb2.setStyleSheet(f"QPushButton{{background:{BG3};border:1px solid {BORDER};color:{ACCENT};font-size:16px;border-radius:3px;}}QPushButton:hover{{border-color:{ACCENT};background:{PANEL};}}")
             fb2.clicked.connect(handler)
             fmt_row2.addWidget(fb2)
         fmt_row2.addStretch()
@@ -384,7 +384,7 @@ class CataloguePanel(QFrame):
         save_btn.setStyleSheet(f"""
             QPushButton {{
                 background:{ACCENT}; color:{BG}; border:none;
-                font-weight:bold; font-size:12px; font-family:{FONT_UI};
+                font-weight:bold; font-size:14px; font-family:{FONT_UI};
                 letter-spacing:1px; padding:7px; border-radius:4px;
             }}
             QPushButton:hover {{ background:#F0D98A; }}
@@ -405,7 +405,7 @@ class CataloguePanel(QFrame):
         self._toggle_all_btn.setStyleSheet(f"""
             QPushButton {{
                 background:transparent; border:1px solid {BORDER};
-                color:{MUTED}; font-size:10px; font-family:{FONT_UI};
+                color:{MUTED}; font-size:12px; font-family:{FONT_UI};
                 letter-spacing:1px; padding:4px; border-radius:3px;
             }}
             QPushButton:hover {{ border-color:{ACCENT2}; color:{ACCENT2}; }}

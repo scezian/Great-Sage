@@ -89,7 +89,7 @@ class SagePage(QWidget):
                 QPushButton {{
                     background:transparent; border:none;
                     border-bottom:1px solid transparent;
-                    font-family:{FONT_UI}; font-size:8px; letter-spacing:2px;
+                    font-family:{FONT_UI}; font-size:12px; letter-spacing:2px;
                     color:#505068; padding:0; margin-bottom:-1px;
                 }}
                 QPushButton:hover {{ color:#8888A8; }}
@@ -121,10 +121,10 @@ class SagePage(QWidget):
             pip.setStyleSheet(f"background:{color}; border:none;")
             lbl_w = QLabel(label)
             lbl_w.setStyleSheet(
-                f"font-family:{FONT_UI}; font-size:8px; letter-spacing:3px; "
+                f"font-family:{FONT_UI}; font-size:12px; letter-spacing:3px; "
                 f"color:#505068; background:transparent; border:none;")
             chev = QLabel("›")
-            chev.setStyleSheet("color:#505068; font-size:12px; background:transparent; border:none;")
+            chev.setStyleSheet("color:#505068; font-size:14px; background:transparent; border:none;")
             hl.addWidget(pip); hl.addWidget(lbl_w, 1); hl.addWidget(chev)
             parent_layout.addWidget(hdr)
             body = QWidget(); body.setStyleSheet("background:transparent;")
@@ -145,7 +145,7 @@ class SagePage(QWidget):
                 QPushButton {{
                     background:transparent; border:none;
                     border-left:2px solid transparent;
-                    font-family:{FONT_UI}; font-size:12px;
+                    font-family:{FONT_UI}; font-size:14px;
                     color:#9898B8; text-align:left;
                     padding:9px 18px 9px 14px;
                 }}
@@ -176,7 +176,7 @@ class SagePage(QWidget):
         qp_btn.setStyleSheet(f"""
             QPushButton {{
                 background:#100E07; border:1px solid #2A2208; border-radius:4px;
-                font-family:{FONT_UI}; font-size:12px; letter-spacing:0.5px;
+                font-family:{FONT_UI}; font-size:14px; letter-spacing:0.5px;
                 color:#A08830; padding:9px 12px; text-align:left;
             }}
             QPushButton:hover {{ background:#140F07; border-color:#3A3010; color:{ACCENT}; }}
@@ -184,7 +184,7 @@ class SagePage(QWidget):
         qp_btn.clicked.connect(lambda: self._run("quick"))
         qp_badge = QLabel("INSTANT")
         qp_badge.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:7px; letter-spacing:1.5px; "
+            f"font-family:{FONT_UI}; font-size:13px; letter-spacing:1.5px; "
             f"color:#504010; background:#1A1206; border:1px solid #2A1E08; "
             f"border-radius:2px; padding:2px 5px;")
         qp_l.addWidget(qp_btn, 1); qp_l.addWidget(qp_badge)
@@ -213,20 +213,20 @@ class SagePage(QWidget):
         card_v.setSpacing(8)
         card_title = QLabel("Chat with Sage")
         card_title.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.5px; "
+            f"font-family:{FONT_UI}; font-size:14px; letter-spacing:0.5px; "
             f"color:{ACCENT2}; background:transparent; border:none;")
         card_sub = QLabel(
             "Ask anything about novels, shows,\n"
             "or your taste profile. Sage has\n"
             "full context of your history.")
         card_sub.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:10px; letter-spacing:0.3px; "
+            f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.3px; "
             f"color:#2A7060; background:transparent; border:none;")
         open_chat_btn = QPushButton("Open Chat  →")
         open_chat_btn.setStyleSheet(f"""
             QPushButton {{
                 background:transparent; border:1px solid #1A4030; border-radius:3px;
-                font-family:{FONT_UI}; font-size:9px; letter-spacing:1px;
+                font-family:{FONT_UI}; font-size:13px; letter-spacing:1px;
                 color:{ACCENT2}; padding:7px 14px; margin-top:4px;
             }}
             QPushButton:hover {{ background:#0A1A14; border-color:#2A6048; }}
@@ -248,11 +248,11 @@ class SagePage(QWidget):
             rl.setContentsMargins(2,0,2,0); rl.setSpacing(10)
             pip = QLabel("·"); pip.setFixedWidth(10)
             pip.setStyleSheet(
-                f"color:{color}; font-size:14px; background:transparent; border:none;")
+                f"color:{color}; font-size:16px; background:transparent; border:none;")
             txt = QLabel(text)
             txt.setWordWrap(True)
             txt.setStyleSheet(
-                f"font-family:{FONT_UI}; font-size:10px; letter-spacing:0.3px; "
+                f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.3px; "
                 f"color:#505068; background:transparent; border:none;")
             rl.addWidget(pip, 0); rl.addWidget(txt, 1)
             chat_v.addWidget(row)
@@ -267,10 +267,10 @@ class SagePage(QWidget):
         fl.setSpacing(8)
         self.groq_lbl = QLabel("● GROQ CONNECTED")
         self.groq_lbl.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:8px; letter-spacing:1.5px; color:#236050; border:none;")
+            f"font-family:{FONT_UI}; font-size:12px; letter-spacing:1.5px; color:#236050; border:none;")
         model_lbl = QLabel("llama-3.3-70b")
         model_lbl.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:8px; color:#404058; border:none;")
+            f"font-family:{FONT_UI}; font-size:12px; color:#404058; border:none;")
         fl.addWidget(self.groq_lbl, 1); fl.addWidget(model_lbl)
         sv.addWidget(footer)
         root.addWidget(sidebar)
@@ -297,7 +297,7 @@ class SagePage(QWidget):
                     QPushButton {{
                         background:{bg}; border:none;
                         border-left:2px solid {color};
-                        font-family:{FONT_UI}; font-size:12px;
+                        font-family:{FONT_UI}; font-size:14px;
                         color:{color}; text-align:left;
                         padding:9px 18px 9px 14px;
                     }}
@@ -307,7 +307,7 @@ class SagePage(QWidget):
                     QPushButton {{
                         background:transparent; border:none;
                         border-left:2px solid transparent;
-                        font-family:{FONT_UI}; font-size:12px;
+                        font-family:{FONT_UI}; font-size:14px;
                         color:#9898B8; text-align:left;
                         padding:9px 18px 9px 14px;
                     }}
@@ -329,7 +329,7 @@ class SagePage(QWidget):
         self._refresh_btn = QPushButton("↻  REFRESH")
         self._refresh_btn.setStyleSheet(
             f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
-            f"font-size:9px; letter-spacing:1.5px; padding:6px 14px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1.5px; padding:6px 14px; border-radius:3px;")
         self._refresh_btn.setVisible(False)
         self._refresh_btn.clicked.connect(self._on_refresh)
         title_row.addWidget(self._refresh_btn)
@@ -368,7 +368,7 @@ class SagePage(QWidget):
         self.trailer_btn = btn("▶ WATCH TRAILER", cb=self._sage_watch_trailer)
         self.trailer_btn.setStyleSheet(
             f"background:transparent; border:1px solid {ACCENT2}; color:{ACCENT2};"
-            f"font-size:9px; letter-spacing:1px; padding:6px 14px; border-radius:3px;")
+            f"font-size:13px; letter-spacing:1px; padding:6px 14px; border-radius:3px;")
         self.trailer_btn.setVisible(False)
         bar_row.addWidget(self.spin,1); bar_row.addWidget(self.trailer_btn); bar_row.addWidget(self.add_wl_btn)
         v.addLayout(bar_row)
@@ -393,11 +393,11 @@ class SagePage(QWidget):
         th = QHBoxLayout(top_bar)
         th.setContentsMargins(28,0,28,0)
         tl = QLabel("CHAT WITH SAGE")
-        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;color:{ACCENT};letter-spacing:3px;")
+        tl.setStyleSheet(f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;color:{ACCENT};letter-spacing:3px;")
         back_b = QPushButton("← BACK")
         back_b.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;")
+            f"font-size:13px;letter-spacing:1.5px;")
         back_b.clicked.connect(lambda: self._stack.setCurrentIndex(0))
         th.addWidget(tl); th.addStretch(); th.addWidget(back_b)
         v.addWidget(top_bar)
@@ -406,10 +406,10 @@ class SagePage(QWidget):
         self.chat_area.setReadOnly(True)
         self.chat_area.setStyleSheet(
             f"background:{BG};border:none;padding:20px 28px;"
-            f"font-family:{FONT_BODY};font-size:16px;color:{TEXT};")
+            f"font-family:{FONT_BODY};font-size:18px;color:{TEXT};")
         v.addWidget(self.chat_area, 1)
         self.chat_typing = QLabel("")
-        self.chat_typing.setStyleSheet(f"color:{MUTED};font-size:10px;padding:0 28px;letter-spacing:1px;")
+        self.chat_typing.setStyleSheet(f"color:{MUTED};font-size:12px;padding:0 28px;letter-spacing:1px;")
         v.addWidget(self.chat_typing)
         # Input row
         input_bar = QWidget()
@@ -422,11 +422,11 @@ class SagePage(QWidget):
         self.chat_input.returnPressed.connect(self._send_chat)
         send_btn = QPushButton("SEND")
         send_btn.setStyleSheet(accent_btn_style())
-        send_btn.setStyleSheet(f"font-size:9px;letter-spacing:1.5px;padding:8px 18px;")
+        send_btn.setStyleSheet(f"font-size:13px;letter-spacing:1.5px;padding:8px 18px;")
         send_btn.clicked.connect(self._send_chat)
         clear_btn = QPushButton("✕")
         clear_btn.setFixedWidth(32)
-        clear_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:14px;")
+        clear_btn.setStyleSheet(f"background:transparent;border:none;color:{MUTED};font-size:16px;")
         clear_btn.clicked.connect(lambda: (self.chat_area.clear(), self._chat_history.clear()))
         ib.addWidget(self.chat_input, 1); ib.addWidget(send_btn); ib.addWidget(clear_btn)
         v.addWidget(input_bar)
@@ -434,7 +434,7 @@ class SagePage(QWidget):
 
     def refresh(self):
         self.groq_lbl.setText("○ CHECKING...")
-        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:8px;letter-spacing:1.5px;color:{MUTED};border:none;")
+        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:12px;letter-spacing:1.5px;color:{MUTED};border:none;")
 
         def _check():
             mod, err = sage_mod()
@@ -447,19 +447,19 @@ class SagePage(QWidget):
             if err:
                 QTimer.singleShot(0, lambda e=err: (
                     self.groq_lbl.setText(f"○ SAGE.PY ERR"),
-                    self.groq_lbl.setStyleSheet(f"color:{RED};font-size:8px;letter-spacing:1px;padding:0 18px 8px 18px;")))
+                    self.groq_lbl.setStyleSheet(f"color:{RED};font-size:12px;letter-spacing:1px;padding:0 18px 8px 18px;")))
                 return
             try:
                 ok, _, errmsg = mod.check_groq()
                 if ok:
                     QTimer.singleShot(0, lambda: (
                         self.groq_lbl.setText("● GROQ CONNECTED"),
-                        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:8px;letter-spacing:1.5px;color:#236050;border:none;")))
+                        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:12px;letter-spacing:1.5px;color:#236050;border:none;")))
                 else:
                     msg = (errmsg or "")[:35]
                     QTimer.singleShot(0, lambda m=msg: (
                         self.groq_lbl.setText(f"○ GROQ ERR"),
-                        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:8px;letter-spacing:1.5px;color:{RED};border:none;")))
+                        self.groq_lbl.setStyleSheet(f"font-family:{FONT_UI};font-size:12px;letter-spacing:1.5px;color:{RED};border:none;")))
             except Exception as exc:
                 msg = str(exc)[:30]
                 QTimer.singleShot(0, lambda m=msg: self.groq_lbl.setText(f"○ ERROR"))
@@ -659,7 +659,7 @@ class SagePage(QWidget):
         v.setContentsMargins(20, 20, 20, 20)
         v.setSpacing(10)
         hdr = QLabel("Which title would you like a trailer for?")
-        hdr.setStyleSheet(f"color:{TEXT}; font-size:13px;")
+        hdr.setStyleSheet(f"color:{TEXT}; font-size:15px;")
         hdr.setWordWrap(True)
         v.addWidget(hdr)
         v.addSpacing(4)
@@ -672,13 +672,13 @@ class SagePage(QWidget):
             b = QPushButton(title)
             b.setStyleSheet(
                 f"background:{BG2}; border:1px solid {BORDER}; color:{TEXT};"
-                f"font-size:12px; padding:10px 14px; border-radius:3px; text-align:left;")
+                f"font-size:14px; padding:10px 14px; border-radius:3px; text-align:left;")
             b.clicked.connect(lambda checked=False, t=title: _open(t))
             v.addWidget(b)
 
         cancel = QPushButton("Cancel")
         cancel.setStyleSheet(
-            f"background:transparent; border:none; color:{MUTED}; font-size:10px; padding:6px;")
+            f"background:transparent; border:none; color:{MUTED}; font-size:12px; padding:6px;")
         cancel.clicked.connect(dlg.reject)
         v.addSpacing(4)
         v.addWidget(cancel)

@@ -290,7 +290,7 @@ if _qt_available():
             background: {BG};
             color: {TEXT};
             font-family: 'JetBrains Mono', 'Fira Code', monospace;
-            font-size: 13px;
+            font-size: 15px;
         }}
         QLineEdit, QSpinBox, QComboBox {{
             background: {BG2};
@@ -347,7 +347,7 @@ if _qt_available():
         }}
         QLabel#section {{
             color: {TEXT2};
-            font-size: 10px;
+            font-size: 12px;
             letter-spacing: 2px;
         }}
         QFrame#separator {{
@@ -427,13 +427,13 @@ if _qt_available():
 
             name = self._result.get("file_name", "") or self._result.get("release", "Unknown")
             name_lbl = QLabel(name[:72] + ("…" if len(name) > 72 else ""))
-            name_lbl.setStyleSheet(f"color:{TEXT}; font-size:13px;")
+            name_lbl.setStyleSheet(f"color:{TEXT}; font-size:15px;")
             info.addWidget(name_lbl)
 
             rel = self._result.get("release", "")
             if rel and rel != name:
                 rel_lbl = QLabel(rel[:80])
-                rel_lbl.setStyleSheet(f"color:{TEXT2}; font-size:11px;")
+                rel_lbl.setStyleSheet(f"color:{TEXT2}; font-size:13px;")
                 info.addWidget(rel_lbl)
 
             h.addLayout(info, 1)
@@ -463,7 +463,7 @@ if _qt_available():
         def _badge(text: str, color: str) -> QLabel:
             lbl = QLabel(text)
             lbl.setStyleSheet(
-                f"color:{color}; font-size:10px; letter-spacing:1px;"
+                f"color:{color}; font-size:12px; letter-spacing:1px;"
                 f"border:1px solid {color}33; border-radius:3px;"
                 f"padding:1px 5px; background:{color}18;"
             )
@@ -485,7 +485,7 @@ if _qt_available():
             v.addStretch()
 
             title = QLabel("OpenSubtitles API Key Required")
-            title.setStyleSheet(f"color:{ACCENT}; font-size:16px; font-weight:bold;")
+            title.setStyleSheet(f"color:{ACCENT}; font-size:18px; font-weight:bold;")
             title.setAlignment(Qt.AlignmentFlag.AlignCenter)
             v.addWidget(title)
 
@@ -497,7 +497,7 @@ if _qt_available():
                 "3. Create a new consumer → copy the API key\n"
                 "4. Paste it below"
             )
-            info.setStyleSheet(f"color:{TEXT2}; font-size:13px; line-height:1.6;")
+            info.setStyleSheet(f"color:{TEXT2}; font-size:15px; line-height:1.6;")
             info.setAlignment(Qt.AlignmentFlag.AlignCenter)
             v.addWidget(info)
 
@@ -606,7 +606,7 @@ if _qt_available():
             hdr = QHBoxLayout()
             title_lbl = QLabel("◈  SUBTITLE MANAGER")
             title_lbl.setStyleSheet(
-                f"color:{ACCENT}; font-size:12px; font-weight:bold; letter-spacing:3px;")
+                f"color:{ACCENT}; font-size:14px; font-weight:bold; letter-spacing:3px;")
             hdr.addWidget(title_lbl)
             hdr.addStretch()
 
@@ -637,14 +637,14 @@ if _qt_available():
             row2 = QHBoxLayout(); row2.setSpacing(8)
 
             self._movie_check = QCheckBox("Movie (no S/E)")
-            self._movie_check.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
+            self._movie_check.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
             self._movie_check.toggled.connect(self._toggle_movie_mode)
             row2.addWidget(self._movie_check)
 
             row2.addStretch()
 
             s_lbl = QLabel("Season:")
-            s_lbl.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
+            s_lbl.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
             row2.addWidget(s_lbl)
             self._season_spin = QSpinBox()
             self._season_spin.setRange(0, 99)
@@ -653,7 +653,7 @@ if _qt_available():
             row2.addWidget(self._season_spin)
 
             e_lbl = QLabel("Episode:")
-            e_lbl.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
+            e_lbl.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
             row2.addWidget(e_lbl)
             self._episode_spin = QSpinBox()
             self._episode_spin.setRange(0, 9999)
@@ -673,7 +673,7 @@ if _qt_available():
             if self._video_path:
                 fname = os.path.basename(self._video_path)
                 vp_lbl = QLabel(f"📹  {fname}")
-                vp_lbl.setStyleSheet(f"color:{TEXT2}; font-size:11px;")
+                vp_lbl.setStyleSheet(f"color:{TEXT2}; font-size:13px;")
                 vp_lbl.setWordWrap(True)
                 v.addWidget(vp_lbl)
 
@@ -683,7 +683,7 @@ if _qt_available():
 
             # ── Status / results area ──────────────────────────────────────────
             self._status_lbl = QLabel("Enter a title and press Search.")
-            self._status_lbl.setStyleSheet(f"color:{TEXT2}; font-size:12px;")
+            self._status_lbl.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
             v.addWidget(self._status_lbl)
 
             self._results_list = QListWidget()
@@ -699,7 +699,7 @@ if _qt_available():
 
             bot = QHBoxLayout()
             self._preview_lbl = QLabel("")
-            self._preview_lbl.setStyleSheet(f"color:{TEXT2}; font-size:11px;")
+            self._preview_lbl.setStyleSheet(f"color:{TEXT2}; font-size:13px;")
             self._preview_lbl.setWordWrap(True)
             bot.addWidget(self._preview_lbl, 1)
 

@@ -423,18 +423,18 @@ class _LyricLine(QLabel):
     def set_state(self, state: str):
         styles = {
             "active": ("background:transparent;color:#F0EDE8;"
-                       "font-size:18px;font-weight:700;"
+                       "font-size:21px;font-weight:700;"
                        "letter-spacing:0.3px;padding:4px 0;"),
             "prev1":  ("background:transparent;color:#8080A8;"
-                       "font-size:14px;font-weight:400;padding:3px 0;"),
+                       "font-size:16px;font-weight:400;padding:3px 0;"),
             "next1":  ("background:transparent;color:#606088;"
-                       "font-size:14px;font-weight:400;padding:3px 0;"),
+                       "font-size:16px;font-weight:400;padding:3px 0;"),
             "prev2":  ("background:transparent;color:#404060;"
-                       "font-size:13px;font-weight:400;padding:2px 0;"),
+                       "font-size:15px;font-weight:400;padding:2px 0;"),
             "next2":  ("background:transparent;color:#363555;"
-                       "font-size:13px;font-weight:400;padding:2px 0;"),
+                       "font-size:15px;font-weight:400;padding:2px 0;"),
             "dim":    ("background:transparent;color:#252540;"
-                       "font-size:13px;font-weight:400;padding:2px 0;"),
+                       "font-size:15px;font-weight:400;padding:2px 0;"),
         }
         self.setStyleSheet(styles.get(state, styles["dim"]))
 
@@ -494,7 +494,7 @@ class LyricsWidget(QWidget):
         self._status_lbl = QLabel("♪  Play something to see lyrics")
         self._status_lbl.setStyleSheet(
             "background:transparent;color:#252540;"
-            "font-size:13px;letter-spacing:0.5px;")
+            "font-size:15px;letter-spacing:0.5px;")
         self._cv.addWidget(self._status_lbl)
 
         self._scroll.setWidget(self._content)
@@ -662,7 +662,7 @@ class LyricsWidget(QWidget):
             lbl = QLabel("♪  No lyrics found")
             lbl.setStyleSheet(
                 "background:transparent;color:#252540;"
-                "font-size:13px;")
+                "font-size:15px;")
             self._cv.addWidget(lbl)
             return
 
@@ -720,7 +720,7 @@ class LyricsWidget(QWidget):
         lbl = QLabel(msg)
         lbl.setStyleSheet(
             "background:transparent;color:#252540;"
-            "font-size:13px;letter-spacing:0.5px;")
+            "font-size:15px;letter-spacing:0.5px;")
         lbl.setWordWrap(True)
         self._cv.addWidget(lbl)
 
@@ -748,7 +748,7 @@ def build_page(parent, api):
     hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("♪  LYRICS")
     tl.setStyleSheet(
-        f"color:{colours['ACCENT']};font-size:14px;"
+        f"color:{colours['ACCENT']};font-size:16px;"
         f"font-weight:bold;letter-spacing:3px;")
     hh.addWidget(tl); hh.addStretch()
     v.addWidget(hdr)
@@ -764,14 +764,14 @@ def build_page(parent, api):
         "● Synced lyrics — LRCLIB · Netease"
         if has else "⚠  playerctl not installed — sudo apt install playerctl")
     st.setStyleSheet(
-        f"color:{colours['ACCENT2'] if has else '#E05A6A'};font-size:12px;")
+        f"color:{colours['ACCENT2'] if has else '#E05A6A'};font-size:14px;")
     bv.addWidget(st)
 
     desc = QLabel(
         "Displays synced lyrics below the Now Playing card.\n"
         "The current line scrolls and lights up as the song plays.\n"
         "Fetches from LRCLIB first, then Netease as fallback.")
-    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:13px;")
+    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:15px;")
     desc.setWordWrap(True)
     bv.addWidget(desc)
 
@@ -781,7 +781,7 @@ def build_page(parent, api):
         "If a song has no synced lyrics, plain lyrics are shown without highlighting.")
     note.setStyleSheet(
         f"background:{colours['BG2']};color:{colours['MUTED']};"
-        f"font-size:11px;padding:12px;border-radius:4px;"
+        f"font-size:13px;padding:12px;border-radius:4px;"
         f"border:1px solid {colours['BORDER']};")
     note.setWordWrap(True)
     bv.addWidget(note)

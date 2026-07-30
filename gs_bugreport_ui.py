@@ -39,14 +39,14 @@ BUG_RED = "#E05555"
 def _section_lbl(text):
     l = QLabel(text)
     l.setStyleSheet(
-        f"color:{MUTED};font-size:9px;letter-spacing:3px;"
+        f"color:{MUTED};font-size:13px;letter-spacing:3px;"
         f"font-family:{FONT_UI};background:transparent;")
     return l
 
 def _field_label(text):
     l = QLabel(text)
     l.setStyleSheet(
-        f"color:#6868A0;font-size:9px;letter-spacing:1px;"
+        f"color:#6868A0;font-size:13px;letter-spacing:1px;"
         f"font-family:{FONT_UI};background:transparent;")
     return l
 
@@ -77,7 +77,7 @@ def _field_style():
     return (
         f"QLineEdit,QTextEdit,QComboBox{{"
         f"background:#1a1a28;border:1px solid #2a2a3a;"
-        f"border-radius:4px;color:{TEXT};font-size:12px;"
+        f"border-radius:4px;color:{TEXT};font-size:14px;"
         f"padding:7px 10px;font-family:{FONT_UI};}}"
         f"QLineEdit:focus,QTextEdit:focus,QComboBox:focus{{"
         f"border-color:{ACCENT}44;}}"
@@ -184,11 +184,11 @@ class BugReportPage(QWidget):
         back_btn = QPushButton("← HOME")
         back_btn.setStyleSheet(
             f"background:transparent;border:none;color:{MUTED};"
-            f"font-size:9px;letter-spacing:1.5px;padding:4px 0;")
+            f"font-size:13px;letter-spacing:1.5px;padding:4px 0;")
         back_btn.clicked.connect(lambda: self.window()._navigate("dashboard"))
         tl = QLabel("BUG REPORT")
         tl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY};font-size:13px;font-weight:bold;"
+            f"font-family:{FONT_DISPLAY};font-size:15px;font-weight:bold;"
             f"color:{BUG_RED};letter-spacing:4px;margin-left:14px;")
         hv.addWidget(back_btn); hv.addWidget(tl); hv.addStretch()
         root.addWidget(header_w)
@@ -218,14 +218,14 @@ class BugReportPage(QWidget):
         _nav_base = (
             f"QPushButton{{background:transparent;border:none;"
             f"border-left:2px solid transparent;"
-            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"font-family:{FONT_UI};font-size:13px;letter-spacing:2px;"
             f"color:#505068;text-align:left;padding:10px 20px;}}"
             f"QPushButton:hover{{background:#0f0f18;color:#9898b8;"
             f"border-left:2px solid #303048;}}")
         _nav_active = (
             f"QPushButton{{background:#0f0f18;border:none;"
             f"border-left:2px solid {BUG_RED};"
-            f"font-family:{FONT_UI};font-size:9px;letter-spacing:2px;"
+            f"font-family:{FONT_UI};font-size:13px;letter-spacing:2px;"
             f"color:{BUG_RED};text-align:left;padding:10px 20px;}}")
         self._nav_btns = {}
         self._nav_base_ss   = _nav_base
@@ -278,7 +278,7 @@ class BugReportPage(QWidget):
 
         self._auto_info_lbl = QLabel()
         self._auto_info_lbl.setStyleSheet(
-            f"color:#7878a8;font-size:10px;line-height:1.8;"
+            f"color:#7878a8;font-size:12px;line-height:1.8;"
             f"background:transparent;")
         self._auto_info_lbl.setWordWrap(True)
         p0.addWidget(self._auto_info_lbl)
@@ -286,7 +286,7 @@ class BugReportPage(QWidget):
         submit_btn = QPushButton("⊳  OPEN GITHUB ISSUE")
         submit_btn.setStyleSheet(
             f"QPushButton{{background:{BUG_RED};color:#fff;border:none;"
-            f"border-radius:4px;font-family:{FONT_UI};font-size:9px;"
+            f"border-radius:4px;font-family:{FONT_UI};font-size:13px;"
             f"letter-spacing:2px;font-weight:bold;padding:9px 28px;}}"
             f"QPushButton:hover{{background:#f06666;}}"
             f"QPushButton:pressed{{background:#c04444;}}")
@@ -300,13 +300,13 @@ class BugReportPage(QWidget):
         p1_scroll, p1 = _panel_scroll()
         p1.addWidget(_section_lbl("RECENT LOGS"))
         self._log_name_lbl = QLabel()
-        self._log_name_lbl.setStyleSheet(f"color:{MUTED};font-size:9px;background:transparent;")
+        self._log_name_lbl.setStyleSheet(f"color:{MUTED};font-size:13px;background:transparent;")
         p1.addWidget(self._log_name_lbl)
         self._log_view = QTextEdit()
         self._log_view.setReadOnly(True)
         self._log_view.setStyleSheet(
             f"QTextEdit{{background:#0a0a10;border:1px solid #1a1a28;"
-            f"border-radius:4px;color:#505068;font-size:10px;"
+            f"border-radius:4px;color:#505068;font-size:12px;"
             f"font-family:{FONT_UI};padding:10px;line-height:1.6;}}")
         self._log_view.setMinimumHeight(320)
         p1.addWidget(self._log_view)
@@ -364,9 +364,9 @@ class BugReportPage(QWidget):
             rv.setSpacing(2)
             k_lbl = QLabel(key.upper())
             k_lbl.setStyleSheet(
-                f"color:#6868a0;font-size:9px;letter-spacing:1px;background:transparent;")
+                f"color:#6868a0;font-size:13px;letter-spacing:1px;background:transparent;")
             v_lbl = QLabel(str(val))
-            v_lbl.setStyleSheet(f"color:#7878a8;font-size:11px;background:transparent;")
+            v_lbl.setStyleSheet(f"color:#7878a8;font-size:13px;background:transparent;")
             v_lbl.setWordWrap(True)
             rv.addWidget(k_lbl); rv.addWidget(v_lbl)
             self._sysinfo_container.addWidget(row)

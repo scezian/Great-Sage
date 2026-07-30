@@ -138,7 +138,7 @@ class _ToolBtn(QPushButton):
                     border-radius: 3px;
                     padding: 0 8px;
                     font-family: {FONT_UI};
-                    font-size: 12px;
+                    font-size: 14px;
                     font-weight: bold;
                 }}
             """)
@@ -151,7 +151,7 @@ class _ToolBtn(QPushButton):
                     border-radius: 3px;
                     padding: 0 8px;
                     font-family: {FONT_UI};
-                    font-size: 12px;
+                    font-size: 14px;
                 }}
                 QPushButton:hover {{
                     background: {BG3};
@@ -196,18 +196,18 @@ class DocumentSidebar(QWidget):
         bh.setContentsMargins(16, 0, 12, 0)
 
         logo = QLabel("✦")
-        logo.setStyleSheet(f"color:{ACCENT}; font-size:18px; font-family:serif;")
+        logo.setStyleSheet(f"color:{ACCENT}; font-size:21px; font-family:serif;")
 
         app_name = QLabel("Artemis")
         app_name.setStyleSheet(
-            f"color:{TEXT}; font-size:14px; font-weight:bold; font-family:{FONT_UI}; letter-spacing:1px;"
+            f"color:{TEXT}; font-size:16px; font-weight:bold; font-family:{FONT_UI}; letter-spacing:1px;"
         )
 
         self.back_btn = QPushButton("⌂")
         self.back_btn.setFixedSize(28, 28)
         self.back_btn.setToolTip("Back to Home")
         self.back_btn.setStyleSheet(
-            f"background:transparent; border:none; color:{MUTED}; font-size:16px;"
+            f"background:transparent; border:none; color:{MUTED}; font-size:18px;"
             f"border-radius:6px;"
         )
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -226,7 +226,7 @@ class DocumentSidebar(QWidget):
 
         sec_lbl = QLabel("DOCUMENTS")
         sec_lbl.setStyleSheet(
-            f"color:#3A3A4A; font-family:{FONT_UI}; font-size:9px; letter-spacing:2.5px;"
+            f"color:#3A3A4A; font-family:{FONT_UI}; font-size:13px; letter-spacing:2.5px;"
         )
 
         new_btn = QPushButton("+")
@@ -234,7 +234,7 @@ class DocumentSidebar(QWidget):
         new_btn.setToolTip("New document")
         new_btn.setStyleSheet(
             f"background:#1A1A24; border:1px solid #252530; border-radius:6px;"
-            f"color:{TEXT2}; font-size:14px;"
+            f"color:{TEXT2}; font-size:16px;"
         )
         new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         new_btn.clicked.connect(self.new_doc.emit)
@@ -258,7 +258,7 @@ class DocumentSidebar(QWidget):
                 border-radius: 0px;
                 background: transparent;
                 color: #7070A0;
-                font-size: 13px;
+                font-size: 15px;
             }
             QListWidget::item:hover {
                 background: #111118;
@@ -331,10 +331,10 @@ class EditorToolbar(QWidget):
         self.setStyleSheet(
             "QWidget { background: #0D0D10; border-bottom: 1px solid #1A1A22; }"
             "QPushButton { background: transparent; border: none; border-radius: 4px;"
-            "  color: #50506A; font-size: 12px; padding: 4px 10px; margin: 1px; }"
+            "  color: #50506A; font-size: 14px; padding: 4px 10px; margin: 1px; }"
             "QPushButton:hover { background: #16161E; color: #C8C4BC; }"
             "QPushButton:pressed { background: #1C1C28; color: #E8E4DC; }"
-            "QLabel { color: #3A3A4A; font-size: 11px; }"
+            "QLabel { color: #3A3A4A; font-size: 13px; }"
         )
         self._build()
         self._connect_editor()
@@ -373,7 +373,7 @@ class EditorToolbar(QWidget):
         self._font_combo.setToolTip("Font Family")
         self._font_combo.setStyleSheet(
             "QFontComboBox { background:#141420; border:1px solid #1A1A2A; "
-            "border-radius:4px; color:#C8C4BC; padding:0 6px; font-size:12px; }"
+            "border-radius:4px; color:#C8C4BC; padding:0 6px; font-size:14px; }"
             "QFontComboBox::drop-down { border:none; width:16px; }"
         )
         self._font_combo.currentFontChanged.connect(self._on_font_changed)
@@ -388,7 +388,7 @@ class EditorToolbar(QWidget):
         self._size_spin.setToolTip("Font Size")
         self._size_spin.setStyleSheet(
             "QSpinBox { background:#141420; border:1px solid #1A1A2A; "
-            "border-radius:4px; color:#C8C4BC; padding:0 4px; font-size:12px; }"
+            "border-radius:4px; color:#C8C4BC; padding:0 4px; font-size:14px; }"
             "QSpinBox::up-button, QSpinBox::down-button { width:14px; }"
         )
         self._size_spin.valueChanged.connect(self._on_size_changed)
@@ -543,7 +543,7 @@ class EditorToolbar(QWidget):
         self._btn_save_main.setToolTip("Save document")
         self._btn_save_main.clicked.connect(self.sig_save.emit)
         self._wc_lbl = QLabel("0 words")
-        self._wc_lbl.setStyleSheet("color:#3A3A4A; font-size:11px; margin:0 8px;")
+        self._wc_lbl.setStyleSheet("color:#3A3A4A; font-size:13px; margin:0 8px;")
         # ── SAGE AI toggle button
         self._btn_sage = QPushButton("✦ SAGE")
         self._btn_sage.setCheckable(True)
@@ -555,7 +555,7 @@ class EditorToolbar(QWidget):
                 border: 1px solid rgba(201,168,76,.25);
                 border-radius: 5px;
                 font-family: {FONT_UI};
-                font-size: 11px;
+                font-size: 13px;
                 font-weight: bold;
                 padding: 4px 12px;
                 margin: 3px 6px 3px 4px;
@@ -790,15 +790,15 @@ class FindReplaceDialog(QDialog):
         self.setFixedWidth(420)
         self.setStyleSheet(f"""
             QDialog {{ background:{BG2}; border:1px solid {BORDER2}; }}
-            QLabel  {{ color:{TEXT2}; font-family:{FONT_UI}; font-size:12px; }}
+            QLabel  {{ color:{TEXT2}; font-family:{FONT_UI}; font-size:14px; }}
             QLineEdit {{
                 background:{BG3}; border:1px solid {BORDER}; border-radius:3px;
-                color:{TEXT}; font-family:{FONT_UI}; font-size:13px; padding:6px 10px;
+                color:{TEXT}; font-family:{FONT_UI}; font-size:15px; padding:6px 10px;
             }}
             QLineEdit:focus {{ border-color:{ACCENT}; }}
             QPushButton {{
                 background:transparent; color:{TEXT2}; border:1px solid {BORDER};
-                border-radius:3px; padding:6px 14px; font-family:{FONT_UI}; font-size:12px;
+                border-radius:3px; padding:6px 14px; font-family:{FONT_UI}; font-size:14px;
             }}
             QPushButton:hover {{ background:{BG3}; border-color:{ACCENT}; color:{ACCENT}; }}
             QPushButton#accent {{
@@ -828,7 +828,7 @@ class FindReplaceDialog(QDialog):
         btns = QHBoxLayout()
         btns.setSpacing(8)
         self._status = QLabel("")
-        self._status.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        self._status.setStyleSheet(f"color:{MUTED}; font-size:13px;")
 
         find_btn    = QPushButton("Find Next")
         repl_btn    = QPushButton("Replace")
@@ -1055,10 +1055,10 @@ class AISidebar(QWidget):
 
         icon_lbl = QLabel("✦")
         icon_lbl.setStyleSheet(
-            f"color:{ACCENT}; font-size:15px; background:transparent;")
+            f"color:{ACCENT}; font-size:17px; background:transparent;")
         title_lbl = QLabel("SAGE")
         title_lbl.setStyleSheet(
-            f"color:{TEXT}; font-size:12px; font-weight:bold; "
+            f"color:{TEXT}; font-size:14px; font-weight:bold; "
             f"letter-spacing:2px; background:transparent;")
 
         hh.addWidget(icon_lbl)
@@ -1088,7 +1088,7 @@ class AISidebar(QWidget):
                     border-bottom: 2px solid transparent;
                     color: {MUTED};
                     font-family: {FONT_UI};
-                    font-size: 9px;
+                    font-size: 13px;
                     letter-spacing: 1.5px;
                     padding: 0 4px;
                 }}
@@ -1179,7 +1179,7 @@ class AISidebar(QWidget):
             QTextEdit {{
                 background:#13131A; border:1px solid {BORDER};
                 border-radius:5px; color:{TEXT};
-                font-family:{FONT_UI}; font-size:12px; padding:6px 8px;
+                font-family:{FONT_UI}; font-size:14px; padding:6px 8px;
             }}
             QTextEdit:focus {{ border-color:rgba(201,168,76,.4); }}
         """)
@@ -1190,7 +1190,7 @@ class AISidebar(QWidget):
             QPushButton {{
                 background:{ACCENT}; color:#0A0A0D; border:none;
                 border-radius:5px; font-weight:bold;
-                font-family:{FONT_UI}; font-size:11px;
+                font-family:{FONT_UI}; font-size:13px;
             }}
             QPushButton:hover {{ background:#D4B460; }}
             QPushButton:disabled {{ background:#3A3028; color:{MUTED}; }}
@@ -1217,7 +1217,7 @@ class AISidebar(QWidget):
         role_lbl = QLabel(role)
         role_lbl.setStyleSheet(
             f"color:{'#C9A84C' if is_ai else MUTED}; "
-            f"font-size:9px; letter-spacing:1.5px; background:transparent;")
+            f"font-size:13px; letter-spacing:1.5px; background:transparent;")
 
         bubble = QLabel(text)
         bubble.setWordWrap(True)
@@ -1228,7 +1228,7 @@ class AISidebar(QWidget):
                 background:{'#0F0F18' if is_ai else '#13131A'};
                 border:1px solid {'#252535' if is_ai else BORDER};
                 border-radius:5px; color:{TEXT2};
-                font-family:{FONT_UI}; font-size:12px;
+                font-family:{FONT_UI}; font-size:14px;
                 padding:7px 9px; line-height:1.6;
             }}
         """)
@@ -1312,7 +1312,7 @@ class AISidebar(QWidget):
             "from where you stopped.\nReview the preview before accepting.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; "
+            f"color:{MUTED}; font-size:12px; "
             f"font-family:{FONT_UI}; background:transparent;")
         v.addWidget(hint)
 
@@ -1329,7 +1329,7 @@ class AISidebar(QWidget):
 
         plbl = QLabel("PREVIEW")
         plbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; "
+            f"color:{MUTED}; font-size:13px; "
             f"letter-spacing:1.5px; background:transparent;")
 
         self._continue_text = QLabel("")
@@ -1341,7 +1341,7 @@ class AISidebar(QWidget):
                 background:#0A0A0D; border:1px solid {BORDER2};
                 border-radius:5px; color:{TEXT2};
                 font-family:'Palatino Linotype', Georgia, serif;
-                font-size:13px; padding:9px 10px; line-height:1.6;
+                font-size:15px; padding:9px 10px; line-height:1.6;
                 min-height:60px;
             }}
         """)
@@ -1430,7 +1430,7 @@ class AISidebar(QWidget):
             "Original and rewrite shown side by side — accept to replace.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; "
+            f"color:{MUTED}; font-size:12px; "
             f"font-family:{FONT_UI}; background:transparent;")
         v.addWidget(hint)
 
@@ -1438,7 +1438,7 @@ class AISidebar(QWidget):
         self._sel_indicator.setWordWrap(True)
         self._sel_indicator.setStyleSheet(f"""
             QLabel {{
-                color:{MUTED}; font-size:10px; font-family:{FONT_UI};
+                color:{MUTED}; font-size:12px; font-family:{FONT_UI};
                 background:transparent; border:1px solid {BORDER};
                 border-radius:4px; padding:6px 8px;
             }}
@@ -1458,7 +1458,7 @@ class AISidebar(QWidget):
 
         orig_lbl = QLabel("ORIGINAL")
         orig_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; "
+            f"color:{MUTED}; font-size:13px; "
             f"letter-spacing:1.5px; background:transparent;")
         self._rewrite_original = QLabel("")
         self._rewrite_original.setWordWrap(True)
@@ -1467,13 +1467,13 @@ class AISidebar(QWidget):
                 background:#0A0A0D; border:1px solid {BORDER};
                 border-radius:5px; color:{MUTED};
                 font-family:'Palatino Linotype', Georgia, serif;
-                font-size:12px; padding:8px 9px; line-height:1.6;
+                font-size:14px; padding:8px 9px; line-height:1.6;
             }}
         """)
 
         new_lbl = QLabel("REWRITE")
         new_lbl.setStyleSheet(
-            f"color:{MUTED}; font-size:9px; "
+            f"color:{MUTED}; font-size:13px; "
             f"letter-spacing:1.5px; background:transparent;")
         self._rewrite_text = QLabel("")
         self._rewrite_text.setWordWrap(True)
@@ -1485,7 +1485,7 @@ class AISidebar(QWidget):
                 border:1px solid rgba(201,164,76,.3);
                 border-radius:5px; color:{TEXT2};
                 font-family:'Palatino Linotype', Georgia, serif;
-                font-size:12px; padding:8px 9px; line-height:1.6;
+                font-size:14px; padding:8px 9px; line-height:1.6;
                 min-height:40px;
             }}
         """)
@@ -1519,7 +1519,7 @@ class AISidebar(QWidget):
             self._sel_indicator.setText(f'"{preview}"')
             self._sel_indicator.setStyleSheet(f"""
                 QLabel {{
-                    color:{ACCENT}; font-size:10px; font-family:{FONT_UI};
+                    color:{ACCENT}; font-size:12px; font-family:{FONT_UI};
                     background:rgba(201,168,76,.06);
                     border:1px solid rgba(201,168,76,.2);
                     border-radius:4px; padding:6px 8px;
@@ -1529,7 +1529,7 @@ class AISidebar(QWidget):
             self._sel_indicator.setText("No text selected.")
             self._sel_indicator.setStyleSheet(f"""
                 QLabel {{
-                    color:{MUTED}; font-size:10px; font-family:{FONT_UI};
+                    color:{MUTED}; font-size:12px; font-family:{FONT_UI};
                     background:transparent; border:1px solid {BORDER};
                     border-radius:4px; padding:6px 8px;
                 }}
@@ -1600,7 +1600,7 @@ class AISidebar(QWidget):
             "Click an issue card to jump to it in the canvas.")
         hint.setWordWrap(True)
         hint.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; "
+            f"color:{MUTED}; font-size:12px; "
             f"font-family:{FONT_UI}; background:transparent;")
         v.addWidget(hint)
 
@@ -1631,7 +1631,7 @@ class AISidebar(QWidget):
         self._proof_status = QLabel("")
         self._proof_status.setWordWrap(True)
         self._proof_status.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; "
+            f"color:{MUTED}; font-size:12px; "
             f"font-family:{FONT_UI}; background:transparent;")
         v.addWidget(self._proof_status)
 
@@ -1705,7 +1705,7 @@ class AISidebar(QWidget):
         if not issues:
             lbl = QLabel("No significant issues found.")
             lbl.setStyleSheet(
-                f"color:{ACCENT2}; font-size:11px; "
+                f"color:{ACCENT2}; font-size:13px; "
                 f"font-family:{FONT_UI}; background:transparent;")
             self._proof_list_layout.insertWidget(
                 self._proof_list_layout.count() - 1, lbl)
@@ -1736,14 +1736,14 @@ class AISidebar(QWidget):
         phrase_lbl = QLabel(f'"{phrase}"')
         phrase_lbl.setWordWrap(True)
         phrase_lbl.setStyleSheet(
-            f"color:{RED}; font-size:11px; "
+            f"color:{RED}; font-size:13px; "
             f"font-family:'Palatino Linotype',Georgia,serif; "
             f"background:transparent;")
 
         sug_lbl = QLabel(suggestion)
         sug_lbl.setWordWrap(True)
         sug_lbl.setStyleSheet(
-            f"color:{TEXT2}; font-size:11px; font-family:{FONT_UI}; "
+            f"color:{TEXT2}; font-size:13px; font-family:{FONT_UI}; "
             f"background:transparent; line-height:1.5;")
 
         fix_btn = QPushButton("AI Fix")
@@ -1752,7 +1752,7 @@ class AISidebar(QWidget):
             QPushButton {{
                 background:transparent; border:1px solid {BORDER2};
                 border-radius:4px; color:{ACCENT};
-                font-size:10px; font-family:{FONT_UI}; padding:0 8px;
+                font-size:12px; font-family:{FONT_UI}; padding:0 8px;
             }}
             QPushButton:hover {{ background:rgba(201,168,76,.1); }}
         """)
@@ -1829,7 +1829,7 @@ class AISidebar(QWidget):
     def _action_btn_style() -> str:
         return (
             f"QPushButton{{background:transparent;border:1px solid {BORDER};"
-            f"border-radius:5px;color:{TEXT2};font-size:11px;"
+            f"border-radius:5px;color:{TEXT2};font-size:13px;"
             f"font-family:{FONT_UI};padding:8px 12px;text-align:left;}}"
             f"QPushButton:hover{{border-color:rgba(201,168,76,.4);"
             f"color:{ACCENT};}}"
@@ -1841,7 +1841,7 @@ class AISidebar(QWidget):
         return (
             f"QPushButton{{background:{ACCENT2};color:#0A0A0D;border:none;"
             f"border-radius:5px;font-weight:bold;font-family:{FONT_UI};"
-            f"font-size:11px;padding:6px;}}"
+            f"font-size:13px;padding:6px;}}"
             f"QPushButton:hover{{background:#5ED4B0;}}"
         )
 
@@ -1850,7 +1850,7 @@ class AISidebar(QWidget):
         return (
             f"QPushButton{{background:#1A1A24;color:{MUTED};"
             f"border:1px solid {BORDER};border-radius:5px;"
-            f"font-family:{FONT_UI};font-size:11px;padding:6px;}}"
+            f"font-family:{FONT_UI};font-size:13px;padding:6px;}}"
             f"QPushButton:hover{{color:{TEXT2};}}"
         )
 
@@ -1906,7 +1906,7 @@ class WriterCanvas(QTextEdit):
                 border-radius: 12px;
                 color: #E8E4DC;
                 font-family: 'Palatino Linotype', Palatino, Georgia, serif;
-                font-size: 18px;
+                font-size: 21px;
                 selection-background-color: rgba(201,168,76,0.2);
                 padding: 48px 64px;
             }
@@ -2069,13 +2069,13 @@ class EditorPage(QWidget):
         h.setSpacing(20)
         self._status_path = QLabel("Untitled")
         self._status_path.setStyleSheet(
-            f"color:#3A3A4A; font-size:10px; font-family:{FONT_UI};")
+            f"color:#3A3A4A; font-size:12px; font-family:{FONT_UI};")
         self._status_modified = QLabel("")
         self._status_modified.setStyleSheet(
-            f"color:{ACCENT}; font-size:10px; font-family:{FONT_UI};")
+            f"color:{ACCENT}; font-size:12px; font-family:{FONT_UI};")
         self._status_chars = QLabel("0 chars")
         self._status_chars.setStyleSheet(
-            f"color:{MUTED}; font-size:10px; font-family:{FONT_UI};")
+            f"color:{MUTED}; font-size:12px; font-family:{FONT_UI};")
         h.addWidget(self._status_path)
         h.addWidget(self._status_modified)
         h.addStretch()
@@ -2362,11 +2362,11 @@ def main():
 
     # Global stylesheet baseline
     app.setStyleSheet(f"""
-        * {{ font-family:{FONT_UI}; font-size:13px; color:{TEXT}; }}
+        * {{ font-family:{FONT_UI}; font-size:15px; color:{TEXT}; }}
         QMainWindow, QWidget, QDialog {{ background:{BG}; }}
         QToolTip {{
             background:{PANEL}; border:1px solid {BORDER2}; color:{TEXT};
-            padding:4px 8px; font-size:11px;
+            padding:4px 8px; font-size:13px;
         }}
         QMessageBox {{ background:{BG2}; }}
         QMessageBox QLabel {{ color:{TEXT}; }}

@@ -309,7 +309,7 @@ class NowPlayingWidget(QWidget):
         self._src = QLabel("")
         self._src.setStyleSheet(
             "background:rgba(78,201,164,0.12);"
-            "color:#4EC9A4;font-size:8px;letter-spacing:2px;"
+            "color:#4EC9A4;font-size:12px;letter-spacing:2px;"
             "padding:2px 7px;border-radius:8px;"
             "border:1px solid rgba(78,201,164,0.25);")
         self._src.setVisible(False)
@@ -321,14 +321,14 @@ class NowPlayingWidget(QWidget):
         self._title = QLabel("Nothing playing")
         self._title.setStyleSheet(
             "background:transparent;color:#3A3A50;"
-            "font-size:16px;font-weight:700;")
+            "font-size:18px;font-weight:700;")
         right.addWidget(self._title)
 
         # Artist
         self._artist = QLabel("")
         self._artist.setStyleSheet(
             "background:transparent;color:#303050;"
-            "font-size:12px;letter-spacing:0.5px;")
+            "font-size:14px;letter-spacing:0.5px;")
         right.addWidget(self._artist)
 
         right.addSpacing(2)
@@ -353,7 +353,7 @@ class NowPlayingWidget(QWidget):
                 b.setStyleSheet(
                     "QPushButton{background:rgba(78,201,164,0.22);"
                     "border:1px solid rgba(78,201,164,0.65);"
-                    "color:#4EC9A4;font-size:18px;"
+                    "color:#4EC9A4;font-size:21px;"
                     "border-radius:24px;padding:0;}"
                     "QPushButton:hover{background:rgba(78,201,164,0.35);"
                     "border-color:#4EC9A4;}"
@@ -363,7 +363,7 @@ class NowPlayingWidget(QWidget):
                 b.setStyleSheet(
                     "QPushButton{background:rgba(255,255,255,0.06);"
                     "border:1px solid rgba(255,255,255,0.12);"
-                    "color:#8080B0;font-size:14px;"
+                    "color:#8080B0;font-size:16px;"
                     "border-radius:18px;padding:0;}"
                     "QPushButton:hover{background:rgba(255,255,255,0.12);"
                     "color:#C0C0E0;border-color:rgba(255,255,255,0.25);}"
@@ -437,14 +437,14 @@ class NowPlayingWidget(QWidget):
     def _apply(self, s):
         if not s.get("ok") or not s.get("active"):
             self._title.setStyleSheet(
-                "background:transparent;color:#252535;font-size:16px;font-weight:700;")
+                "background:transparent;color:#252535;font-size:18px;font-weight:700;")
             self._set_title("Nothing playing")
             self._artist.setText("")
             self._src.setVisible(False)
             self._play_btn.setText("▶")
             self._play_btn.setStyleSheet(
                 "QPushButton{background:transparent;border:none;"
-                "color:#202030;font-size:16px;"
+                "color:#202030;font-size:18px;"
                 "border-radius:21px;padding:0;}"
                 "QPushButton:hover{color:#4EC9A4;}")
             self._art.set_pixmap(None)
@@ -464,7 +464,7 @@ class NowPlayingWidget(QWidget):
             self._play_btn.setStyleSheet(
                 "QPushButton{background:rgba(78,201,164,0.22);"
                 "border:1px solid rgba(78,201,164,0.65);"
-                "color:#4EC9A4;font-size:18px;"
+                "color:#4EC9A4;font-size:21px;"
                 "border-radius:24px;padding:0;}"
                 "QPushButton:hover{background:rgba(78,201,164,0.30);}"
                 "QPushButton:pressed{background:rgba(78,201,164,0.45);}")
@@ -472,7 +472,7 @@ class NowPlayingWidget(QWidget):
             self._play_btn.setStyleSheet(
                 "QPushButton{background:rgba(201,168,76,0.18);"
                 "border:1px solid rgba(201,168,76,0.55);"
-                "color:#C9A84C;font-size:18px;"
+                "color:#C9A84C;font-size:21px;"
                 "border-radius:24px;padding:0;}"
                 "QPushButton:hover{background:rgba(201,168,76,0.25);}")
 
@@ -481,7 +481,7 @@ class NowPlayingWidget(QWidget):
         album  = s.get("album",  "")
 
         self._title.setStyleSheet(
-            "background:transparent;color:#C8C4BE;font-size:16px;font-weight:700;")
+            "background:transparent;color:#C8C4BE;font-size:18px;font-weight:700;")
         self._set_title(title)
 
         sub = artist
@@ -489,7 +489,7 @@ class NowPlayingWidget(QWidget):
             sub = f"{artist}  ·  {album}" if artist else album
         self._artist.setStyleSheet(
             "background:transparent;color:#5050A0;"
-            "font-size:12px;letter-spacing:0.5px;")
+            "font-size:14px;letter-spacing:0.5px;")
         self._artist.setText(sub[:50])
 
 
@@ -533,7 +533,7 @@ def build_page(parent, api):
     hh = QHBoxLayout(hdr); hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("▶  NOW PLAYING")
     tl.setStyleSheet(
-        f"color:{colours['ACCENT']};font-size:14px;"
+        f"color:{colours['ACCENT']};font-size:16px;"
         f"font-weight:bold;letter-spacing:3px;")
     hh.addWidget(tl); hh.addStretch()
     v.addWidget(hdr)
@@ -548,14 +548,14 @@ def build_page(parent, api):
     st = QLabel("● playerctl found — album art + controls active" if has
                 else "⚠  playerctl not installed — sudo apt install playerctl")
     st.setStyleSheet(
-        f"color:{colours['ACCENT2'] if has else '#E05A6A'};font-size:12px;")
+        f"color:{colours['ACCENT2'] if has else '#E05A6A'};font-size:14px;")
     bv.addWidget(st)
 
     desc = QLabel(
         "Large card under the clock with album art, track info, "
         "progress bar, and controls.\n"
         "Works with Spotify, mpv, VLC, and any MPRIS player.")
-    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:13px;")
+    desc.setStyleSheet(f"color:{colours['TEXT2']};font-size:15px;")
     desc.setWordWrap(True)
     bv.addWidget(desc)
 

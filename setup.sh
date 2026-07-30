@@ -177,6 +177,7 @@ PACKAGES=(
     "Pygments"
     "pypdf"
     "PyMuPDF"
+    "qtawesome"
     "keyring"
 )
 

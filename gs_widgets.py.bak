@@ -5,11 +5,6 @@ Shared UI components: NavRail, helper functions, toasts, overlays,
 ambient canvas, memory palace, watchface.
 """
 import os
-try:
-    import qtawesome as qta
-    _HAS_QTA = True
-except ImportError:
-    _HAS_QTA = False
 
 try:
     from gs_logger import log
@@ -80,7 +75,7 @@ def tag(text, color=MUTED):
     l = QLabel(text)
     l.setStyleSheet(
         f"color:{color}; background:{BG3}; border:1px solid {BORDER};"
-        f"font-size:13px; letter-spacing:1px; padding:1px 6px; border-radius:2px;")
+        f"font-size:9px; letter-spacing:1px; padding:1px 6px; border-radius:2px;")
     return l
 
 
@@ -96,17 +91,14 @@ class NavRail(QFrame):
     navigate = pyqtSignal(str)
 
     _ITEMS = [
-        ("dashboard", "fa5s.tachometer-alt", "DASH"),
-        ("legion",    "fa5s.book-open",      "LEGION"),
-        ("matrix",    "fa5s.th-large",       "MATRIX"),
-        ("sage",      "fa5s.hat-wizard",     "SAGE"),
-        ("editor",    "fa5s.pen",            "EDITOR"),
-        ("plugins",   "fa5s.puzzle-piece",   "PLUGINS"),
+        ("dashboard", "◈", "DASH"),
+        ("legion",    "◎", "LEGION"),
+        ("matrix",    "▣", "MATRIX"),
+        ("sage",      "✦", "SAGE"),
+        ("editor",    "✎", "EDITOR"),
+        ("plugins",   "⬡", "PLUGINS"),
+        ("bugreport", "⚑", "REPORT"),
     ]
-    _FALLBACK_GLYPHS = {
-        "dashboard": "◈", "legion": "◎", "matrix": "▣",
-        "sage": "✦", "editor": "✎", "plugins": "⬡",
-    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -150,7 +142,7 @@ class NavRail(QFrame):
         logo_lbl = QLabel("◈")
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_lbl.setStyleSheet(
-            f"background:transparent; border:none; color:{ACCENT}; font-size:23px;")
+            f"background:transparent; border:none; color:{ACCENT}; font-size:20px;")
         lv.addWidget(logo_lbl)
         pill_v.addWidget(logo_w, 0, Qt.AlignmentFlag.AlignHCenter)
         pill_v.addSpacing(8)
@@ -170,36 +162,13 @@ class NavRail(QFrame):
 
         pill_v.addStretch()
 
-        # ── Sliding selection indicator — glides between tiles instead of jumping ──
-        from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QVariantAnimation
-        from PyQt6.QtGui import QColor as _QColor
-        self._pill = pill
-        self._indicator = QWidget(pill)
-        self._indicator.setObjectName("NavIndicator")
-        self._indicator.setFixedSize(3, 34)
-        self._indicator.setStyleSheet(f"background:{ACCENT}; border-radius:2px;")
-        self._indicator.hide()
-        self._indicator_anim = QPropertyAnimation(self._indicator, b"pos")
-        self._indicator_anim.setDuration(260)
-        self._indicator_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        # ── Ambient breathing border on the rail pill itself ───────────────────────
-        self._border_anim = QVariantAnimation(self)
-        self._border_anim.setStartValue(_QColor("#16161E"))
-        self._border_anim.setKeyValueAt(0.5, _QColor(f"{ACCENT}30"))
-        self._border_anim.setEndValue(_QColor("#16161E"))
-        self._border_anim.setDuration(4200)
-        self._border_anim.setLoopCount(-1)
-        self._border_anim.valueChanged.connect(self._paint_pill_border)
-        self._border_anim.start()
-
         # Menu button
         self._rail_menu_btn = QPushButton("⋯")
         self._rail_menu_btn.setFixedSize(48, 32)
         self._rail_menu_btn.setStyleSheet(f"""
             QPushButton {{
                 background:#0C0C10; border:1px solid transparent; border-radius:8px;
-                color:#6A6A88; font-size:18px; padding:0;
+                color:#6A6A88; font-size:16px; padding:0;
             }}
             QPushButton:hover {{ background:#111118; border-color:#222230; color:#A0A0C0; }}
         """)
@@ -212,7 +181,7 @@ class NavRail(QFrame):
         self._net_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._net_dot.setFixedHeight(16)
         self._net_dot.setStyleSheet(
-            f"color:{ACCENT2}66; font-size:13px; background:transparent; border:none;")
+            f"color:{ACCENT2}66; font-size:7px; background:transparent; border:none;")
         self._net_dot.setToolTip("Online")
         pill_v.addWidget(self._net_dot)
 
@@ -224,18 +193,9 @@ class NavRail(QFrame):
         self._last_net = None
         QTimer.singleShot(600, self._check_network)
 
-    def _set_icon(self, lbl, icon_name: str, color: str, size: int = 17):
-        """Render icon_name at the given color into lbl. Falls back to
-        the original Unicode glyph as plain text if qtawesome isnt installed."""
-        if _HAS_QTA:
-            lbl.setPixmap(qta.icon(icon_name, color=color).pixmap(size, size))
-            lbl.setProperty("icon_name", icon_name)
-        else:
-            lbl.setText(self._FALLBACK_GLYPHS.get(icon_name, "•"))
-            lbl.setStyleSheet(f"background:transparent; border:none; font-size:{size}px; color:{color};")
     def _make_tile(self, key: str, icon: str, label: str) -> QWidget:
         tile = QWidget()
-        tile.setFixedSize(52, 58)
+        tile.setFixedSize(64, 58)
         tile.setCursor(Qt.CursorShape.PointingHandCursor)
         tile.setToolTip(label)
         tile.setObjectName(f"tile_{key}")
@@ -243,59 +203,51 @@ class NavRail(QFrame):
         tv.setContentsMargins(0, 8, 0, 8)
         tv.setSpacing(5)
         tv.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico = QLabel()
+        streak = QWidget(tile)
+        streak.setFixedHeight(1); streak.setFixedWidth(38); streak.move(13, 0)
+        streak.setStyleSheet(
+            f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            f"stop:0 transparent,stop:0.5 {ACCENT},stop:1 transparent);")
+        streak.setVisible(False)
+        tile._streak = streak
+        ico = QLabel(icon)
         ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._set_icon(ico, icon, "#6A6A88")
+        ico.setStyleSheet("background:transparent; border:none; font-size:15px; color:#6A6A88;")
         ico.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tile._ico = ico
         txt = QLabel(label)
         txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
         txt.setStyleSheet(
             f"background:transparent; border:none; "
-            f"font-family:{FONT_UI}; font-size:13px; letter-spacing:1px; color:#5A5A78;")
+            f"font-family:{FONT_UI}; font-size:7px; letter-spacing:1px; color:#5A5A78;")
         txt.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tile._txt = txt
         tv.addWidget(ico); tv.addWidget(txt)
-        tile.mousePressEvent = lambda e, k=key, t=tile: (self._pulse_tile(t), self.navigate.emit(k))
+        tile.mousePressEvent = lambda e, k=key: self.navigate.emit(k)
         self._apply_style(tile, False)
         return tile
 
     def _apply_style(self, tile: QWidget, active: bool):
         if active:
             tile.setStyleSheet(
-                "QWidget { background:#1A1106; border:1px solid transparent; border-radius:10px; }")
-            self._set_icon(tile._ico, tile._ico.property("icon_name"), ACCENT)
+                "QWidget { background:#1A1106; border:1px solid #C9A84C44; border-radius:10px; }")
+            tile._streak.setVisible(True)
+            tile._ico.setStyleSheet(
+                f"background:transparent; border:none; font-size:15px; color:{ACCENT};")
             tile._txt.setStyleSheet(
                 f"background:transparent; border:none; "
-                f"font-family:{FONT_UI}; font-size:13px; letter-spacing:1px; "
+                f"font-family:{FONT_UI}; font-size:7px; letter-spacing:1px; "
                 f"color:#A07830; font-weight:bold;")
         else:
             tile.setStyleSheet(
                 "QWidget { background:#0C0C10; border:1px solid transparent; border-radius:10px; }"
                 "QWidget:hover { background:#111118; border:1px solid #222230; }")
-            self._set_icon(tile._ico, tile._ico.property("icon_name"), "#6A6A88")
+            tile._streak.setVisible(False)
+            tile._ico.setStyleSheet(
+                "background:transparent; border:none; font-size:15px; color:#6A6A88;")
             tile._txt.setStyleSheet(
                 f"background:transparent; border:none; "
-                f"font-family:{FONT_UI}; font-size:13px; letter-spacing:1px; color:#5A5A78;")
-
-    def _pulse_tile(self, tile: QWidget):
-        """Subtle heartbeat glow pulse on press."""
-        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
-        from PyQt6.QtCore import QPropertyAnimation
-        from PyQt6.QtGui import QColor as _QColor
-        effect = QGraphicsDropShadowEffect(tile)
-        effect.setColor(_QColor(ACCENT))
-        effect.setOffset(0, 0)
-        effect.setBlurRadius(0)
-        tile.setGraphicsEffect(effect)
-        anim = QPropertyAnimation(effect, b"blurRadius", tile)
-        anim.setDuration(360)
-        anim.setKeyValueAt(0.0, 0)
-        anim.setKeyValueAt(0.3, 20)
-        anim.setKeyValueAt(1.0, 0)
-        tile._pulse_anim = anim
-        anim.finished.connect(lambda: tile.setGraphicsEffect(None))
-        anim.start()
+                f"font-family:{FONT_UI}; font-size:7px; letter-spacing:1px; color:#5A5A78;")
 
     def set_active(self, key: str):
         if self._active == key:
@@ -305,32 +257,6 @@ class NavRail(QFrame):
         self._active = key
         if key in self._btns:
             self._apply_style(self._btns[key], True)
-            self._glide_indicator_to(key)
-
-    def _glide_indicator_to(self, key: str):
-        from PyQt6.QtCore import QPoint
-        tile = self._btns.get(key)
-        if not tile:
-            return
-        target = QPoint(6, tile.y() + (tile.height() - self._indicator.height()) // 2)
-        if self._indicator.isVisible():
-            self._indicator_anim.stop()
-            self._indicator_anim.setStartValue(self._indicator.pos())
-            self._indicator_anim.setEndValue(target)
-            self._indicator_anim.start()
-        else:
-            self._indicator.move(target)
-            self._indicator.show()
-        self._indicator.raise_()
-
-    def _paint_pill_border(self, color):
-        self._pill.setStyleSheet(f"""
-            QFrame#NavPill {{
-                background: #08080B;
-                border: 1px solid {color.name()};
-                border-radius: 18px;
-            }}
-        """)
 
     def _open_rail_menu(self):
         mw = self.window()
@@ -351,12 +277,12 @@ class NavRail(QFrame):
             self._last_net = online
             if online:
                 self._net_dot.setStyleSheet(
-                    f"color:{ACCENT2}66; font-size:13px; background:transparent; border:none;")
+                    f"color:{ACCENT2}66; font-size:7px; background:transparent; border:none;")
                 self._net_dot.setToolTip("Online")
                 log.network.info("Network state changed: ONLINE")
             else:
                 self._net_dot.setStyleSheet(
-                    f"color:{MUTED}; font-size:13px; background:transparent; border:none;")
+                    f"color:{MUTED}; font-size:7px; background:transparent; border:none;")
                 self._net_dot.setToolTip("Offline")
                 log.network.warning("Network state changed: OFFLINE")
 _AMBIENT_THEMES = {
@@ -467,7 +393,7 @@ class EyeBreakToast(QWidget):
                 background: rgba(14, 28, 20, 220);
                 color: #A0E8C0;
                 font-family: {FONT_UI};
-                font-size: 15px;
+                font-size: 13px;
                 letter-spacing: 1px;
                 border: 1px solid rgba(80, 200, 130, 120);
                 border-radius: 8px;
@@ -553,7 +479,7 @@ class SyncToast(QWidget):
                 background: rgba(14, 20, 36, 220);
                 color: #A0C8FF;
                 font-family: {FONT_UI};
-                font-size: 15px;
+                font-size: 13px;
                 letter-spacing: 1px;
                 border: 1px solid rgba(80, 130, 220, 120);
                 border-radius: 8px;
@@ -928,7 +854,7 @@ class ReadingRoomOverlay(QWidget):
                 border: 1px solid rgba(255,255,255,0.30);
                 border-radius: 6px; padding: 4px 16px;
                 color: rgba(255,255,255,0.80);
-                font-size: 12px; letter-spacing: 2px;
+                font-size: 10px; letter-spacing: 2px;
             }
             QPushButton:hover {
                 background: rgba(255,255,255,0.25);
@@ -941,10 +867,10 @@ class ReadingRoomOverlay(QWidget):
         p = self._profile
         genre_lbl = QLabel(f"◈  {p['label'].upper()}")
         genre_lbl.setStyleSheet(
-            "color: rgba(255,255,255,0.55); font-size:13px; letter-spacing:3px;")
+            "color: rgba(255,255,255,0.55); font-size:9px; letter-spacing:3px;")
 
         snd_lbl = QLabel("♪")
-        snd_lbl.setStyleSheet("color:rgba(255,255,255,0.55); font-size:16px;")
+        snd_lbl.setStyleSheet("color:rgba(255,255,255,0.55); font-size:14px;")
 
         self._vol_slider = QSlider(Qt.Orientation.Horizontal)
         self._vol_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1036,9 +962,9 @@ class ReadingRoomOverlay(QWidget):
         h = QHBoxLayout(bar)
         h.setContentsMargins(28, 0, 28, 0)
         tl = QLabel(title[:80])
-        tl.setStyleSheet("color:rgba(255,255,255,0.50); font-size:12px; letter-spacing:1px;")
+        tl.setStyleSheet("color:rgba(255,255,255,0.50); font-size:10px; letter-spacing:1px;")
         el = QLabel("Esc · exit   |   Space · scroll")
-        el.setStyleSheet("color:rgba(255,255,255,0.30); font-size:13px; letter-spacing:1px;")
+        el.setStyleSheet("color:rgba(255,255,255,0.30); font-size:9px; letter-spacing:1px;")
         h.addWidget(tl); h.addStretch(); h.addWidget(el)
         return bar
 
@@ -1232,13 +1158,13 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
     gap: 16px;
   }
   #header h1 {
-    font-size: 21px;
+    font-size: 18px;
     letter-spacing: 4px;
     color: #C8A96E;
     font-weight: normal;
   }
   #header span {
-    font-size: 13px;
+    font-size: 11px;
     letter-spacing: 2px;
     color: #2A3A50;
   }
@@ -1252,7 +1178,7 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
   }
 
   .section-label {
-    font-size: 13px;
+    font-size: 9px;
     letter-spacing: 3px;
     color: #1E3050;
     margin: 24px 0 12px;
@@ -1298,7 +1224,7 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
     writing-mode: vertical-rl;
     text-orientation: mixed;
     transform: rotate(180deg);
-    font-size: 13px;
+    font-size: 9px;
     letter-spacing: 1px;
     color: rgba(255,255,255,0.55);
     white-space: nowrap;
@@ -1317,7 +1243,7 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
     border: 1px solid #1E3040;
     border-radius: 4px;
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: 11px;
     color: #C8D4E4;
     white-space: nowrap;
     z-index: 100;
@@ -1352,7 +1278,7 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
   }
   .poster:hover { transform: scale(1.08); z-index: 10; }
   .poster-title {
-    font-size: 12px;
+    font-size: 8px;
     letter-spacing: 0.5px;
     color: rgba(255,255,255,0.80);
     text-align: center;
@@ -1363,13 +1289,13 @@ _MEMORY_PALACE_HTML = """<!DOCTYPE html>
     word-break: break-word;
   }
   .poster-icon {
-    font-size: 32px;
+    font-size: 28px;
     position: absolute;
     top: 18px;
     opacity: 0.6;
   }
   .empty-msg {
-    font-size: 14px;
+    font-size: 12px;
     color: #1E3050;
     letter-spacing: 1px;
     padding: 16px 0;
@@ -1437,7 +1363,7 @@ if (books.length === 0) {
       `
       el.innerHTML = `
         <div class="book-spine">${esc(book.title)}</div>
-        <div class="book-tooltip">${esc(book.title)}<br><span style="color:#4A6080;font-size:12px">${esc(book.info)}</span></div>
+        <div class="book-tooltip">${esc(book.title)}<br><span style="color:#4A6080;font-size:10px">${esc(book.info)}</span></div>
       `;
       shelf.appendChild(el);
     });
@@ -1497,10 +1423,10 @@ class MemoryPalaceWindow(QWidget):
         bv = QHBoxLayout(bar)
         bv.setContentsMargins(16,0,16,0)
         tl = QLabel("◈  MEMORY PALACE")
-        tl.setStyleSheet(f"color:{ACCENT};font-size:13px;letter-spacing:3px;")
+        tl.setStyleSheet(f"color:{ACCENT};font-size:11px;letter-spacing:3px;")
         cb = QPushButton("✕  CLOSE")
         cb.setStyleSheet("background:transparent;border:none;color:#4A6070;"
-                         "font-size:13px;letter-spacing:2px;")
+                         "font-size:9px;letter-spacing:2px;")
         cb.clicked.connect(self.close)
         bv.addWidget(tl); bv.addStretch(); bv.addWidget(cb)
         root.addWidget(bar)
@@ -1546,7 +1472,7 @@ class MemoryPalaceWindow(QWidget):
 
         # ── Library section ─────────────────────────────────────────────────
         lib_hdr = QLabel("LIBRARY  —  BOOKS READ")
-        lib_hdr.setStyleSheet(f"color:#1E3050;font-size:13px;letter-spacing:3px;")
+        lib_hdr.setStyleSheet(f"color:#1E3050;font-size:9px;letter-spacing:3px;")
         cv.addWidget(lib_hdr)
 
         if not books:
@@ -1567,7 +1493,7 @@ class MemoryPalaceWindow(QWidget):
                     spine.setFixedSize(26, height)
                     spine.setStyleSheet(
                         f"background:{color};color:rgba(255,255,255,0.55);"
-                        f"font-size:12px;padding:2px;border-radius:1px 0 0 1px;")
+                        f"font-size:8px;padding:2px;border-radius:1px 0 0 1px;")
                     spine.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
                     spine.setToolTip(f"{title}\n{ch_read} chapters read")
                     sh.addWidget(spine)
@@ -1577,7 +1503,7 @@ class MemoryPalaceWindow(QWidget):
         # ── Viewing room section ─────────────────────────────────────────────
         cv.addSpacing(8)
         view_hdr = QLabel("VIEWING ROOM  —  SHOWS WATCHED")
-        view_hdr.setStyleSheet(f"color:#1E3050;font-size:13px;letter-spacing:3px;")
+        view_hdr.setStyleSheet(f"color:#1E3050;font-size:9px;letter-spacing:3px;")
         cv.addWidget(view_hdr)
 
         if not shows:
@@ -1606,11 +1532,11 @@ class MemoryPalaceWindow(QWidget):
                 cl.setSpacing(2)
                 ico_lbl = QLabel(icon)
                 ico_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                ico_lbl.setStyleSheet("font-size:25px;background:transparent;")
+                ico_lbl.setStyleSheet("font-size:22px;background:transparent;")
                 t_lbl = QLabel(title[:20])
                 t_lbl.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
                 t_lbl.setWordWrap(True)
-                t_lbl.setStyleSheet("font-size:12px;color:rgba(255,255,255,0.75);background:transparent;")
+                t_lbl.setStyleSheet("font-size:8px;color:rgba(255,255,255,0.75);background:transparent;")
                 cl.addWidget(ico_lbl, 1)
                 cl.addWidget(t_lbl)
                 wl.addWidget(card)
@@ -1678,27 +1604,27 @@ class WatchfaceWindow(QWidget):
         # Clock
         self._clock_lbl = QLabel()
         self._clock_lbl.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:110px; font-weight:bold;"
+            f"font-family:{FONT_DISPLAY}; font-size:96px; font-weight:bold;"
             f"color:{TEXT}; letter-spacing:4px;")
         self._clock_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
         root.addWidget(self._clock_lbl)
 
         self._date_lbl = QLabel()
-        self._date_lbl.setStyleSheet(f"color:{MUTED}; font-size:21px; letter-spacing:3px;")
+        self._date_lbl.setStyleSheet(f"color:{MUTED}; font-size:18px; letter-spacing:3px;")
         root.addWidget(self._date_lbl)
         root.addSpacing(60)
 
         # Reading now
         row1 = QHBoxLayout()
         row1.setSpacing(32)
-        ico1 = QLabel("◈"); ico1.setStyleSheet(f"color:{ACCENT}; font-size:41px;")
+        ico1 = QLabel("◈"); ico1.setStyleSheet(f"color:{ACCENT}; font-size:36px;")
         col1 = QVBoxLayout()
         col1.setSpacing(4)
         self._reading_title = QLabel("—")
         self._reading_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:25px; color:{TEXT}; letter-spacing:1px;")
+            f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
         self._reading_sub = QLabel("READING")
-        self._reading_sub.setStyleSheet(f"color:{MUTED}; font-size:12px; letter-spacing:3px;")
+        self._reading_sub.setStyleSheet(f"color:{MUTED}; font-size:10px; letter-spacing:3px;")
         col1.addWidget(self._reading_sub); col1.addWidget(self._reading_title)
         row1.addWidget(ico1); row1.addLayout(col1); row1.addStretch()
         root.addLayout(row1)
@@ -1707,14 +1633,14 @@ class WatchfaceWindow(QWidget):
         # Watching now
         row2 = QHBoxLayout()
         row2.setSpacing(32)
-        ico2 = QLabel("◎"); ico2.setStyleSheet(f"color:{BLUE}; font-size:41px;")
+        ico2 = QLabel("◎"); ico2.setStyleSheet(f"color:{BLUE}; font-size:36px;")
         col2 = QVBoxLayout()
         col2.setSpacing(4)
         self._watching_title = QLabel("—")
         self._watching_title.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:25px; color:{TEXT}; letter-spacing:1px;")
+            f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
         self._watching_sub = QLabel("WATCHING")
-        self._watching_sub.setStyleSheet(f"color:{MUTED}; font-size:12px; letter-spacing:3px;")
+        self._watching_sub.setStyleSheet(f"color:{MUTED}; font-size:10px; letter-spacing:3px;")
         col2.addWidget(self._watching_sub); col2.addWidget(self._watching_title)
         row2.addWidget(ico2); row2.addLayout(col2); row2.addStretch()
         root.addLayout(row2)
@@ -1723,14 +1649,14 @@ class WatchfaceWindow(QWidget):
         # Sage pick
         row3 = QHBoxLayout()
         row3.setSpacing(32)
-        ico3 = QLabel("✦"); ico3.setStyleSheet(f"color:{PURPLE}; font-size:41px;")
+        ico3 = QLabel("✦"); ico3.setStyleSheet(f"color:{PURPLE}; font-size:36px;")
         col3 = QVBoxLayout()
         col3.setSpacing(4)
         self._sage_pick = QLabel("Ask Sage for a pick →")
         self._sage_pick.setStyleSheet(
-            f"font-family:{FONT_DISPLAY}; font-size:25px; color:{TEXT}; letter-spacing:1px;")
+            f"font-family:{FONT_DISPLAY}; font-size:22px; color:{TEXT}; letter-spacing:1px;")
         self._sage_sub = QLabel("SAGE DAILY PICK")
-        self._sage_sub.setStyleSheet(f"color:{MUTED}; font-size:12px; letter-spacing:3px;")
+        self._sage_sub.setStyleSheet(f"color:{MUTED}; font-size:10px; letter-spacing:3px;")
         col3.addWidget(self._sage_sub); col3.addWidget(self._sage_pick)
         row3.addWidget(ico3); row3.addLayout(col3); row3.addStretch()
         root.addLayout(row3)
@@ -1739,7 +1665,7 @@ class WatchfaceWindow(QWidget):
 
         # Close hint
         hint = QLabel("Press  Esc  or  Ctrl+W  to exit ambient mode")
-        hint.setStyleSheet(f"color:{MUTED}; font-size:13px; letter-spacing:2px;")
+        hint.setStyleSheet(f"color:{MUTED}; font-size:11px; letter-spacing:2px;")
         hint.setAlignment(Qt.AlignmentFlag.AlignRight)
         root.addWidget(hint)
 
@@ -1817,14 +1743,14 @@ class NotificationBell(QPushButton):
         if active:
             self.setStyleSheet(
                 f"QPushButton{{background:transparent;border:1px solid {ACCENT};"
-                f"border-radius:3px;color:{ACCENT};font-size:12px;letter-spacing:1px;"
+                f"border-radius:3px;color:{ACCENT};font-size:10px;letter-spacing:1px;"
                 f"padding:8px 14px;}}"
                 f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
             )
         else:
             self.setStyleSheet(
                 f"QPushButton{{background:transparent;border:1px solid {BORDER};"
-                f"border-radius:3px;color:{TEXT2};font-size:12px;letter-spacing:1px;"
+                f"border-radius:3px;color:{TEXT2};font-size:10px;letter-spacing:1px;"
                 f"padding:8px 14px;}}"
                 f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
             )
@@ -1952,7 +1878,7 @@ class NotificationPanel(QFrame):
 
         title_lbl = QLabel("NOTIFICATIONS")
         title_lbl.setStyleSheet(
-            f"color:{MUTED};font-size:13px;letter-spacing:3px;"
+            f"color:{MUTED};font-size:9px;letter-spacing:3px;"
             f"background:transparent;border:none;")
         hh.addWidget(title_lbl)
         hh.addStretch()
@@ -1961,7 +1887,7 @@ class NotificationPanel(QFrame):
         self._mark_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mark_all_btn.setStyleSheet(
             f"QPushButton{{background:transparent;border:none;"
-            f"color:{MUTED};font-size:13px;letter-spacing:1px;padding:2px 6px;}}"
+            f"color:{MUTED};font-size:9px;letter-spacing:1px;padding:2px 6px;}}"
             f"QPushButton:hover{{color:{ACCENT};}}"
         )
         self._mark_all_btn.clicked.connect(self._on_mark_all_read)
@@ -2007,7 +1933,7 @@ class NotificationPanel(QFrame):
             empty = QLabel("No notifications yet")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet(
-                f"color:{MUTED};font-size:13px;padding:32px 16px;"
+                f"color:{MUTED};font-size:11px;padding:32px 16px;"
                 f"background:transparent;")
             self._items_layout.addWidget(empty)
             self._items_layout.addStretch()
@@ -2052,7 +1978,7 @@ class NotificationPanel(QFrame):
         dot.setFixedWidth(10)
         dot.setStyleSheet(
             f"color:{ACCENT if is_unread else 'transparent'};"
-            f"font-size:13px;background:transparent;border:none;")
+            f"font-size:7px;background:transparent;border:none;")
         rl.addWidget(dot)
 
         # Content column
@@ -2063,7 +1989,7 @@ class NotificationPanel(QFrame):
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
             f"color:{TEXT if is_unread else TEXT2};"
-            f"font-size:14px;"
+            f"font-size:12px;"
             f"{'font-weight:bold;' if is_unread else ''}"
             f"background:transparent;border:none;")
         title_lbl.setWordWrap(True)
@@ -2076,7 +2002,7 @@ class NotificationPanel(QFrame):
                 preview = commits[0].get("message", "")[:60]
                 sub = QLabel(preview)
                 sub.setStyleSheet(
-                    f"color:{MUTED};font-size:12px;"
+                    f"color:{MUTED};font-size:10px;"
                     f"background:transparent;border:none;")
                 sub.setWordWrap(True)
                 col.addWidget(sub)
@@ -2084,7 +2010,7 @@ class NotificationPanel(QFrame):
             if version:
                 ver_lbl = QLabel(f"v{version}")
                 ver_lbl.setStyleSheet(
-                    f"color:{ACCENT};font-size:13px;letter-spacing:1px;"
+                    f"color:{ACCENT};font-size:9px;letter-spacing:1px;"
                     f"background:transparent;border:none;")
                 col.addWidget(ver_lbl)
 
@@ -2096,7 +2022,7 @@ class NotificationPanel(QFrame):
                 sub_txt += f"  ·  {rec_type.upper()}"
             sub = QLabel(sub_txt)
             sub.setStyleSheet(
-                f"color:{MUTED};font-size:12px;"
+                f"color:{MUTED};font-size:10px;"
                 f"background:transparent;border:none;")
             col.addWidget(sub)
 
@@ -2119,7 +2045,7 @@ class NotificationPanel(QFrame):
             if age:
                 age_lbl = QLabel(age)
                 age_lbl.setStyleSheet(
-                    f"color:{MUTED};font-size:13px;"
+                    f"color:{MUTED};font-size:9px;"
                     f"background:transparent;border:none;")
                 col.addWidget(age_lbl)
 
@@ -2176,11 +2102,11 @@ class NotificationPanel(QFrame):
 
         header = QLabel(f"Great Sage  v{version}")
         header.setStyleSheet(
-            f"font-size:18px;font-weight:bold;color:{TEXT};")
+            f"font-size:16px;font-weight:bold;color:{TEXT};")
         lay.addWidget(header)
 
         sub = QLabel("Changes since previous version:")
-        sub.setStyleSheet(f"font-size:13px;color:{MUTED};")
+        sub.setStyleSheet(f"font-size:11px;color:{MUTED};")
         lay.addWidget(sub)
 
         scroll = QScrollArea()
@@ -2209,10 +2135,10 @@ class NotificationPanel(QFrame):
                 sha_lbl = QLabel(sha)
                 sha_lbl.setFixedWidth(46)
                 sha_lbl.setStyleSheet(
-                    f"color:{MUTED};font-size:13px;font-family:monospace;")
+                    f"color:{MUTED};font-size:9px;font-family:monospace;")
                 msg_lbl = QLabel(msg)
                 msg_lbl.setWordWrap(True)
-                msg_lbl.setStyleSheet(f"color:{TEXT2};font-size:13px;")
+                msg_lbl.setStyleSheet(f"color:{TEXT2};font-size:11px;")
                 rl.addWidget(sha_lbl)
                 rl.addWidget(msg_lbl, 1)
                 iv.addWidget(row_w)
@@ -2226,7 +2152,7 @@ class NotificationPanel(QFrame):
         ok_btn = QPushButton("Close")
         ok_btn.setStyleSheet(
             f"background:{BG3};border:1px solid {BORDER2};"
-            f"color:{TEXT2};border-radius:6px;padding:6px 20px;font-size:13px;")
+            f"color:{TEXT2};border-radius:6px;padding:6px 20px;font-size:11px;")
         ok_btn.clicked.connect(dlg.accept)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -2283,211 +2209,3 @@ class NotificationPanel(QFrame):
         super().hideEvent(event)
         self.closed.emit()
 
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# GLOW TAB BAR — rounded, glowing, hover-lift tabs with a sliding indicator
-# ═══════════════════════════════════════════════════════════════════════════════
-from PyQt6.QtWidgets import QTabBar
-from PyQt6.QtCore import Qt, QRectF, QSize, QVariantAnimation, QEasingCurve
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QFontMetrics
-
-
-class GlowTabBar(QTabBar):
-    """
-    Custom-painted QTabBar:
-      - rounded pill background behind hovered/selected tabs
-      - glowing ring around the selected tab (simulated bloom, no live blur)
-      - tabs lift a few px on hover
-      - short 'heartbeat' pulse on click
-      - bottom indicator bar animates (slides) between tab positions
-        instead of snapping via QSS border-bottom
-    """
-
-    def __init__(self, accent=None, muted=None, text=None, text2=None,
-                 bg2=None, bg3=None, parent=None):
-        super().__init__(parent)
-        self._accent = accent or ACCENT
-        self._muted  = muted  or MUTED
-        self._text   = text   or TEXT
-        self._text2  = text2  or TEXT2
-        self._bg2    = bg2    or BG2
-        self._bg3    = bg3    or BG3
-
-        self.setDrawBase(False)
-        self.setExpanding(False)
-        self.setMouseTracking(True)
-        self.setUsesScrollButtons(False)
-
-        f = QFont(self.font())
-        f.setPointSize(9)
-        f.setBold(True)
-        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2.5)
-        self.setFont(f)
-
-        self._hover_index = -1
-        self._lift = {}
-        self._lift_anims = {}
-        self._pulse = {}
-        self._pulse_anims = {}
-
-        self._ind_x = 0.0
-        self._ind_w = 0.0
-        self._ind_start = (0.0, 0.0)
-        self._ind_end = (0.0, 0.0)
-        self._ind_anim = QVariantAnimation(self)
-        self._ind_anim.setDuration(280)
-        self._ind_anim.setStartValue(0.0)
-        self._ind_anim.setEndValue(1.0)
-        self._ind_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._ind_anim.valueChanged.connect(self._on_ind_step)
-
-        self.currentChanged.connect(self._slide_indicator)
-        self.tabBarClicked.connect(self._on_clicked)
-
-    # ---- sizing ----
-    def tabSizeHint(self, index):
-        fm = QFontMetrics(self.font())
-        text = self.tabText(index)
-        w = fm.horizontalAdvance(text) + int(len(text) * 2.5)
-        return QSize(w + 56, 42)
-
-    def minimumTabSizeHint(self, index):
-        return self.tabSizeHint(index)
-
-    # ---- indicator ----
-    def _slide_indicator(self, index):
-        if index < 0 or index >= self.count():
-            return
-        r = self.tabRect(index)
-        target_w = max(24, int(r.width() * 0.5))
-        target_x = r.x() + (r.width() - target_w) / 2
-        if self._ind_w == 0.0:
-            self._ind_x, self._ind_w = float(target_x), float(target_w)
-            self.update()
-            return
-        self._ind_anim.stop()
-        self._ind_start = (self._ind_x, self._ind_w)
-        self._ind_end = (float(target_x), float(target_w))
-        self._ind_anim.start()
-
-    def _on_ind_step(self, progress):
-        sx, sw = self._ind_start
-        ex, ew = self._ind_end
-        self._ind_x = sx + (ex - sx) * progress
-        self._ind_w = sw + (ew - sw) * progress
-        self.update()
-
-    def showEvent(self, e):
-        super().showEvent(e)
-        self._slide_indicator(self.currentIndex())
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._slide_indicator(self.currentIndex())
-
-    # ---- hover lift ----
-    def _animate_lift(self, index, target):
-        anim = self._lift_anims.get(index)
-        if anim:
-            anim.stop()
-        anim = QVariantAnimation(self)
-        anim.setDuration(150)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.setStartValue(self._lift.get(index, 0.0))
-        anim.setEndValue(target)
-
-        def _step(v, i=index):
-            self._lift[i] = v
-            self.update()
-
-        anim.valueChanged.connect(_step)
-        anim.start()
-        self._lift_anims[index] = anim
-
-    def mouseMoveEvent(self, e):
-        idx = self.tabAt(e.pos())
-        if idx != self._hover_index:
-            old = self._hover_index
-            self._hover_index = idx
-            if old != -1:
-                self._animate_lift(old, 0.0)
-            if idx != -1:
-                self._animate_lift(idx, 1.0)
-        super().mouseMoveEvent(e)
-
-    def leaveEvent(self, e):
-        if self._hover_index != -1:
-            self._animate_lift(self._hover_index, 0.0)
-            self._hover_index = -1
-        super().leaveEvent(e)
-
-    # ---- click heartbeat ----
-    def _on_clicked(self, index):
-        anim = self._pulse_anims.get(index)
-        if anim:
-            anim.stop()
-        anim = QVariantAnimation(self)
-        anim.setDuration(650)
-        anim.setStartValue(0.0)
-        anim.setKeyValueAt(0.35, 1.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.Type.OutInQuad)
-
-        def _step(v, i=index):
-            self._pulse[i] = v
-            self.update()
-
-        anim.valueChanged.connect(_step)
-        anim.start()
-        self._pulse_anims[index] = anim
-
-    # ---- painting ----
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        for i in range(self.count()):
-            self._paint_tab(painter, i)
-
-        if self._ind_w > 0:
-            bar_h = 3
-            y = self.height() - bar_h
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(self._accent)))
-            painter.drawRoundedRect(
-                QRectF(self._ind_x, y, self._ind_w, bar_h), 1.5, 1.5)
-
-        painter.end()
-
-    def _paint_tab(self, painter, index):
-        rect = self.tabRect(index)
-        lift = self._lift.get(index, 0.0)
-        pulse = self._pulse.get(index, 0.0)
-        selected = (index == self.currentIndex())
-
-        draw_rect = QRectF(rect).adjusted(6, 4, -6, -4)
-        draw_rect.translate(0, -4.0 * lift)
-
-        if selected or lift > 0 or pulse > 0:
-            bg = QColor(self._bg3)
-            bg.setAlphaF(min(1.0, 0.55 + 0.25 * max(lift, pulse)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(bg))
-            painter.drawRoundedRect(draw_rect, 8, 8)
-
-        if selected:
-            glow = QColor(self._accent)
-            for ring, alpha in ((3, 40), (2, 70), (1, 110)):
-                glow.setAlpha(int(min(255, alpha * (0.6 + 0.4 * pulse))))
-                pen = QPen(glow, ring)
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRoundedRect(
-                    draw_rect.adjusted(ring / 2, ring / 2, -ring / 2, -ring / 2), 8, 8)
-
-        color = QColor(self._accent if selected else
-                        (self._text2 if lift > 0 else self._muted))
-        painter.setPen(QPen(color))
-        painter.setFont(self.font())
-        painter.drawText(draw_rect, Qt.AlignmentFlag.AlignCenter, self.tabText(index))

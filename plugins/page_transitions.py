@@ -395,9 +395,9 @@ class _StyleTile(QWidget):
         sub_c  = c["ACCENT"] if self._selected else c["MUTED"]
         self._name_lbl.setStyleSheet(
             f"background:transparent;border:none;color:{text_c};"
-            f"font-size:12px;font-weight:bold;")
+            f"font-size:14px;font-weight:bold;")
         self._desc_lbl.setStyleSheet(
-            f"background:transparent;border:none;color:{sub_c};font-size:10px;")
+            f"background:transparent;border:none;color:{sub_c};font-size:12px;")
 
     def set_selected(self, v):
         if self._selected != v:
@@ -443,7 +443,7 @@ def build_page(parent, api):
     hh = QHBoxLayout(hdr); hh.setContentsMargins(28, 0, 28, 0)
     tl = QLabel("⟡  PAGE TRANSITIONS")
     tl.setStyleSheet(
-        f"color:{colours['ACCENT']};font-size:13px;font-weight:bold;letter-spacing:3px;")
+        f"color:{colours['ACCENT']};font-size:15px;font-weight:bold;letter-spacing:3px;")
     hh.addWidget(tl); hh.addStretch()
     root.addWidget(hdr)
 
@@ -460,7 +460,7 @@ def build_page(parent, api):
     def _sec(text):
         l = QLabel(text)
         l.setStyleSheet(
-            f"color:{colours['MUTED']};font-size:9px;letter-spacing:3px;background:transparent;")
+            f"color:{colours['MUTED']};font-size:13px;letter-spacing:3px;background:transparent;")
         return l
 
     # Style picker
@@ -491,7 +491,7 @@ def build_page(parent, api):
     dur_row = QHBoxLayout(); dur_row.setSpacing(12)
     dur_lbl = QLabel("Duration")
     dur_lbl.setStyleSheet(
-        f"background:transparent;color:{colours['TEXT2']};font-size:12px;min-width:80px;")
+        f"background:transparent;color:{colours['TEXT2']};font-size:14px;min-width:80px;")
     dur_sl = QSlider(Qt.Orientation.Horizontal)
     dur_sl.setRange(80, 500); dur_sl.setValue(int(saved_duration))
     dur_sl.setFixedWidth(220)
@@ -502,7 +502,7 @@ def build_page(parent, api):
         "margin:-5px 0;border-radius:6px;}")
     dur_val = QLabel(f"{saved_duration}ms")
     dur_val.setStyleSheet(
-        f"background:transparent;color:{colours['TEXT2']};font-size:11px;min-width:50px;")
+        f"background:transparent;color:{colours['TEXT2']};font-size:13px;min-width:50px;")
 
     def _dur_changed(v):
         dur_val.setText(f"{v}ms")
@@ -522,7 +522,7 @@ def build_page(parent, api):
         pb = QPushButton(label)
         pb.setStyleSheet(
             f"QPushButton{{background:{colours['BG2']};border:1px solid {colours['BORDER']};"
-            f"color:{colours['TEXT2']};font-size:10px;padding:6px 14px;border-radius:4px;}}"
+            f"color:{colours['TEXT2']};font-size:12px;padding:6px 14px;border-radius:4px;}}"
             f"QPushButton:hover{{border-color:{colours['ACCENT']};color:{colours['ACCENT']};}}")
         def _set_preset(v=val):
             dur_sl.setValue(v)
@@ -536,7 +536,7 @@ def build_page(parent, api):
         "Fade is the most subtle. Blur Fade is the most dramatic.")
     tip.setStyleSheet(
         f"background:{colours['BG2']};color:{colours['MUTED']};"
-        f"font-size:11px;padding:14px;border-radius:6px;"
+        f"font-size:13px;padding:14px;border-radius:6px;"
         f"border:1px solid {colours['BORDER']};")
     tip.setWordWrap(True)
     bv.addWidget(tip)

@@ -634,7 +634,7 @@ class AmbientControlPanel(QWidget):
         layout.setSpacing(10)
         
         title = QLabel("Ambient Mode Settings")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title.setStyleSheet("font-weight: bold; font-size: 16px;")
         layout.addWidget(title)
         
         # Audio device selector
