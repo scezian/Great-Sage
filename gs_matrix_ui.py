@@ -18,7 +18,8 @@ from gs_theme import *
 from gs_widgets import lbl, btn, hline, vline, tag, NavRail, EyeBreakToast, SyncToast
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject, QEvent
+    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject, QEvent,
+   QVariantAnimation
 )
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -31,12 +32,12 @@ from PyQt6.QtGui import (
     QPixmap, QPainter, QLinearGradient, QRadialGradient, QBrush, QPen, QPainterPath
 )
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QStackedWidget, QLabel, QPushButton, QLineEdit, QTextEdit, QSlider,
     QFrame, QListWidget, QListWidgetItem, QTabWidget, QComboBox,
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QMessageBox, QAbstractItemView,
     QProgressBar, QGroupBox, QFormLayout, QStatusBar, QMenu, QSplitter, QScrollArea,
-    QGraphicsOpacityEffect, QRadioButton,
+    QGraphicsOpacityEffect, QRadioButton, QStyledItemDelegate, QStyle,
 )
 from great_sage_core import (
     SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
@@ -61,6 +62,68 @@ from great_sage_core import (
 # Sync hook — registered by SettingsPage after it constructs GreatSageSync.
 # Calling _sync_item_added(title, media_type, status, ...) fires an immediate
 # push_single to the cloud without any coupling between MatrixPage and SettingsPage.
+# ── Watchlist row hover animation ────────────────────────────────────────────
+class _WLHoverDelegate(QStyledItemDelegate):
+   """Paints an animated hover sweep (fade-in tint + growing accent bar) on
+   Watchlist rows. Plain QSS can't animate a transition, so this drives a
+   QVariantAnimation and repaints the row each tick."""
+   def __init__(self, list_widget):
+       super().__init__(list_widget)
+       self._list = list_widget
+       self._hover_row = -1
+       self._progress = 0.0
+       self._anim = QVariantAnimation(self)
+       self._anim.setDuration(140)
+       self._anim.valueChanged.connect(self._tick)
+
+   def _tick(self, v):
+       self._progress = float(v)
+       vp = self._list.viewport()
+       if vp:
+           vp.update()
+
+   def set_hover(self, row):
+       if row == self._hover_row:
+           return
+       self._hover_row = row
+       self._anim.stop()
+       self._anim.setStartValue(self._progress)
+       self._anim.setEndValue(1.0 if row >= 0 else 0.0)
+       self._anim.start()
+
+   def paint(self, painter, option, index):
+       row = index.row()
+       selected = bool(option.state & QStyle.StateFlag.State_Selected)
+       if row == self._hover_row and self._progress > 0 and not selected:
+           painter.save()
+           painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+           rect = option.rect
+           tint = QColor(BG2)
+           tint.setAlphaF(min(self._progress, 1.0) * 0.85)
+           painter.fillRect(rect, tint)
+           bar_w = 3
+           bar_h = int(rect.height() * self._progress)
+           bar_y = rect.top() + (rect.height() - bar_h) // 2
+           painter.fillRect(QRect(rect.left(), bar_y, bar_w, bar_h), QColor(BLUE))
+           painter.restore()
+       super().paint(painter, option, index)
+
+
+class _WLListWidget(QListWidget):
+   """QListWidget for the Watchlist tabs — adds animated hover feedback
+   (fade tint + growing left accent bar) on top of the existing QSS."""
+   def __init__(self, parent=None):
+       super().__init__(parent)
+       self.setMouseTracking(True)
+       self._wl_delegate = _WLHoverDelegate(self)
+       self.setItemDelegate(self._wl_delegate)
+       self.entered.connect(lambda idx: self._wl_delegate.set_hover(idx.row()))
+
+   def leaveEvent(self, event):
+       self._wl_delegate.set_hover(-1)
+       super().leaveEvent(event)
+
+
 def _sync_item_added(title: str, media_type: str, status: str = "Planning", **kw) -> None:
     pass  # replaced at runtime by SettingsPage.__init__
 
@@ -342,6 +405,13 @@ class MatrixPage(QWidget):
         sync_scheduler.register_pull_listener(self._on_cloud_sync_complete)
         sync_scheduler.start()
 
+        # Warm up Chromium in the background a couple seconds after launch —
+        # by the time the user clicks STREAM, the flash-causing first-init
+        # cost has already been paid off-screen. Delayed so it doesn't
+        # compete with (and slow down) the page's own initial render.
+        self._webengine_prewarmed = False
+        QTimer.singleShot(2000, self._prewarm_webengine)
+
     def _on_cloud_sync_complete(self):
         """
         Called by the shared sync_scheduler (gs_sync_scheduler.py) after each
@@ -416,16 +486,38 @@ class MatrixPage(QWidget):
     def _build_watchlist(self):
         w = QWidget()
         root = QVBoxLayout(w)
-        root.setContentsMargins(0,0,0,0)
+        # Top margin puts breathing room between the outer WATCHLIST/BROWSE/
+        # CONTINUE/STREAM tab row and this page's own Planning/Watching/
+        # Dropped/Completed tab row, so the two tab groups don't look fused.
+        root.setContentsMargins(0,10,0,0)
         root.setSpacing(0)
 
-        # ── Add bar (full width at top) ───────────────────────────────────────
+        from gs_widgets import GlowTabBar
+
+        self.wl_tabbar = GlowTabBar(accent=BLUE, muted=MUTED, text=TEXT,
+                                     text2=TEXT2, bg2=BG2, bg3=BG3)
+        for n in ("planning","watching","dropped","completed"):
+            self.wl_tabbar.addTab(n.capitalize())
+        # Each list gets its own identity color instead of sharing one accent —
+        # mirrors the colors already used for these same concepts in WrappedDialog.
+        self.wl_tabbar.set_tab_colors([PURPLE, BLUE, RED, ACCENT2])
+
+        # ── Tab row + add bar, side by side, full page width ───────────────────
+        # This sits above the splitter (not inside its left pane) so the add
+        # bar can stretch across into the detail column's space without
+        # affecting the splitter's list/detail proportions below.
+        tab_row = QWidget()
+        tab_row.setStyleSheet(f"background:{BG}; border-bottom:1px solid {BORDER};")
+        tr = QHBoxLayout(tab_row)
+        tr.setContentsMargins(0,0,0,0)
+        tr.setSpacing(0)
+        tr.addWidget(self.wl_tabbar, 0)
+
         add_bar = QWidget()
         add_bar.setStyleSheet(
             f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
             f"stop:0 {BG2},stop:0.5 {BG3},stop:1 {BG2});"
-            f"border-bottom:1px solid {BORDER2};")
-        add_bar.setFixedHeight(56)
+            f"border-left:1px solid {BORDER2};")
         add_row = QHBoxLayout(add_bar)
         add_row.setContentsMargins(16,0,16,0)
         add_row.setSpacing(10)
@@ -448,32 +540,27 @@ class MatrixPage(QWidget):
         add_row.addWidget(self.wl_target)
         add_row.addWidget(self.wl_anime)
         add_row.addWidget(btn("+ Add","accent",self._wl_add))
-        root.addWidget(add_bar)
+        tr.addWidget(add_bar, 1)
+        root.addWidget(tab_row)
 
         # ── Splitter: list | detail ───────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setStyleSheet("QSplitter::handle{background:#1E2D3D;width:1px;}")
 
-        # Left: tabs + lists
+        # Left: just the list stack now — tabs and add bar live above the
+        # splitter (see tab_row), so this pane keeps its original width.
         left = QWidget()
         left.setStyleSheet(f"background:{BG2};")
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0,0,0,0)
         lv.setSpacing(0)
-        from gs_widgets import GlowTabBar
 
-        self.wl_tabs = QTabWidget()
-        self.wl_tabs.setStyleSheet(f"""
-            QTabWidget::pane {{ border:none; background:{BG}; }}
-            QTabBar {{ background:{BG}; border-bottom:1px solid {BORDER}; }}
-        """)
-        self.wl_tabs.setTabBar(GlowTabBar(accent=BLUE, muted=MUTED, text=TEXT,
-                                           text2=TEXT2, bg2=BG2, bg3=BG3))
+        self.wl_stack = QStackedWidget()
         self.wl_lists = {}
         for n in ("planning","watching","dropped","completed"):
-            lw = QListWidget()
+            lw = _WLListWidget()
             lw.setStyleSheet(
-                f"QListWidget{{background:transparent;border:none;padding:6px;}}"
+                f"QListWidget{{background:transparent;border:none;padding:0px;}}"
                 f"QListWidget::item{{color:{TEXT2};padding:10px 16px;"
                 f"border-bottom:1px solid {BORDER};font-size:15px;}}"
                 f"QListWidget::item:hover{{color:{TEXT};background:{BG2};}}"
@@ -488,8 +575,9 @@ class MatrixPage(QWidget):
             lw.itemDoubleClicked.connect(lambda item, n=n: self._wl_meta(item,n))
             lw.itemClicked.connect(lambda item, n=n: self._wl_meta(item,n))
             self.wl_lists[n] = lw
-            self.wl_tabs.addTab(lw, n.capitalize())
-        lv.addWidget(self.wl_tabs, 1)
+            self.wl_stack.addWidget(lw)
+        self.wl_tabbar.currentChanged.connect(self.wl_stack.setCurrentIndex)
+        lv.addWidget(self.wl_stack, 1)
         splitter.addWidget(left)
 
         # Right: detail panel
@@ -601,7 +689,7 @@ class MatrixPage(QWidget):
             self.refresh()
             # Switch to the tab we just added to
             tab_idx = {"planning":0,"watching":1,"dropped":2,"completed":3}.get(lst, 0)
-            self.wl_tabs.setCurrentIndex(tab_idx)
+            self.wl_tabbar.setCurrentIndex(tab_idx)
             self.wl_info.setText(f"✓ Added '{title}' to {lst.capitalize()}")
             # Shows have no cover art source of their own (unlike webnovels,
             # which get one from Legion's scraper) — kick off a background
@@ -1995,34 +2083,133 @@ class MatrixPage(QWidget):
         except Exception as e:
             log.warning("auto_complete error", error=str(e))
 
+    def _prewarm_webengine(self):
+        """Kick off QtWebEngine's (Chromium) process/profile init off-screen,
+        well before the user ever opens STREAM.
+
+        The native-window flash people see the first time a QWebEngineView
+        appears comes from Chromium spinning up its renderer/GPU process on
+        first use — that's independent of, and in addition to, the tab-swap
+        flicker we already fixed. Doing that spin-up quietly now, while the
+        user is looking at another tab, means _build_stream() can reuse an
+        already-warm view instead of paying that cost (and the flash) right
+        when the user clicks STREAM.
+        """
+        if not WEBENGINE_OK or self._stream_built or getattr(self, "_webengine_prewarmed", False):
+            return
+        self._webengine_prewarmed = True
+        try:
+            profile_path = str(Path.home() / ".great_sage_stream_profile")
+            profile = QWebEngineProfile("great_sage_stream")
+            profile.setPersistentStoragePath(profile_path)
+            profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+            profile.setHttpUserAgent(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+
+            adblock = _get_adblock_manager()
+            adblock.install(profile)
+
+            view = QWebEngineView()
+            # Keep it fully off-screen and non-composited while it warms up —
+            # this is what stops the spin-up itself from ever being visible.
+            view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+            view.hide()
+            page = adblock.make_page(profile, view)
+            view.setPage(page)
+            # Force the renderer process to actually start now rather than
+            # lazily on first real navigation.
+            view.setHtml("<html><body style='background:#000;'></body></html>")
+
+            self._stream_profile = profile
+            self._adblock        = adblock
+            self._stream_view    = view
+            self._stream_page    = page
+        except Exception as e:
+            log.warning("webengine prewarm failed", error=str(e))
+            self._webengine_prewarmed = False
+
     def _build_stream_placeholder(self) -> QWidget:
-        """Lightweight stand-in shown until the user first opens STREAM.
-        Avoids paying for QWebEngineView + ad-blocker init at launch."""
+        """Skeleton loading screen shown until the user first opens STREAM.
+        Avoids paying for QWebEngineView + ad-blocker init at launch, and
+        stands in for the real layout (nav bar + platform cards + show
+        grid) with shimmering blocks instead of a bare spinner — so the
+        transition reads as 'loading' rather than the app flashing shut."""
+        from PyQt6.QtGui import QColor as _QC
+
         ph = QWidget()
+        ph.setStyleSheet(f"background:{BG};")
         phv = QVBoxLayout(ph)
-        phv.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        phv.setContentsMargins(0, 0, 0, 0)
+        phv.setSpacing(0)
 
-        spinner = QLabel("◐")
-        spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        spinner.setStyleSheet(f"font-size:37px; color:{ACCENT};")
+        anims = []
 
-        msg = QLabel("Loading stream…")
-        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        msg.setStyleSheet(f"color:{MUTED}; font-size:14px; letter-spacing:0.5px;")
+        def _blk(parent_layout, width=None, height=16, radius=4, stretch=0, phase=0):
+            b = QFrame()
+            if width: b.setFixedWidth(width)
+            b.setFixedHeight(height)
+            b.setStyleSheet(f"background:#16161f; border-radius:{radius}px; border:none;")
+            anim = QVariantAnimation(b)
+            anim.setStartValue(_QC("#15151e"))
+            anim.setKeyValueAt(0.5, _QC("#26263a"))
+            anim.setEndValue(_QC("#15151e"))
+            anim.setDuration(1300)
+            anim.setLoopCount(-1)
+            anim.valueChanged.connect(
+                lambda c, b=b, radius=radius: b.setStyleSheet(
+                    f"background:{c.name()}; border-radius:{radius}px; border:none;"))
+            QTimer.singleShot(phase, anim.start)
+            anims.append(anim)
+            if stretch:
+                parent_layout.addWidget(b, stretch)
+            else:
+                parent_layout.addWidget(b)
+            return b
 
-        phv.addWidget(spinner); phv.addSpacing(10); phv.addWidget(msg)
+        # ── fake nav bar: back/fwd/reload + url bar + home button ──────────
+        nav_row = QWidget()
+        nav_row.setFixedHeight(48)
+        nav_row.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        nrv = QHBoxLayout(nav_row)
+        nrv.setContentsMargins(10, 9, 10, 9)
+        nrv.setSpacing(5)
+        for i in range(3):
+            _blk(nrv, width=32, height=30, radius=3, phase=i * 90)
+        _blk(nrv, height=30, radius=3, stretch=1, phase=270)
+        _blk(nrv, width=90, height=30, radius=4, phase=360)
+        phv.addWidget(nav_row)
 
-        frames = ["◐", "◓", "◑", "◒"]
-        state  = {"i": 0}
-        timer  = QTimer(ph)
-        def _tick():
-            state["i"] = (state["i"] + 1) % len(frames)
-            spinner.setText(frames[state["i"]])
-        timer.timeout.connect(_tick)
-        timer.start(120)
-        # Keep references so the timer isn't garbage-collected and so we
-        # can stop it cleanly once the real tab replaces this placeholder.
-        ph._spinner_timer = timer
+        # ── fake content: platform cards row + grid of show cards ──────────
+        body = QWidget()
+        body.setStyleSheet(f"background:{BG};")
+        bv = QVBoxLayout(body)
+        bv.setContentsMargins(28, 24, 28, 24)
+        bv.setSpacing(20)
+
+        plat_row = QHBoxLayout(); plat_row.setSpacing(16)
+        for i in range(2):
+            _blk(plat_row, height=64, radius=8, stretch=1, phase=i * 150)
+        bv.addLayout(plat_row)
+
+        grid = QGridLayout(); grid.setSpacing(16)
+        for r in range(2):
+            for c in range(3):
+                cell = QVBoxLayout(); cell.setSpacing(8)
+                idx = r * 3 + c
+                _blk(cell, height=110, radius=6, phase=idx * 80)
+                _blk(cell, height=14, radius=3, phase=idx * 80 + 40)
+                _blk(cell, width=90, height=11, radius=3, phase=idx * 80 + 80)
+                cell_w = QWidget(); cell_w.setLayout(cell)
+                grid.addWidget(cell_w, r, c)
+        bv.addLayout(grid)
+        bv.addStretch()
+        phv.addWidget(body, 1)
+
+        # Keep references so the animations aren't garbage-collected and so
+        # we can stop them cleanly once the real tab replaces this skeleton.
+        ph._shimmer_anims = anims
 
         return ph
 
@@ -2059,12 +2246,17 @@ class MatrixPage(QWidget):
         self._stream_built = True
         self._stream_build_pending = False
         real = self._build_stream()
-        spinner_timer = getattr(self._stream_tab, "_spinner_timer", None)
-        if spinner_timer:
-            spinner_timer.stop()
-        self._tabs.removeTab(self._stream_tab_index)
-        self._tabs.insertTab(self._stream_tab_index, real, "STREAM")
-        self._tabs.setCurrentIndex(self._stream_tab_index)
+        for anim in getattr(self._stream_tab, "_shimmer_anims", []):
+            anim.stop()
+        old_index = self._stream_tab_index
+        # Insert the real tab right next to the skeleton and switch to it
+        # BEFORE removing the skeleton. Removing the current tab first would
+        # briefly force the tab widget onto a neighboring tab while the new
+        # one gets inserted — that flash is what read as the app "closing
+        # and reopening". This ordering avoids that entirely.
+        self._tabs.insertTab(old_index + 1, real, "STREAM")
+        self._tabs.setCurrentIndex(old_index + 1)
+        self._tabs.removeTab(old_index)
         self._stream_tab = real
         callbacks, self._stream_ready_callbacks = self._stream_ready_callbacks, []
         for cb in callbacks:
@@ -2094,30 +2286,38 @@ class MatrixPage(QWidget):
             wv.addWidget(ph); return w
 
         # ── Persistent profile (cookies survive restarts) ──────────────────────
-        profile_path = str(Path.home() / ".great_sage_stream_profile")
-        self._stream_profile = QWebEngineProfile("great_sage_stream")
-        self._stream_profile.setPersistentStoragePath(profile_path)
-        self._stream_profile.setPersistentCookiesPolicy(
-            QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
-        # Set a real browser UA so sites don't reject us
-        self._stream_profile.setHttpUserAgent(
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+        if getattr(self, "_webengine_prewarmed", False) and getattr(self, "_stream_view", None):
+            # Reuse the view/profile/page already warmed up in the background
+            # — avoids paying Chromium's first-init cost (and its native
+            # window flash) right at the moment the user is watching.
+            self._stream_view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
+            self._stream_view.setStyleSheet("background-color: #000000;")
+            self._stream_view.show()
+        else:
+            profile_path = str(Path.home() / ".great_sage_stream_profile")
+            self._stream_profile = QWebEngineProfile("great_sage_stream")
+            self._stream_profile.setPersistentStoragePath(profile_path)
+            self._stream_profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+            # Set a real browser UA so sites don't reject us
+            self._stream_profile.setHttpUserAgent(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-        # ── Ad blocker (gs_adblock.py) ─────────────────────────────────────────
-        # Installs network interceptor + cosmetic CSS script into the profile.
-        self._adblock = _get_adblock_manager()
-        self._adblock.install(self._stream_profile)
+            # ── Ad blocker (gs_adblock.py) ──────────────────────────────────────
+            # Installs network interceptor + cosmetic CSS script into the profile.
+            self._adblock = _get_adblock_manager()
+            self._adblock.install(self._stream_profile)
 
-        # ── Web view ───────────────────────────────────────────────────────────
-        self._stream_view = QWebEngineView()
-        # Set background to black to avoid white flashes during initial load
-        self._stream_view.setStyleSheet("background-color: #000000;")
+            # ── Web view ─────────────────────────────────────────────────────────
+            self._stream_view = QWebEngineView()
+            # Set background to black to avoid white flashes during initial load
+            self._stream_view.setStyleSheet("background-color: #000000;")
 
-        # ── Custom page (blocks popups, suppresses JS console noise) ──────────
-        # We pass the view as parent so the page can access it for fullscreen
-        self._stream_page = self._adblock.make_page(self._stream_profile, self._stream_view)
-        self._stream_view.setPage(self._stream_page)
+            # ── Custom page (blocks popups, suppresses JS console noise) ───────
+            # We pass the view as parent so the page can access it for fullscreen
+            self._stream_page = self._adblock.make_page(self._stream_profile, self._stream_view)
+            self._stream_view.setPage(self._stream_page)
 
         # Wire fullscreen request from the page into our handler
         self._stream_page.fullScreenRequested.connect(self._on_fullscreen_requested)
@@ -3160,11 +3360,13 @@ class MatrixPage(QWidget):
         md = matrix_data(); wl = md.get("watchlist",{})
         for lst, lw in self.wl_lists.items():
             lw.clear()
-            for e in wl.get(lst,[]):
+            items = list(wl.get(lst, []))
+            items.sort(key=lambda e: e.get("added", 0) if isinstance(e, dict) else 0)  # oldest -> newest
+            for idx, e in enumerate(items, start=1):
                 t  = e.get("title","?") if isinstance(e,dict) else str(e)
                 t  = _strip_markdown(_clean_media_title(t))
                 an = " [Anime]" if isinstance(e,dict) and e.get("is_anime") else ""
-                item = QListWidgetItem(f"  {t}{an}")
+                item = QListWidgetItem(f"  {idx}.  {t}{an}")
                 item.setData(Qt.ItemDataRole.UserRole, e)
                 item.setForeground(QColor(TEXT)); lw.addItem(item)
         self.cw_list.clear()

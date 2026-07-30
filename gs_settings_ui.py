@@ -233,19 +233,40 @@ class SettingsPage(QWidget):
         self._nav_btn_base_ss   = _nav_btn_base
         self._nav_btn_active_ss = _nav_btn_active
 
+        def _pulse_settings_nav(btn):
+            """Subtle heartbeat glow pulse on press — matches the main nav rail's feedback."""
+            from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+            from PyQt6.QtCore import QPropertyAnimation
+            from PyQt6.QtGui import QColor as _QColor
+            effect = QGraphicsDropShadowEffect(btn)
+            effect.setColor(_QColor(ACCENT))
+            effect.setOffset(0, 0)
+            effect.setBlurRadius(0)
+            btn.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"blurRadius", btn)
+            anim.setDuration(900)
+            anim.setKeyValueAt(0.0, 0)
+            anim.setKeyValueAt(0.22, 18)
+            anim.setKeyValueAt(0.45, 6)
+            anim.setKeyValueAt(0.65, 16)
+            anim.setKeyValueAt(1.0, 0)
+            btn._pulse_anim = anim
+            anim.finished.connect(lambda: btn.setGraphicsEffect(None))
+            anim.start()
+        self._pulse_settings_nav = _pulse_settings_nav
+
         def _make_nav_btn(label, index):
             b = QPushButton(label)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(_nav_btn_base if index != 0 else _nav_btn_active)
-            b.clicked.connect(lambda _, i=index: self._switch_settings_panel(i))
+            b.clicked.connect(lambda _, i=index, btn=b: (self._pulse_settings_nav(btn), self._switch_settings_panel(i)))
             nav_v.addWidget(b)
             self._nav_buttons[index] = b
 
         _make_nav_btn("API KEYS",   0)
         _make_nav_btn("PATHS",      1)
-        _make_nav_btn("VOICE",      2)
-        _make_nav_btn("COMPANION",  3)
-        _make_nav_btn("CLOUD SYNC", 4)
-        _make_nav_btn("REPORT BUG",  5)
+        _make_nav_btn("CLOUD SYNC", 2)
+        _make_nav_btn("REPORT BUG",  3)
         nav_v.addStretch()
 
         # Shared field/label style helpers
@@ -387,59 +408,7 @@ class SettingsPage(QWidget):
         p1.addStretch()
         self._settings_stack.addWidget(p1_scroll)
 
-        # ── Panel 2: Voice ────────────────────────────────────────────────────
-        p2_scroll, p2 = _panel_scroll()
-        p2.addWidget(_section_lbl("SAGE VOICE  —  PIPER TTS"))
-        self.voice_chk = QCheckBox("Enable Sage Voice — read responses aloud")
-        self.voice_chk.setStyleSheet(
-            f"QCheckBox{{color:{TEXT};font-size:14px;background:transparent;}}"
-            f"QCheckBox::indicator{{width:14px;height:14px;}}")
-        p2.addWidget(self.voice_chk)
-        gf3 = QFormLayout()
-        gf3.setSpacing(10)
-        gf3.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.piper_edit = QLineEdit()
-        self.piper_edit.setPlaceholderText("Path to piper binary  (e.g. /usr/local/bin/piper)")
-        self.model_voice_edit = QLineEdit()
-        self.model_voice_edit.setPlaceholderText("Path to .onnx voice model  (e.g. ~/piper/en_US-amy-medium.onnx)")
-        for field in (self.piper_edit, self.model_voice_edit):
-            field.setStyleSheet(
-                f"QLineEdit{{background:#1a1a28;border:1px solid #2a2a3a;"
-                f"border-radius:4px;color:{TEXT};font-size:14px;padding:7px 10px;}}"
-                f"QLineEdit:focus{{border-color:{ACCENT}44;}}")
-        gf3.addRow(_field_label("PIPER BINARY"), self.piper_edit)
-        gf3.addRow(_field_label("VOICE MODEL"),  self.model_voice_edit)
-        p2.addLayout(gf3)
-        p2.addWidget(_hint("Install: pip install piper-tts  or  https://github.com/rhasspy/piper"))
-        p2.addSpacing(8)
-        p2.addWidget(_save_btn())
-        p2.addStretch()
-        self._settings_stack.addWidget(p2_scroll)
-
-        # ── Panel 3: Companion ────────────────────────────────────────────────
-        p3_scroll, p3 = _panel_scroll()
-        p3.addWidget(_section_lbl("MOBILE COMPANION"))
-        import socket as _sock
-        try:
-            s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80)); local_ip = s.getsockname()[0]; s.close()
-        except Exception:
-            local_ip = "localhost"
-        url = f"http://{local_ip}:{_mobile_server_port}"
-        open_lbl = QLabel("Open on your phone:")
-        open_lbl.setStyleSheet(f"color:{TEXT2};font-size:14px;background:transparent;")
-        url_lbl = QLabel(f"<b style='color:{NEON};'>{url}</b>")
-        url_lbl.setStyleSheet(f"font-size:16px;background:transparent;")
-        url_lbl.setTextFormat(Qt.TextFormat.RichText)
-        wifi_lbl = QLabel("Make sure your phone is on the same Wi-Fi network.")
-        wifi_lbl.setStyleSheet(f"color:{MUTED};font-size:13px;background:transparent;")
-        p3.addWidget(open_lbl)
-        p3.addWidget(url_lbl)
-        p3.addWidget(wifi_lbl)
-        p3.addStretch()
-        self._settings_stack.addWidget(p3_scroll)
-
-        # ── Panel 4: Cloud Sync ───────────────────────────────────────────────
+        # ── Panel 2: Cloud Sync ───────────────────────────────────────────────
         p4_scroll, p4 = _panel_scroll()
 
         # Status banner
@@ -481,6 +450,11 @@ class SettingsPage(QWidget):
         self._sync_pass_edit.setPlaceholderText("Password")
         self._sync_pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._sync_pass_edit.setStyleSheet(_field_ss)
+
+        # Enter in EMAIL moves to PASSWORD; Enter in PASSWORD submits the login —
+        # previously neither field responded to the Enter key at all.
+        self._sync_email_edit.returnPressed.connect(self._sync_pass_edit.setFocus)
+        self._sync_pass_edit.returnPressed.connect(self._sync_login)
 
         gf_sync.addRow(_field_label("EMAIL"),    self._sync_email_edit)
         gf_sync.addRow(_field_label("PASSWORD"), self._sync_pass_edit)
@@ -623,9 +597,6 @@ class SettingsPage(QWidget):
         else:           self.model_edit.setText("llama-3.3-70b-versatile")
         self.tmdb_key_edit.setText(settings.get("tmdb_api_key", ""))
         self.dl_edit.setText(settings.get("download_dir", os.path.expanduser("~/Videos")))
-        self.voice_chk.setChecked(settings.get("sage_voice", False))
-        self.piper_edit.setText(settings.get("piper_binary", ""))
-        self.model_voice_edit.setText(settings.get("piper_model", ""))
 
     def _save(self):
         new_key   = self.key_edit.text().strip()
@@ -638,9 +609,6 @@ class SettingsPage(QWidget):
         if new_tmdb_key:
             md["settings"]["tmdb_api_key"] = new_tmdb_key
         md["settings"]["download_dir"]  = self.dl_edit.text()
-        md["settings"]["sage_voice"]    = self.voice_chk.isChecked()
-        md["settings"]["piper_binary"]  = self.piper_edit.text().strip()
-        md["settings"]["piper_model"]   = self.model_voice_edit.text().strip()
         save_json(MATRIX_PROGRESS, md)
         # Also patch sage.py with robust regex (handles trailing comments)
         sage_path = SCRIPT_DIR/"sage.py"

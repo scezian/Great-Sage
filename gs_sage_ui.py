@@ -73,40 +73,12 @@ class SagePage(QWidget):
         sv.setContentsMargins(0,0,0,0)
         sv.setSpacing(0)
 
-        tab_bar = QWidget()
-        tab_bar.setFixedHeight(36)
-        tab_bar.setStyleSheet(f"background:{BG}; border-bottom:1px solid #1A1A24;")
-        tb = QHBoxLayout(tab_bar)
-        tb.setContentsMargins(0,0,0,0)
-        tb.setSpacing(0)
-        self._tab_btns = {}
-        self._tab_pages = {}
-
-        def _make_tab(key, label, accent_color):
-            b = QPushButton(label)
-            b.setCheckable(True)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background:transparent; border:none;
-                    border-bottom:1px solid transparent;
-                    font-family:{FONT_UI}; font-size:12px; letter-spacing:2px;
-                    color:#505068; padding:0; margin-bottom:-1px;
-                }}
-                QPushButton:hover {{ color:#8888A8; }}
-                QPushButton:checked {{ color:{accent_color}; border-bottom:1px solid {accent_color}; }}
-            """)
-            b.clicked.connect(lambda _, k=key: self._switch_tab(k))
-            tb.addWidget(b)
-            self._tab_btns[key] = b
-
-        _make_tab("discover", "DISCOVER", ACCENT)
-        _make_tab("analyse",  "ANALYSE",  ACCENT)
-        _make_tab("chat",     "CHAT",     ACCENT2)
-        sv.addWidget(tab_bar)
-
-        self._tab_stack = QStackedWidget()
-        self._tab_stack.setStyleSheet("background:transparent;")
-        sv.addWidget(self._tab_stack, 1)
+        nav_scroll = QScrollArea()
+        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_scroll.setStyleSheet("background:transparent; border:none;")
+        sv.addWidget(nav_scroll, 1)
         self._nav_btns = {}
 
         def _section_hdr(parent_layout, label, color):
@@ -139,8 +111,9 @@ class SagePage(QWidget):
             return bv
 
         def _nav_item(layout, key, num, icon_char, label_text, desc_text, section):
-            b = QPushButton(f"{num}  {icon_char}  {label_text}")
+            b = QPushButton(f"{int(num)}  {label_text}")
             b.setToolTip(desc_text)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"""
                 QPushButton {{
                     background:transparent; border:none;
@@ -153,26 +126,36 @@ class SagePage(QWidget):
                     background:#0F0F15; border-left:2px solid #303048; color:#D8D4CC;
                 }}
             """)
-            b.clicked.connect(lambda _, k=key: self._run(k))
+            def _clicked(_, k=key, btn=b):
+                self._pulse_nav(btn)
+                if k == "chat":
+                    self._open_chat_page()
+                else:
+                    self._run(k)
+            b.clicked.connect(_clicked)
             layout.addWidget(b)
             self._nav_btns[key] = (b, section)
 
-        disc_w = QWidget()
-        disc_v = QVBoxLayout(disc_w)
-        disc_v.setContentsMargins(0,0,0,0); disc_v.setSpacing(0)
-        rec_bv = _section_hdr(disc_v, "RECOMMENDATIONS", ACCENT)
+        nav_w = QWidget()
+        nav_v = QVBoxLayout(nav_w)
+        nav_v.setContentsMargins(0,0,0,0); nav_v.setSpacing(0)
+
+        rec_bv = _section_hdr(nav_v, "RECOMMENDATIONS", ACCENT)
         _nav_item(rec_bv, "novels",     "01", "▫", "Novel Recs",        "tailored to your taste",       "discover")
         _nav_item(rec_bv, "shows",      "02", "▣", "Show & Anime Recs", "screen picks for tonight",     "discover")
         _nav_item(rec_bv, "similar",    "03", "◎", "Something Similar", "more of what you love",        "discover")
-        mood_bv = _section_hdr(disc_v, "MOOD", ACCENT)
+
+        mood_bv = _section_hdr(nav_v, "MOOD", ACCENT)
         _nav_item(mood_bv, "mood_light", "04", "○", "Light & Fun",      "easy reads & comfort watches",  "discover")
         _nav_item(mood_bv, "mood_heavy", "05", "◆", "Intense & Deep",   "darker, heavier stories",       "discover")
         _nav_item(mood_bv, "whats_next", "06", "→", "What's Next?",    "your logical next chapter",     "discover")
+
         qp_w = QWidget(); qp_w.setStyleSheet("background:transparent;")
         qp_l = QHBoxLayout(qp_w)
         qp_l.setContentsMargins(14,6,14,8)
         qp_l.setSpacing(8)
         qp_btn = QPushButton("⚡  Quick Pick")
+        qp_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         qp_btn.setStyleSheet(f"""
             QPushButton {{
                 background:#100E07; border:1px solid #2A2208; border-radius:4px;
@@ -181,83 +164,26 @@ class SagePage(QWidget):
             }}
             QPushButton:hover {{ background:#140F07; border-color:#3A3010; color:{ACCENT}; }}
         """)
-        qp_btn.clicked.connect(lambda: self._run("quick"))
+        qp_btn.clicked.connect(lambda: (self._pulse_nav(qp_btn), self._run("quick")))
         qp_badge = QLabel("INSTANT")
         qp_badge.setStyleSheet(
             f"font-family:{FONT_UI}; font-size:13px; letter-spacing:1.5px; "
             f"color:#504010; background:#1A1206; border:1px solid #2A1E08; "
             f"border-radius:2px; padding:2px 5px;")
         qp_l.addWidget(qp_btn, 1); qp_l.addWidget(qp_badge)
-        disc_v.addWidget(qp_w); disc_v.addStretch()
-        self._tab_pages["discover"] = disc_w; self._tab_stack.addWidget(disc_w)
+        nav_v.addWidget(qp_w)
 
-        anal_w = QWidget()
-        anal_v = QVBoxLayout(anal_w)
-        anal_v.setContentsMargins(0,0,0,0); anal_v.setSpacing(0)
-        tool_bv = _section_hdr(anal_v, "TOOLS", ACCENT2)
-        _nav_item(tool_bv, "explain",  "01", "?", "Would I Like This?", "taste-match any title",    "analyse")
-        _nav_item(tool_bv, "chapter",  "02", "¶", "Chapter Summary",    "catch up on a book",       "analyse")
-        _nav_item(tool_bv, "priority", "03", "↑", "Rank My Watchlist",  "prioritise what to watch", "analyse")
-        _nav_item(tool_bv, "profile",  "04", "✦", "View My Profile",    "your full taste map",      "analyse")
-        anal_v.addStretch()
-        self._tab_pages["analyse"] = anal_w; self._tab_stack.addWidget(anal_w)
+        tool_bv = _section_hdr(nav_v, "TOOLS", ACCENT2)
+        _nav_item(tool_bv, "explain",  "07", "?", "Would I Like This?", "taste-match any title",    "analyse")
+        _nav_item(tool_bv, "chapter",  "08", "¶", "Chapter Summary",    "catch up on a book",       "analyse")
+        _nav_item(tool_bv, "priority", "09", "↑", "Rank My Watchlist",  "prioritise what to watch", "analyse")
+        _nav_item(tool_bv, "profile",  "10", "✦", "View My Profile",    "your full taste map",      "analyse")
 
-        chat_w = QWidget()
-        chat_v = QVBoxLayout(chat_w)
-        chat_v.setContentsMargins(16,20,16,16); chat_v.setSpacing(14)
-        card = QFrame()
-        card.setStyleSheet(
-            "QFrame { background:#080D0C; border:1px solid #0F2820; border-radius:6px; }")
-        card_v = QVBoxLayout(card)
-        card_v.setContentsMargins(18,16,18,16)
-        card_v.setSpacing(8)
-        card_title = QLabel("Chat with Sage")
-        card_title.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:14px; letter-spacing:0.5px; "
-            f"color:{ACCENT2}; background:transparent; border:none;")
-        card_sub = QLabel(
-            "Ask anything about novels, shows,\n"
-            "or your taste profile. Sage has\n"
-            "full context of your history.")
-        card_sub.setStyleSheet(
-            f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.3px; "
-            f"color:#2A7060; background:transparent; border:none;")
-        open_chat_btn = QPushButton("Open Chat  →")
-        open_chat_btn.setStyleSheet(f"""
-            QPushButton {{
-                background:transparent; border:1px solid #1A4030; border-radius:3px;
-                font-family:{FONT_UI}; font-size:13px; letter-spacing:1px;
-                color:{ACCENT2}; padding:7px 14px; margin-top:4px;
-            }}
-            QPushButton:hover {{ background:#0A1A14; border-color:#2A6048; }}
-        """)
-        open_chat_btn.clicked.connect(lambda: self._stack.setCurrentIndex(1))
-        card_v.addWidget(card_title); card_v.addWidget(card_sub); card_v.addWidget(open_chat_btn)
-        chat_v.addWidget(card)
-        div = QWidget()
-        div.setFixedHeight(1)
-        div.setStyleSheet("background:#1A1A24; border:none;")
-        chat_v.addWidget(div)
-        for color, text in [
-            (ACCENT,   "Remembers your reading history\nand current books"),
-            (ACCENT2,  "Knows your watchlist and\nviewing habits"),
-            ("#505068", "Retains mood & taste\nacross sessions"),
-        ]:
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(2,0,2,0); rl.setSpacing(10)
-            pip = QLabel("·"); pip.setFixedWidth(10)
-            pip.setStyleSheet(
-                f"color:{color}; font-size:16px; background:transparent; border:none;")
-            txt = QLabel(text)
-            txt.setWordWrap(True)
-            txt.setStyleSheet(
-                f"font-family:{FONT_UI}; font-size:12px; letter-spacing:0.3px; "
-                f"color:#505068; background:transparent; border:none;")
-            rl.addWidget(pip, 0); rl.addWidget(txt, 1)
-            chat_v.addWidget(row)
-        chat_v.addStretch()
-        self._tab_pages["chat"] = chat_w; self._tab_stack.addWidget(chat_w)
+        chat_bv = _section_hdr(nav_v, "CHAT", ACCENT2)
+        _nav_item(chat_bv, "chat", "11", "◈", "Chat with Sage", "ask anything — full context of your history", "chat")
+
+        nav_v.addStretch()
+        nav_scroll.setWidget(nav_w)
 
         footer = QWidget()
         footer.setFixedHeight(32)
@@ -280,13 +206,31 @@ class SagePage(QWidget):
         self._stack.addWidget(self._build_chat())
         root.addWidget(self._stack, 1)
 
-        self._switch_tab("discover")
         self._set_nav_active("novels")
 
-    def _switch_tab(self, key):
-        for k, b in self._tab_btns.items():
-            b.setChecked(k == key)
-        self._tab_stack.setCurrentWidget(self._tab_pages[key])
+    def _open_chat_page(self):
+        """Jump straight into the full chat interface."""
+        self._stack.setCurrentIndex(1)
+        self._set_nav_active("chat")
+
+    def _pulse_nav(self, btn):
+        """Subtle glow pulse on click — same feedback language as the main nav rail."""
+        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+        from PyQt6.QtCore import QPropertyAnimation
+        from PyQt6.QtGui import QColor as _QColor
+        effect = QGraphicsDropShadowEffect(btn)
+        effect.setColor(_QColor(ACCENT))
+        effect.setOffset(0, 0)
+        effect.setBlurRadius(0)
+        btn.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"blurRadius", btn)
+        anim.setDuration(320)
+        anim.setKeyValueAt(0.0, 0)
+        anim.setKeyValueAt(0.3, 16)
+        anim.setKeyValueAt(1.0, 0)
+        btn._pulse_anim = anim
+        anim.finished.connect(lambda: btn.setGraphicsEffect(None))
+        anim.start()
 
     def _set_nav_active(self, key):
         for k, (b, section) in self._nav_btns.items():
@@ -470,8 +414,6 @@ class SagePage(QWidget):
         self._stack.setCurrentIndex(0)
         self.explain_row.setVisible(mode == "explain")
         self.chapter_row.setVisible(mode in ("chapter","chapter_go"))
-        _tab = "analyse" if mode in ("explain","chapter","priority","profile","explain_go","chapter_go","chapter_summary") else "discover"
-        self._switch_tab(_tab)
         _active_key = {"explain_go":"explain","chapter_go":"chapter","chapter_summary":"chapter"}.get(mode, mode)
         if _active_key in self._nav_btns:
             self._set_nav_active(_active_key)

@@ -141,27 +141,7 @@ class NavRail(QFrame):
         pill_v.setContentsMargins(8, 14, 8, 12)
         pill_v.setSpacing(3)
 
-        logo_w = QWidget()
-        logo_w.setFixedSize(48, 48)
-        logo_w.setStyleSheet(
-            f"background:#130F04; border:1px solid {ACCENT}2A; border-radius:12px;")
-        lv = QVBoxLayout(logo_w)
-        lv.setContentsMargins(0, 0, 0, 0)
-        logo_lbl = QLabel("◈")
-        logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_lbl.setStyleSheet(
-            f"background:transparent; border:none; color:{ACCENT}; font-size:23px;")
-        lv.addWidget(logo_lbl)
-        pill_v.addWidget(logo_w, 0, Qt.AlignmentFlag.AlignHCenter)
-        pill_v.addSpacing(8)
-
-        sep = QWidget()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(
-            "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 transparent,stop:0.5 #252535,stop:1 transparent);")
-        pill_v.addWidget(sep)
-        pill_v.addSpacing(8)
+        pill_v.addStretch()
 
         for key, icon, label in self._ITEMS:
             tile = self._make_tile(key, icon, label)
@@ -296,6 +276,25 @@ class NavRail(QFrame):
         tile._pulse_anim = anim
         anim.finished.connect(lambda: tile.setGraphicsEffect(None))
         anim.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # The indicator's target position depends on tile.y(), which isn't
+        # accurate until the layout (including the centering stretch) has
+        # actually been resolved. A resize elsewhere in the window (e.g. the
+        # detail panel populating for the first time and nudging the
+        # splitter) can reach here before that settling is fully done, so
+        # the resync is deferred to the next event-loop tick rather than
+        # done inline.
+        QTimer.singleShot(0, self._sync_indicator)
+
+    def _sync_indicator(self):
+        tile = self._btns.get(self._active)
+        if tile:
+            self._indicator_anim.stop()
+            self._indicator.move(6, tile.y() + (tile.height() - self._indicator.height()) // 2)
+            self._indicator.show()
+            self._indicator.raise_()
 
     def set_active(self, key: str):
         if self._active == key:
@@ -2330,6 +2329,7 @@ class GlowTabBar(QTabBar):
         self._lift_anims = {}
         self._pulse = {}
         self._pulse_anims = {}
+        self._tab_colors = None  # optional list[str], one color per tab index
 
         self._ind_x = 0.0
         self._ind_w = 0.0
@@ -2344,6 +2344,18 @@ class GlowTabBar(QTabBar):
 
         self.currentChanged.connect(self._slide_indicator)
         self.tabBarClicked.connect(self._on_clicked)
+
+    # ---- per-tab color override ----
+    def set_tab_colors(self, colors):
+        """Give each tab its own accent color instead of the shared self._accent.
+        `colors` is a list of color strings, indexed to match tab position."""
+        self._tab_colors = list(colors)
+        self.update()
+
+    def _tab_color(self, index):
+        if self._tab_colors and 0 <= index < len(self._tab_colors):
+            return self._tab_colors[index]
+        return self._accent
 
     # ---- sizing ----
     def tabSizeHint(self, index):
@@ -2454,7 +2466,7 @@ class GlowTabBar(QTabBar):
             bar_h = 3
             y = self.height() - bar_h
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor(self._accent)))
+            painter.setBrush(QBrush(QColor(self._tab_color(self.currentIndex()))))
             painter.drawRoundedRect(
                 QRectF(self._ind_x, y, self._ind_w, bar_h), 1.5, 1.5)
 
@@ -2477,7 +2489,7 @@ class GlowTabBar(QTabBar):
             painter.drawRoundedRect(draw_rect, 8, 8)
 
         if selected:
-            glow = QColor(self._accent)
+            glow = QColor(self._tab_color(index))
             for ring, alpha in ((3, 40), (2, 70), (1, 110)):
                 glow.setAlpha(int(min(255, alpha * (0.6 + 0.4 * pulse))))
                 pen = QPen(glow, ring)
@@ -2486,7 +2498,7 @@ class GlowTabBar(QTabBar):
                 painter.drawRoundedRect(
                     draw_rect.adjusted(ring / 2, ring / 2, -ring / 2, -ring / 2), 8, 8)
 
-        color = QColor(self._accent if selected else
+        color = QColor(self._tab_color(index) if selected else
                         (self._text2 if lift > 0 else self._muted))
         painter.setPen(QPen(color))
         painter.setFont(self.font())
