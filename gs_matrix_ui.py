@@ -534,11 +534,8 @@ class MatrixPage(QWidget):
             f"color:{TEXT2};font-size:13px;padding:5px 10px;border-radius:4px;}}"
             f"QComboBox::drop-down{{border:none;}}")
         for n in ("planning","watching","dropped","completed"): self.wl_target.addItem(n.capitalize(),n)
-        self.wl_anime = QCheckBox("Anime")
-        self.wl_anime.setStyleSheet(f"color:{TEXT2};font-size:13px;background:transparent;")
         add_row.addWidget(self.wl_input, 1)
         add_row.addWidget(self.wl_target)
-        add_row.addWidget(self.wl_anime)
         add_row.addWidget(btn("+ Add","accent",self._wl_add))
         tr.addWidget(add_bar, 1)
         root.addWidget(tab_row)
@@ -673,7 +670,7 @@ class MatrixPage(QWidget):
         if not lst:
             self.wl_info.setText("⚠ Select a list first (Planning / Watching / etc.)")
             return
-        anime = self.wl_anime.isChecked()
+        anime = False  # Anime checkbox removed from Watchlist add bar
         try:
             md = matrix_data(); wl = md.setdefault("watchlist",{})
             for k in ("planning","watching","dropped","completed"): wl.setdefault(k,[])

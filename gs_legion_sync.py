@@ -383,6 +383,22 @@ def legion_restore_to_disk() -> bool:
                 _m = _re.search(r"/chapter-(\d+)", reader_url)
                 chapter_num = int(_m.group(1)) if _m else 0
 
+                # The download worker always resumes by advancing ONE chapter
+                # past last_downloaded_url -- correct when that URL was
+                # genuinely written to disk by a real download. On a fresh
+                # install seeded from cloud, reader_url is only a REPORTED
+                # READING position; nothing has actually been downloaded here
+                # yet. Seeding last_downloaded_url = reader_url makes the
+                # downloader permanently skip the exact chapter the reader
+                # wants to resume on (it treats that chapter as already done).
+                # Seed one chapter earlier instead, so the resume chapter is
+                # the FIRST one the downloader actually fetches.
+                last_dl_chapter_num = 0
+                last_dl_url         = ""
+                if chapter_num > 1 and "/chapter-" in reader_url:
+                    last_dl_chapter_num = chapter_num - 1
+                    last_dl_url = _re.sub(r"/chapter-\d+", f"/chapter-{last_dl_chapter_num}", reader_url)
+
                 if title not in prog_books:
                     # Fresh entry — create full progress record
                     prog_books[title] = {
@@ -395,15 +411,15 @@ def legion_restore_to_disk() -> bool:
                         "chapters_read":           chapter_num,
                         "current_chapter":         chapter_num,
                         "last_read":               0,
-                        "last_downloaded_chapter": chapter_num,
-                        "last_downloaded_url":     reader_url,
+                        "last_downloaded_chapter": last_dl_chapter_num,
+                        "last_downloaded_url":     last_dl_url,
                         "reader_url":              reader_url,
                         "reader_chapter":          f"Chapter {chapter_num}" if chapter_num else "",
                         "download_state": {
                             "status":                      "idle",
-                            "total_chapters_downloaded":   chapter_num,
+                            "total_chapters_downloaded":   last_dl_chapter_num,
                             "last_downloaded_chapter":     None,
-                            "last_downloaded_chapter_num": chapter_num,
+                            "last_downloaded_chapter_num": last_dl_chapter_num,
                             "download_path":               None,
                             "failed_chapters":             [],
                             "timestamp":                   0,
@@ -417,8 +433,8 @@ def legion_restore_to_disk() -> bool:
                     existing = prog_books[title]
                     if reader_url and not existing.get("reader_url"):
                         existing["reader_url"]           = reader_url
-                        existing["last_downloaded_url"]  = reader_url
-                        existing["last_downloaded_chapter"] = chapter_num
+                        existing["last_downloaded_url"]  = last_dl_url
+                        existing["last_downloaded_chapter"] = last_dl_chapter_num
                         changed = True
 
             if changed:

@@ -613,13 +613,30 @@ class MainWindow(QMainWindow):
         self._pages     = QStackedWidget()
         self._page_objs: dict[str, QWidget] = {}
 
+        # Settings and Editor (Artemis) are the two heaviest pages to construct
+        # and aren't shown on launch -- build them lazily on first navigation
+        # instead of blocking startup for a page the user may not open at all.
+        self._lazy_page_factories = {
+            "settings": SettingsPage,
+            "editor":   EditorPage,
+        }
+        self._lazy_built = set()
+
+        _settings_ph = QWidget()
+        _settings_ph.setStyleSheet(f"background:{BG};")
+        QVBoxLayout(_settings_ph).addWidget(lbl("Loading Settings...", MUTED, 13))
+
+        _editor_ph = QWidget()
+        _editor_ph.setStyleSheet(f"background:{BG};")
+        QVBoxLayout(_editor_ph).addWidget(lbl("Loading Editor...", MUTED, 13))
+
         pages = [
             ("dashboard", DashboardPage()),
             ("legion",    LegionPage()),
             ("matrix",    MatrixPage()),
             ("sage",      SagePage()),
-            ("editor",    EditorPage()),
-            ("settings",  SettingsPage()),
+            ("editor",    _editor_ph),
+            ("settings",  _settings_ph),
             ("bugreport", BugReportPage()),
         ]
         for key, page in pages:
@@ -665,6 +682,15 @@ class MainWindow(QMainWindow):
         log.ui.debug("Navigate", page=key)
         if key not in self._page_objs:
             return
+        if key in self._lazy_page_factories and key not in self._lazy_built:
+            placeholder = self._page_objs[key]
+            idx = self._pages.indexOf(placeholder)
+            real_page = self._lazy_page_factories[key]()
+            self._pages.insertWidget(idx, real_page)
+            self._pages.removeWidget(placeholder)
+            placeholder.deleteLater()
+            self._page_objs[key] = real_page
+            self._lazy_built.add(key)
         idx = list(self._page_objs.keys()).index(key)
         self._pages.setCurrentIndex(idx)
         self._page_objs[key].refresh()

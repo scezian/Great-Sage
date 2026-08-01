@@ -612,6 +612,107 @@ class ChapterDownloadWorker(QThread):
         except Exception as e:
             return None, [], None, str(e)
 
+    @staticmethod
+    def _guess_chapter_num_from_url(url: str):
+        """Best-effort chapter number from the URL itself, used when a
+        retried chapter's title text doesn't contain a parseable 'Chapter N'."""
+        m = re.search(r'/chapter[-/](\d+)', url, re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+        return None
+
+    def _load_failed_chapters(self) -> list:
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(self._book.title, {})
+            return list(entry.get("download_state", {}).get("failed_chapters", []))
+        except Exception:
+            return []
+
+    def _save_failed_chapters(self, failed: list):
+        try:
+            data = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            # Resurrection guard — same pattern as _save_progress.
+            if self._book.title not in data.get("books", {}):
+                return
+            entry = data["books"][self._book.title]
+            entry.setdefault("download_state", {})["failed_chapters"] = failed
+            save_json(LEGION_PROGRESS, data)
+        except Exception:
+            pass
+
+    def _mark_chapter_failed(self, url: str, reason: str):
+        """
+        Record a dropped chapter (short-content or write-failure) so it can be
+        retried once the chain catches up, instead of being silently lost —
+        this is what was previously an unused download_state.failed_chapters
+        field with nothing writing to it.
+        """
+        if "/chapter-" not in url and "/chapter/" not in url:
+            return
+        failed = self._load_failed_chapters()
+        for f in failed:
+            if f.get("url") == url:
+                f["attempts"] = f.get("attempts", 0) + 1
+                f["reason"]   = reason
+                self._save_failed_chapters(failed)
+                return
+        failed.append({
+            "url":        url,
+            "attempts":   1,
+            "reason":     reason,
+            "first_seen": time.time(),
+        })
+        self._save_failed_chapters(failed)
+
+    def _retry_failed_chapters(self, max_attempts: int = 5):
+        """
+        Re-attempt any chapters previously dropped during this (or a prior)
+        download chain. Cheap no-op when the list is empty — only does real
+        work when there's actually something to retry. Called at worker start
+        (covers app-restart) and every time the chain catches up to the
+        latest published chapter.
+        """
+        failed = self._load_failed_chapters()
+        if not failed:
+            return
+        still_failed = []
+        for f in failed:
+            if self._cancelled:
+                still_failed.append(f)
+                continue
+            url = f.get("url", "")
+            if not url:
+                continue
+            title, paragraphs, _next_url, error = self._fetch_chapter(url)
+            if error == self._NOT_FOUND:
+                continue  # genuinely gone — drop it, nothing left to retry
+            if paragraphs and len("".join(paragraphs)) >= 150:
+                try:
+                    from great_sage_core import legion_mod
+                    mod, err = legion_mod()
+                    if mod and not err:
+                        guessed = self._guess_chapter_num_from_url(url) or 0
+                        mod.append_chapter_to_file(self._book.title, guessed, title, paragraphs)
+                        try:
+                            _disk = mod._get_chapter_list_from_file(self._book.title)
+                            self.chapter_downloaded.emit(self._book.title, len(_disk))
+                        except Exception:
+                            pass
+                        continue  # success — don't keep it in the failed list
+                except Exception:
+                    pass
+            attempts = f.get("attempts", 0) + 1
+            if attempts < max_attempts:
+                f["attempts"] = attempts
+                still_failed.append(f)
+            # else: give up on this URL permanently — avoids hammering a
+            # genuinely dead link forever.
+        self._save_failed_chapters(still_failed)
+
     def _save_progress(self, chapter_num: int, url: str):
         """Persist last_downloaded_chapter + url to LEGION_PROGRESS."""
         # Never persist a landing-page URL as a resume point — only chapter URLs are valid.
@@ -762,6 +863,8 @@ class ChapterDownloadWorker(QThread):
             _landing = ""
         self._landing_url = _landing or self._book.url
 
+        self._retry_failed_chapters()   # covers chapters dropped before an app restart
+
         _consecutive_empty = 0   # guard against ghost-URL chains (LibRead 200 on dead pages)
 
         while not self._cancelled:
@@ -803,6 +906,11 @@ class ChapterDownloadWorker(QThread):
             has_real_content = bool(paragraphs) and len("".join(paragraphs)) >= 150
 
             if not has_real_content:
+                if paragraphs:
+                    # Had some content but under the length threshold — likely a
+                    # real short chapter (interlude, etc.), not a ghost page.
+                    # Record it for retry instead of silently losing it forever.
+                    self._mark_chapter_failed(url, "short_content")
                 _consecutive_empty += 1
                 if _consecutive_empty >= 3:
                     next_url           = None
@@ -831,6 +939,7 @@ class ChapterDownloadWorker(QThread):
                     self.chapter_downloaded.emit(self._book.title, chapter_num)
                 else:
                     chapter_num -= 1
+                    self._mark_chapter_failed(url, "write_failed")
 
             if self._cancelled:
                 return
@@ -839,7 +948,9 @@ class ChapterDownloadWorker(QThread):
                 url = next_url
                 self.msleep(800)   # polite delay between chapters
             else:
-                # Caught up — poll until a new chapter appears
+                # Caught up — retry anything dropped earlier in this chain,
+                # then poll until a new chapter appears.
+                self._retry_failed_chapters()
                 last_url = url
                 _consecutive_empty = 0
                 while not self._cancelled:
@@ -848,6 +959,10 @@ class ChapterDownloadWorker(QThread):
                             return
                         self.msleep(1000)
 
+                    # Periodic retry while caught up, in case a previously
+                    # dead chapter has since become fetchable again.
+                    self._retry_failed_chapters()
+
                     # Re-fetch the last chapter to check for a new next_url
                     _, _, new_next, _ = self._fetch_chapter(last_url)
                     if self._cancelled:
@@ -855,6 +970,136 @@ class ChapterDownloadWorker(QThread):
                     if new_next:
                         url = new_next
                         break   # exit poll loop, continue download loop
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAPTER REPAIR — backfill gaps in already-downloaded books
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_book_toc_chapter_urls(book: "BookItem") -> list:
+    """
+    Return the full ordered list of chapter URLs from the book's table-of-
+    contents page. Only needed for sources where chapter URLs aren't
+    arithmetically derivable (Royal Road uses opaque numeric chapter IDs, not
+    sequential /chapter-N slugs like freewebnovel/libread).
+    """
+    try:
+        url = book.url
+        if not url:
+            return []
+        if "royalroad.com" in url:
+            s = _session()
+            r = s.get(url, timeout=15)
+            if r.status_code != 200:
+                return []
+            soup  = BeautifulSoup(r.text, "html.parser")
+            links = soup.select("table#chapters a[href*='/chapter/']")
+            urls = []
+            for a in links:
+                href = a.get("href", "")
+                if not href:
+                    continue
+                urls.append(RR_BASE + href if href.startswith("/") else href)
+            return urls
+    except Exception as e:
+        log.warning("get_book_toc_chapter_urls failed", url=getattr(book, "url", ""), error=str(e))
+    return []
+
+
+class ChapterRepairWorker(QThread):
+    """
+    One-shot scan of an already-downloaded book for gaps in its chapter
+    sequence, with an attempt to backfill each missing chapter.
+
+    Separate from ChapterDownloadWorker's live retry: that guards against NEW
+    drops going forward in an active chain. This repairs books that already
+    have gaps from before that guard existed — no active download chain
+    required.
+    """
+    repair_progress = pyqtSignal(str, int, int)   # (book_title, fixed_so_far, total_gaps)
+    repair_finished = pyqtSignal(str, int, int)   # (book_title, fixed_count, still_missing_count)
+
+    def __init__(self, book: "BookItem", parent=None):
+        super().__init__(parent)
+        self._book      = book
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def _find_gaps(self) -> list:
+        try:
+            from great_sage_core import legion_mod
+            mod, err = legion_mod()
+            if not mod or err:
+                return []
+            present = sorted(n for n, _t in mod._get_chapter_list_from_file(self._book.title))
+        except Exception:
+            return []
+        if len(present) < 2:
+            return []
+        lo, hi = present[0], present[-1]
+        present_set = set(present)
+        return [n for n in range(lo, hi + 1) if n not in present_set]
+
+    def _fwn_url_for(self, n: int):
+        """Derive a freewebnovel/libread chapter URL arithmetically."""
+        try:
+            data  = load_json_cached(LEGION_PROGRESS, {"books": {}})
+            entry = data.get("books", {}).get(self._book.title, {})
+            saved = entry.get("last_downloaded_url", "") or self._book.url
+            base_url = saved[:saved.rfind("/")] if "/chapter-" in saved else saved.rstrip("/")
+            return f"{base_url}/chapter-{n}"
+        except Exception:
+            return None
+
+    def run(self):
+        gaps = self._find_gaps()
+        if self._cancelled:
+            return
+        if not gaps:
+            self.repair_finished.emit(self._book.title, 0, 0)
+            return
+
+        source = getattr(self._book, "source", "")
+        fixed  = 0
+
+        rr_urls = []
+        if source == "royalroad":
+            rr_urls = get_book_toc_chapter_urls(self._book)
+
+        # Reuse ChapterDownloadWorker's proven per-URL fetch logic rather than
+        # duplicating the libread/royalroad branching here.
+        fetch_helper = ChapterDownloadWorker(self._book)
+
+        for n in gaps:
+            if self._cancelled:
+                break
+
+            url = None
+            if source in ("freewebnovel", "libread"):
+                url = self._fwn_url_for(n)
+            elif source == "royalroad" and rr_urls:
+                if 0 <= n - 1 < len(rr_urls):
+                    url = rr_urls[n - 1]
+
+            if url:
+                title, paragraphs, _next_url, error = fetch_helper._fetch_chapter(url)
+                if not error and paragraphs and len("".join(paragraphs)) >= 150:
+                    try:
+                        from great_sage_core import legion_mod
+                        mod, err = legion_mod()
+                        if mod and not err:
+                            mod.append_chapter_to_file(self._book.title, n, title, paragraphs)
+                            fixed += 1
+                    except Exception:
+                        pass
+
+            self.repair_progress.emit(self._book.title, fixed, len(gaps))
+            if not self._cancelled:
+                self.msleep(800)   # polite delay, matches the main downloader
+
+        self.repair_finished.emit(self._book.title, fixed, len(gaps) - fixed)
 
 
 def jump_in_add(book: "BookItem"):
@@ -2329,6 +2574,23 @@ class BooksGrid(QWidget):
             self._cols = new_cols
             self._reflow()
 
+    def showEvent(self, event):
+        """
+        Qt doesn't reliably fire resizeEvent for a widget that was hidden
+        (e.g. an inactive tab) when it becomes visible again — so _cols can
+        stay stuck at a stale/narrow value from before the widget had its
+        real width. Recompute on show, deferred one event-loop tick so the
+        layout pass has actually finished sizing the viewport first.
+        """
+        super().showEvent(event)
+        QTimer.singleShot(0, self._recalc_cols)
+
+    def _recalc_cols(self):
+        new_cols = self._cols_for_width(self._scroll.viewport().width())
+        if new_cols != self._cols:
+            self._cols = new_cols
+            self._reflow()
+
     def _reflow(self):
         """Re-place all existing cards using the updated column count."""
         while self._grid.count():
@@ -3748,6 +4010,7 @@ class ReaderPanel(QWidget):
         self._font_size       = self._settings.get("font_size", READER_FONT_DEFAULT)
         self._book: BookItem | None  = None
         self._current_url: str | None = None
+        self._repair_worker: "ChapterRepairWorker | None" = None
         self._next_url:    str | None = None
         self._prev_url:    str | None = None
         self._paragraphs:  list       = []
@@ -4050,6 +4313,18 @@ class ReaderPanel(QWidget):
         self._chapters_btn.clicked.connect(self._toggle_chapter_drawer)
         nav_lay.addWidget(self._chapters_btn)
 
+        self._repair_btn = QPushButton("\u2691  Repair")
+        self._repair_btn.setFixedHeight(34)
+        self._repair_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._repair_btn.setToolTip("Scan this book for missing chapters and try to fill them in")
+        self._repair_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3}; border:1px solid {BORDER2}; "
+            f"color:{TEXT2}; border-radius:4px; padding:0 16px; font-size:13px; letter-spacing:1px;}}"
+            f"QPushButton:hover{{border-color:{ACCENT}; color:{ACCENT};}}"
+            f"QPushButton:disabled{{color:{MUTED}; border-color:{BORDER};}}")
+        self._repair_btn.clicked.connect(self._start_chapter_repair)
+        nav_lay.addWidget(self._repair_btn)
+
         nav_lay.addStretch()
 
         self._next_btn = QPushButton("Next →")
@@ -4110,6 +4385,35 @@ class ReaderPanel(QWidget):
         """Show/hide the 320-px Sage sidebar."""
         self._sidebar_visible = self._sage_toggle_btn.isChecked()
         self._sidebar.setVisible(self._sidebar_visible)
+
+    def _start_chapter_repair(self):
+        """Scan the currently open book for chapter gaps and try to backfill them."""
+        if not self._book:
+            return
+        if self._repair_worker and self._repair_worker.isRunning():
+            return  # already running
+        book = self._book
+        self._repair_btn.setEnabled(False)
+        self._repair_btn.setText("\u2691  Scanning\u2026")
+        worker = ChapterRepairWorker(book)
+        worker.repair_progress.connect(self._on_repair_progress)
+        worker.repair_finished.connect(self._on_repair_finished)
+        self._repair_worker = worker
+        worker.start()
+
+    def _on_repair_progress(self, title: str, fixed: int, total: int):
+        if self._book and title == self._book.title:
+            self._repair_btn.setText(f"\u2691  {fixed}/{total}")
+
+    def _on_repair_finished(self, title: str, fixed: int, still_missing: int):
+        self._repair_btn.setEnabled(True)
+        if fixed == 0 and still_missing == 0:
+            self._repair_btn.setText("\u2691  No gaps found")
+        elif still_missing == 0:
+            self._repair_btn.setText(f"\u2691  Fixed {fixed}")
+        else:
+            self._repair_btn.setText(f"\u2691  Fixed {fixed}, {still_missing} left")
+        QTimer.singleShot(4000, lambda: self._repair_btn.setText("\u2691  Repair"))
 
     def _toggle_chapter_drawer(self):
         """Show/hide the chapter list drawer."""
