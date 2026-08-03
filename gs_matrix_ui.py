@@ -51,7 +51,7 @@ from great_sage_core import (
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
     FetchChapterWorker, SageWorker, MetadataWorker, AutoSyncWorker,
     _SageCompanionWorker, _NewChaptersWorker, _MetaRefreshWorker,
-    start_mobile_server, _wl_now,
+    _wl_now,
 )
 
 # MPV_SOCKET_PATH is defined in gs_theme.py (imported via 'from gs_theme import *' above).
@@ -410,7 +410,6 @@ class MatrixPage(QWidget):
         # cost has already been paid off-screen. Delayed so it doesn't
         # compete with (and slow down) the page's own initial render.
         self._webengine_prewarmed = False
-        QTimer.singleShot(2000, self._prewarm_webengine)
 
     def _on_cloud_sync_complete(self):
         """
@@ -419,7 +418,7 @@ class MatrixPage(QWidget):
         Qt main thread before touching any widgets.
         """
         QTimer.singleShot(0, self.refresh)
-        QTimer.singleShot(2000, self._wl_start_cover_backfill)
+        # TEMP DISABLED FOR TESTING: QTimer.singleShot(2000, self._wl_start_cover_backfill)
 
     def _cloud_push(self):
         """Push current progress to Supabase in the background."""
@@ -723,16 +722,33 @@ class MatrixPage(QWidget):
                         for e in entries:
                             if isinstance(e, dict) and e.get("title", "").lower() == t.lower():
                                 e["cover_url"] = img_url
+                                e.pop("cover_lookup_failed_at", None)
                     save_json(MATRIX_PROGRESS, md)
                 except Exception as ex:
                     log.matrix.warning("Could not persist cover_url locally", title=t, error=str(ex))
                 _sync_item_added(t, "Anime", l.capitalize(), cover_url=img_url)
+            else:
+                _mark_cover_lookup_failed(t)
             if on_complete:
                 on_complete()
 
+        def _mark_cover_lookup_failed(t):
+            # No point re-hitting Jikan/TMDB for the same unresolvable title
+            # every single launch. Record when this failed so
+            # _wl_start_cover_backfill can skip it for a while.
+            try:
+                md = matrix_data(); wl = md.setdefault("watchlist", {})
+                for k, entries in wl.items():
+                    for e in entries:
+                        if isinstance(e, dict) and e.get("title", "").lower() == t.lower():
+                            e["cover_lookup_failed_at"] = time.time()
+                save_json(MATRIX_PROGRESS, md)
+            except Exception as ex:
+                log.matrix.warning("Could not persist cover_lookup_failed_at", title=t, error=str(ex))
         def _on_error(_e, t=title):
             _cleanup()
             log.matrix.info("Cover lookup found no match", title=t)
+            _mark_cover_lookup_failed(t)
             if on_complete:
                 on_complete()
 
@@ -764,6 +780,9 @@ class MatrixPage(QWidget):
                         continue  # webnovel — covered separately by Legion
                     if e.get("cover_url"):
                         continue  # already has one
+                    failed_at = e.get("cover_lookup_failed_at")
+                    if failed_at and (time.time() - failed_at) < 7 * 86400:
+                        continue  # tried within the last 7 days, don't hammer Jikan/TMDB again
                     title = e.get("title", "").strip()
                     if title:
                         queue.append((title, lst))
@@ -873,7 +892,25 @@ class MatrixPage(QWidget):
         is_anime = isinstance(e,dict) and e.get("is_anime",False)
         self.wl_placeholder.setText(f"Fetching info for '{title}'...")
         self.wl_placeholder.show(); self.wl_detail_w.hide()
-        if self._meta_worker and self._meta_worker.isRunning(): self._meta_worker.terminate()
+        # terminate() is unsafe mid-flight — it can kill the QThread while a
+        # signal delivery is in progress, which is the root cause of the
+        # sipBadCatcherResult crash. Instead, disconnect the stale worker's
+        # signals (its eventual result is now silently ignored) and let it
+        # run to completion naturally, keeping a reference alive in
+        # _cover_fetch_workers so PyQt doesn't GC it out from under the
+        # still-running C++ QThread.
+        if self._meta_worker and self._meta_worker.isRunning():
+            try:
+                self._meta_worker.done.disconnect()
+                self._meta_worker.error.disconnect()
+            except TypeError:
+                pass
+            _stale = self._meta_worker
+            self._cover_fetch_workers.append(_stale)
+            def _cleanup_stale(*_a, w=_stale):
+                try: self._cover_fetch_workers.remove(w)
+                except ValueError: pass
+            _stale.finished.connect(_cleanup_stale)
         self._meta_worker = MetadataWorker(title, is_anime)
         self._meta_worker.done.connect(lambda info, t=title: self._show_meta(info,t))
         self._meta_worker.error.connect(lambda e: (
@@ -2083,14 +2120,19 @@ class MatrixPage(QWidget):
     def _prewarm_webengine(self):
         """Kick off QtWebEngine's (Chromium) process/profile init off-screen,
         well before the user ever opens STREAM.
-
         The native-window flash people see the first time a QWebEngineView
         appears comes from Chromium spinning up its renderer/GPU process on
-        first use — that's independent of, and in addition to, the tab-swap
-        flicker we already fixed. Doing that spin-up quietly now, while the
-        user is looking at another tab, means _build_stream() can reuse an
-        already-warm view instead of paying that cost (and the flash) right
-        when the user clicks STREAM.
+        first use -- that's independent of, and in addition to, the tab-swap
+        flicker we already fixed. Doing that spin-up quietly now means
+        _build_stream() can reuse an already-warm view instead of paying
+        that cost (and the flash) right when the user clicks STREAM.
+
+        Chunked across several QTimer.singleShot(0, ...) hops so the event
+        loop gets to process paint/input events between each step, rather
+        than blocking the main thread for the whole ~3s Chromium spin-up
+        in one continuous call. Triggered externally (great_sage_gui.py)
+        a couple seconds after the real window is shown post-splash, not
+        tied to this page's own construction.
         """
         if not WEBENGINE_OK or self._stream_built or getattr(self, "_webengine_prewarmed", False):
             return
@@ -2104,27 +2146,48 @@ class MatrixPage(QWidget):
             profile.setHttpUserAgent(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            self._stream_profile = profile
+        except Exception as e:
+            log.warning("webengine prewarm (profile) failed", error=str(e))
+            self._webengine_prewarmed = False
+            return
+        QTimer.singleShot(0, self._prewarm_webengine_step2)
 
+    def _prewarm_webengine_step2(self):
+        try:
             adblock = _get_adblock_manager()
-            adblock.install(profile)
+            adblock.install(self._stream_profile)
+            self._adblock = adblock
+        except Exception as e:
+            log.warning("webengine prewarm (adblock) failed", error=str(e))
+            self._webengine_prewarmed = False
+            return
+        QTimer.singleShot(0, self._prewarm_webengine_step3)
 
+    def _prewarm_webengine_step3(self):
+        try:
             view = QWebEngineView()
-            # Keep it fully off-screen and non-composited while it warms up —
+            # Keep it fully off-screen and non-composited while it warms up --
             # this is what stops the spin-up itself from ever being visible.
             view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
             view.hide()
-            page = adblock.make_page(profile, view)
+            page = self._adblock.make_page(self._stream_profile, view)
             view.setPage(page)
+            self._stream_view = view
+            self._stream_page = page
+        except Exception as e:
+            log.warning("webengine prewarm (view) failed", error=str(e))
+            self._webengine_prewarmed = False
+            return
+        QTimer.singleShot(0, self._prewarm_webengine_step4)
+
+    def _prewarm_webengine_step4(self):
+        try:
             # Force the renderer process to actually start now rather than
             # lazily on first real navigation.
-            view.setHtml("<html><body style='background:#000;'></body></html>")
-
-            self._stream_profile = profile
-            self._adblock        = adblock
-            self._stream_view    = view
-            self._stream_page    = page
+            self._stream_view.setHtml("<html><body style='background:#000;'></body></html>")
         except Exception as e:
-            log.warning("webengine prewarm failed", error=str(e))
+            log.warning("webengine prewarm (render) failed", error=str(e))
             self._webengine_prewarmed = False
 
     def _build_stream_placeholder(self) -> QWidget:

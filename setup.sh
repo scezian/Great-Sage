@@ -102,7 +102,7 @@ echo ""
 case "$PKG_MANAGER" in
     pacman)
         sudo pacman -Sy --needed --noconfirm python python-pip mpv git \
-            python-pyqt6 python-pyqt6-webengine &>/dev/null &
+            python-pyqt6 python-pyqt6-webengine inter-font &>/dev/null &
         ;;
     apt)
         (sudo apt update -qq && sudo apt install -y python3 python3-pip python3-venv \
@@ -123,6 +123,22 @@ INSTALL_PID=$!
 spinner $INSTALL_PID "Installing system packages"
 wait $INSTALL_PID
 ok "System dependencies installed"
+
+# ttf-fraunces (used by the launch splash wordmark) is AUR-only — inter-font
+# above covers the official-repo side. Guarded: only runs on Arch, only if
+# paru is actually present, and never fails setup if it's missing (the splash
+# screen falls back to a system serif if this font isn't installed).
+if [[ "$PKG_MANAGER" == "pacman" ]]; then
+    if command -v paru &>/dev/null; then
+        paru -S --needed --noconfirm ttf-fraunces &>/dev/null &
+        FONT_PID=$!
+        spinner $FONT_PID "Installing splash screen font (ttf-fraunces, AUR)"
+        wait $FONT_PID
+        ok "Splash screen font installed"
+    else
+        echo -e "  ${DIM}paru not found — skipping ttf-fraunces (AUR). Splash screen will use a fallback serif font.${RESET}"
+    fi
+fi
 
 # ── 3. Directories ────────────────────────────────────────────────────────────
 

@@ -236,7 +236,18 @@ class NavRail(QFrame):
         txt.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         tile._txt = txt
         tv.addWidget(ico); tv.addWidget(txt)
-        tile.mousePressEvent = lambda e, k=key, t=tile: (self._pulse_tile(t), self.navigate.emit(k))
+        # mousePressEvent is a void Qt virtual — it must return None. The
+        # previous lambda's body was a tuple expression
+        # (self._pulse_tile(t), self.navigate.emit(k)), so it returned a
+        # 2-tuple on every click. sip's catcher shim can't convert a
+        # non-None return from a void override, which is the root cause of
+        # the "invalid argument to sipBadCatcherResult()" crash on every
+        # NavRail tile click (Legion/Matrix/Sage/etc). This handler now
+        # performs the same two calls but returns None.
+        def _tile_press(e, k=key, t=tile):
+            self._pulse_tile(t)
+            self.navigate.emit(k)
+        tile.mousePressEvent = _tile_press
         self._apply_style(tile, False)
         return tile
 

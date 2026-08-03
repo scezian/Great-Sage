@@ -172,6 +172,18 @@ _AD_SUBDOMAIN_PREFIXES = (
 # ABP / EasyList / uBO filter parser
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Sentinel meaning "regex not compiled yet" — distinct from None, which
+# means "confirmed no regex needed (plain-domain rule) or compile failed".
+# Compiling all ~40k EasyList/EasyPrivacy/uBO/AdGuard rules eagerly at parse
+# time measured at ~30s of near-continuous GIL-held work, even off the main
+# thread, which starves the UI. should_block() resolves most requests via
+# the O(1) domain_set fast path before ever reaching the rule scan, so most
+# rules are never actually exercised in a session — compiling lazily, only
+# for rules a real request actually reaches, avoids that cost almost
+# entirely for a typical session.
+_LAZY_RE = object()
+
+
 class FilterRule:
     """One parsed network filter rule."""
     __slots__ = ("pattern", "is_exception", "is_regex",
@@ -191,31 +203,46 @@ class FilterRule:
         self._plain_domain: Optional[str] = None
 
         if is_regex:
-            try:
-                self._re = re.compile(pattern, re.IGNORECASE)
-            except re.error:
-                self._re = None
+            # Compiled lazily on first actual match attempt — see _get_re().
+            self._re = _LAZY_RE
         elif domain_anchor and "/" not in pattern and "*" not in pattern and "^" not in pattern:
-            # Pure domain rule — fast path
+            # Pure domain rule — fast path, never needs regex at all
             self._plain_domain = pattern.lower().lstrip(".")
         else:
-            # Convert ABP glob pattern → regex
-            p = pattern
-            p = p.replace(".", r"\.")
-            p = p.replace("*", ".*")
-            p = p.replace("?", ".")
-            p = p.replace("^", r"(?:[/?&=]|$)")
-            if domain_anchor:
-                p = r"(?:^|\.)?" + p
+            # ABP glob pattern → regex conversion is deferred to _get_re()
+            # too, so the string transform + compile only happen if this
+            # rule is ever actually reached during matching.
+            self._re = _LAZY_RE
+
+    def _get_re(self) -> Optional[re.Pattern]:
+        """Lazily compile (and memoize) this rule's regex on first real
+        use. Cheap to call repeatedly once resolved — subsequent calls just
+        return the cached Pattern (or None if compilation failed)."""
+        if self._re is _LAZY_RE:
+            if self.is_regex:
+                p = self.pattern
+            else:
+                p = self.pattern
+                p = p.replace(".", r"\.")
+                p = p.replace("*", ".*")
+                p = p.replace("?", ".")
+                p = p.replace("^", r"(?:[/?&=]|$)")
+                if self.domain_anchor:
+                    p = r"(?:^|\.)?" + p
             try:
                 self._re = re.compile(p, re.IGNORECASE)
             except re.error:
                 self._re = None
+        return self._re
 
     def matches_url(self, url: str, host: str, rtype_str: str,
                     is_third_party: bool) -> bool:
         """Return True if this rule matches the given request."""
-        if not self._re and not self._plain_domain:
+        # self._re is _LAZY_RE (truthy, not yet compiled) for most rules at
+        # this point — only a rule that already failed to compile once
+        # lands on None here, so this still correctly short-circuits dead
+        # rules without forcing a compile just to check.
+        if self._re is None and not self._plain_domain:
             return False
 
         # Option checks
@@ -232,7 +259,8 @@ class FilterRule:
 
         if self._plain_domain:
             return host == self._plain_domain or host.endswith("." + self._plain_domain)
-        return bool(self._re and self._re.search(url))
+        r = self._get_re()
+        return bool(r and r.search(url))
 
 
 class FilterEngine:

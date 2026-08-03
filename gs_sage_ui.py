@@ -50,7 +50,6 @@ from great_sage_core import (
     behaviour_data, behaviour_summary, track_event, stream_watch_context,
     FetchChapterWorker, SageWorker, MetadataWorker, AutoSyncWorker,
     _SageCompanionWorker, _NewChaptersWorker, _MetaRefreshWorker,
-    start_mobile_server,
 )
 
 

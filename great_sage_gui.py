@@ -107,6 +107,7 @@ from gs_matrix_ui import HighlightsDialog, CalendarDialog, WrappedDialog
 from gs_matrix_ui import MatrixPage
 from gs_sage_ui   import SagePage, SettingsPage
 from gs_bugreport_ui import BugReportPage
+from gs_splash import SplashScreen
 try:
     from artemis import EditorPage
 except ImportError as _artemis_err:
@@ -147,7 +148,7 @@ from great_sage_core import (
     save_json, get_legion_data, get_matrix_data, get_bookmarks_data,
     legion_data, matrix_data, bookmarks_data,
     sage_memory_load,
-    SageWorker, AutoSyncWorker, start_mobile_server,
+    SageWorker, AutoSyncWorker,
     get_notification_store,
 )
 
@@ -478,8 +479,9 @@ class DashboardPage(QWidget):
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, splash=None):
         super().__init__()
+        self._splash = splash
         self.setWindowTitle("Great Sage")
         self.setMinimumSize(1080, 700)
         self.resize(1380, 860)
@@ -488,7 +490,6 @@ class MainWindow(QMainWindow):
         t = QTimer(self)
         t.timeout.connect(self._page_objs["dashboard"].refresh)
         t.start(30_000)
-        threading.Thread(target=start_mobile_server, daemon=True).start()
         self._auto_sync_worker = None
         QTimer.singleShot(500,  self._reset_stale_downloads)
         QTimer.singleShot(4000, self._run_auto_sync)
@@ -501,7 +502,6 @@ class MainWindow(QMainWindow):
         except:
             pass
         self._sync_timer.start(sync_hours * 60 * 60 * 1000)
-        QTimer.singleShot(800, self._activate_plugins)
         QTimer.singleShot(3000, self._check_for_updates)
 
     def closeEvent(self, event):
@@ -523,6 +523,18 @@ class MainWindow(QMainWindow):
             if play_thread is not None and play_thread.is_alive():
                 play_thread.join(timeout=4)
         event.accept()
+
+    def _splash_step(self, stage: int):
+        """Advance the launch splash to a real construction milestone.
+        Safe no-op if MainWindow was built without a splash (e.g. tests).
+        Pumps the event loop once so the splash actually repaints here,
+        since we're still inside synchronous __init__ construction."""
+        if self._splash is None:
+            return
+        self._splash.set_stage(stage)
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
 
     def _build(self):
         central = QWidget()
@@ -630,18 +642,34 @@ class MainWindow(QMainWindow):
         _editor_ph.setStyleSheet(f"background:{BG};")
         QVBoxLayout(_editor_ph).addWidget(lbl("Loading Editor...", MUTED, 13))
 
-        pages = [
-            ("dashboard", DashboardPage()),
-            ("legion",    LegionPage()),
-            ("matrix",    MatrixPage()),
-            ("sage",      SagePage()),
-            ("editor",    _editor_ph),
-            ("settings",  _settings_ph),
-            ("bugreport", BugReportPage()),
-        ]
-        for key, page in pages:
+        def _add_page(key, page):
             self._pages.addWidget(page)
             self._page_objs[key] = page
+
+        _t0 = __import__("time").perf_counter()
+        _add_page("dashboard", DashboardPage())
+        print(f"[splash-timing] DashboardPage: {__import__('time').perf_counter() - _t0:.3f}s")
+
+        self._splash_step(0)
+        _t1 = __import__("time").perf_counter()
+        _add_page("legion", LegionPage())
+        print(f"[splash-timing] LegionPage: {__import__('time').perf_counter() - _t1:.3f}s")
+
+        self._splash_step(1)
+        _t2 = __import__("time").perf_counter()
+        _add_page("matrix", MatrixPage())
+        print(f"[splash-timing] MatrixPage: {__import__('time').perf_counter() - _t2:.3f}s")
+
+        self._splash_step(2)
+        _t3 = __import__("time").perf_counter()
+        _add_page("sage", SagePage())
+        print(f"[splash-timing] SagePage: {__import__('time').perf_counter() - _t3:.3f}s")
+
+        _t4 = __import__("time").perf_counter()
+        _add_page("editor", _editor_ph)
+        _add_page("settings", _settings_ph)
+        _add_page("bugreport", BugReportPage())
+        print(f"[splash-timing] editor+settings+bugreport: {__import__('time').perf_counter() - _t4:.3f}s")
 
         try:
             from plugin_manager import create_plugins_page as _cpp
@@ -738,26 +766,41 @@ class MainWindow(QMainWindow):
             engine = getattr(self, "_plugin_engine", None)
             if engine is None:
                 return
-            for rec in engine.enabled_plugins():
-                page = None
-                try:
-                    if rec.filename not in plugins_page._plugin_page_indices:
-                        api  = plugins_page._api(rec)
-                        page = rec.build_page(plugins_page, api)
-                        if page is not None:
-                            idx = plugins_page._page_stack.count()
-                            plugins_page._page_stack.addWidget(page)
-                            plugins_page._plugin_page_indices[rec.filename] = idx
-                            log.info("Plugin auto-activated", plugin=rec.name)
-                except Exception as e:
-                    log.warning("Plugin auto-activation failed",
-                                plugin=rec.name, error=str(e))
-                if page is None:
-                    log.error("Plugin activation failed completely", plugin=rec.name)
-                    continue
+            plugin_list = list(engine.enabled_plugins())
         except Exception as e:
             log.warning("_activate_plugins failed", error=str(e))
-        QTimer.singleShot(200, self._post_activate_refresh)
+            return
+        self._plugin_activation_queue = plugin_list
+        self._plugin_activation_index = 0
+        self._activate_next_plugin()
+
+    def _activate_next_plugin(self):
+        plugins_page = self._page_objs.get("plugins")
+        queue = getattr(self, "_plugin_activation_queue", [])
+        idx = getattr(self, "_plugin_activation_index", 0)
+        if idx == 0:
+            log.info("TIMING _activate_next_plugin first tick", t=time.monotonic())
+        if plugins_page is None or idx >= len(queue):
+            QTimer.singleShot(200, self._post_activate_refresh)
+            return
+        rec = queue[idx]
+        page = None
+        try:
+            if rec.filename not in plugins_page._plugin_page_indices:
+                api  = plugins_page._api(rec)
+                page = rec.build_page(plugins_page, api)
+                if page is not None:
+                    pidx = plugins_page._page_stack.count()
+                    plugins_page._page_stack.addWidget(page)
+                    plugins_page._plugin_page_indices[rec.filename] = pidx
+                    log.info("Plugin auto-activated", plugin=rec.name)
+        except Exception as e:
+            log.warning("Plugin auto-activation failed",
+                        plugin=rec.name, error=str(e))
+        if page is None:
+            log.error("Plugin activation failed completely", plugin=rec.name)
+        self._plugin_activation_index = idx + 1
+        QTimer.singleShot(0, self._activate_next_plugin)
 
     def _post_activate_refresh(self):
         try:
@@ -771,6 +814,7 @@ class MainWindow(QMainWindow):
             log.warning("_post_activate_refresh failed", error=str(e))
 
     def _reset_stale_downloads(self):
+        log.info("TIMING _reset_stale_downloads start", t=time.monotonic())
         legion_data = get_legion_data()
         changed = False
         for name, book in legion_data.get("books", {}).items():
@@ -783,6 +827,7 @@ class MainWindow(QMainWindow):
             save_json(LEGION_PROGRESS, legion_data)
 
     def _run_auto_sync(self):
+        log.info("TIMING _run_auto_sync start", t=time.monotonic())
         if hasattr(self, '_auto_sync_worker') and self._auto_sync_worker and self._auto_sync_worker.isRunning():
             return
         self._auto_sync_worker = AutoSyncWorker()
@@ -847,6 +892,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Bug Report", f"Open this URL to report:\n{url}")
 
     def _check_for_updates(self):
+        log.info("TIMING _check_for_updates start", t=time.monotonic())
         def _fetch():
             try:
                 version_file = Path(SCRIPT_DIR) / "VERSION"
@@ -987,9 +1033,26 @@ def main():
     ]:
         pal.setColor(role, QColor(col))
     app.setPalette(pal)
+
+    splash = SplashScreen(size=(1380, 860))
+    splash.show()
+    app.processEvents()
+
     log.info("MainWindow creating")
-    win = MainWindow()
-    win.show()
+    win = MainWindow(splash=splash)
+
+    def _reveal():
+        win.show()
+        QTimer.singleShot(2000, _trigger_matrix_prewarm)
+        QTimer.singleShot(4000, win._activate_plugins)
+    def _trigger_matrix_prewarm():
+        log.info("TIMING _trigger_matrix_prewarm start", t=time.monotonic())
+        matrix_page = win._page_objs.get("matrix") if hasattr(win, "_page_objs") else None
+        if matrix_page is not None and hasattr(matrix_page, "_prewarm_webengine"):
+            matrix_page._prewarm_webengine()
+    splash.dismissed.connect(_reveal)
+    splash.finish()
+
     log.info("App event loop starting")
     code = app.exec()
     log.info("App exiting", exit_code=code)
