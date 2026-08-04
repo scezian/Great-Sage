@@ -418,6 +418,11 @@ def library_get_category(title: str) -> str | None:
 
 class _DownloadRegistry:
     _workers: dict[str, "ChapterDownloadWorker"] = {}
+    # Stale workers that were told to cancel but haven't actually finished
+    # yet -- kept alive here (mirrors the MetadataWorker/_cover_fetch_workers
+    # pattern in gs_matrix_ui.py) so PyQt can't GC a QThread while its C++
+    # side is still running a chapter fetch, which is a fatal abort.
+    _stale_workers: list = []
 
     @classmethod
     def start(cls, book: "BookItem"):
@@ -429,8 +434,18 @@ class _DownloadRegistry:
     @classmethod
     def stop(cls, title: str):
         w = cls._workers.pop(title, None)
-        if w is not None:
-            w.cancel()          # sets flag; worker exits between chapters
+        if w is None:
+            return
+        w.cancel()          # sets flag; worker exits between chapters
+        if w.isRunning():
+            # Still genuinely running -- keep a reference alive until it
+            # actually finishes, instead of letting the local `w` go out
+            # of scope while the underlying QThread is still executing.
+            cls._stale_workers.append(w)
+            def _cleanup_stale(w=w):
+                try: cls._stale_workers.remove(w)
+                except ValueError: pass
+            w.finished.connect(_cleanup_stale)
 
     @classmethod
     def get(cls, title: str) -> "ChapterDownloadWorker | None":
@@ -5212,6 +5227,19 @@ class LegionPage(QWidget):
         for w in self._workers:
             w.cancel()          # tells worker to drop its result when done
             w.blockSignals(True)  # belt-and-suspenders: no signals reach the UI
+            if w.isRunning():
+                # Still genuinely running (cancel() is cooperative, not
+                # immediate) -- keep a reference alive until it actually
+                # finishes instead of letting it get GC'd mid-flight,
+                # which is a fatal Qt abort ("QThread: Destroyed while
+                # thread is still running").
+                if not hasattr(self, "_stale_workers"):
+                    self._stale_workers = []
+                self._stale_workers.append(w)
+                def _cleanup_stale(w=w):
+                    try: self._stale_workers.remove(w)
+                    except ValueError: pass
+                w.finished.connect(_cleanup_stale)
         self._workers.clear()
 
     def _load_trending(self):

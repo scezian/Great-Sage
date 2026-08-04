@@ -6,6 +6,9 @@ Entry point and shell. Pure native PyQt6 — no HTML pages.
 Run:  python3 great_sage_gui.py
 """
 
+import faulthandler
+faulthandler.enable(all_threads=True)  # print a Python-level traceback for every thread on fatal signals (SIGABRT, SIGSEGV, etc.) instead of a silent abort
+
 import os, sys, time, threading, urllib.request
 from pathlib import Path
 
