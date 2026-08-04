@@ -479,13 +479,23 @@ class DashboardPage(QWidget):
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
-    def __init__(self, splash=None):
+    def __init__(self):
         super().__init__()
-        self._splash = splash
         self.setWindowTitle("Great Sage")
         self.setMinimumSize(1080, 700)
-        self.resize(1380, 860)
+        self.resize(1380, 860)  # fallback size if maximize isn't available
+        # ── loading overlay -- lives inside this window, never a second
+        # window, so tiling window managers (Hyprland etc.) never see two
+        # top-level surfaces competing for screen space during launch.
+        self._splash = SplashScreen(parent=self)
+        self._splash.setGeometry(self.rect())
+        self._splash.raise_()
+        self._splash.show()
+        self._splash.dismissed.connect(self._on_splash_dismissed)
+
         self._build()
+        self._splash.raise_()  # _build() adds the central widget, which can bury the overlay -- re-raise after
+
         self._navigate("dashboard")
         t = QTimer(self)
         t.timeout.connect(self._page_objs["dashboard"].refresh)
@@ -502,6 +512,7 @@ class MainWindow(QMainWindow):
         except:
             pass
         self._sync_timer.start(sync_hours * 60 * 60 * 1000)
+        QTimer.singleShot(800, self._activate_plugins)
         QTimer.singleShot(3000, self._check_for_updates)
 
     def closeEvent(self, event):
@@ -523,6 +534,19 @@ class MainWindow(QMainWindow):
             if play_thread is not None and play_thread.is_alive():
                 play_thread.join(timeout=4)
         event.accept()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        splash = getattr(self, "_splash", None)
+        if splash is not None:
+            splash.setGeometry(self.rect())
+
+    def _on_splash_dismissed(self):
+        splash = getattr(self, "_splash", None)
+        if splash is not None:
+            splash.hide()
+            splash.deleteLater()
+            self._splash = None
 
     def _splash_step(self, stage: int):
         """Advance the launch splash to a real construction milestone.
@@ -625,22 +649,31 @@ class MainWindow(QMainWindow):
         self._pages     = QStackedWidget()
         self._page_objs: dict[str, QWidget] = {}
 
-        # Settings and Editor (Artemis) are the two heaviest pages to construct
-        # and aren't shown on launch -- build them lazily on first navigation
-        # instead of blocking startup for a page the user may not open at all.
+        # Only Dashboard is built eagerly -- it's the first thing visible after
+        # the splash dismisses. Every other page is built lazily on first
+        # navigation instead of blocking startup for pages the user may not
+        # open in this session; this is what keeps the splash from freezing
+        # through several hundred ms of synchronous widget construction per page.
         self._lazy_page_factories = {
+            "legion":   LegionPage,
+            "matrix":   MatrixPage,
+            "sage":     SagePage,
             "settings": SettingsPage,
             "editor":   EditorPage,
         }
         self._lazy_built = set()
 
-        _settings_ph = QWidget()
-        _settings_ph.setStyleSheet(f"background:{BG};")
-        QVBoxLayout(_settings_ph).addWidget(lbl("Loading Settings...", MUTED, 13))
+        def _make_placeholder(text_):
+            ph = QWidget()
+            ph.setStyleSheet(f"background:{BG};")
+            QVBoxLayout(ph).addWidget(lbl(text_, MUTED, 13))
+            return ph
 
-        _editor_ph = QWidget()
-        _editor_ph.setStyleSheet(f"background:{BG};")
-        QVBoxLayout(_editor_ph).addWidget(lbl("Loading Editor...", MUTED, 13))
+        _legion_ph   = _make_placeholder("Loading Legion...")
+        _matrix_ph   = _make_placeholder("Loading Matrix...")
+        _sage_ph     = _make_placeholder("Loading Sage...")
+        _settings_ph = _make_placeholder("Loading Settings...")
+        _editor_ph   = _make_placeholder("Loading Editor...")
 
         def _add_page(key, page):
             self._pages.addWidget(page)
@@ -651,25 +684,16 @@ class MainWindow(QMainWindow):
         print(f"[splash-timing] DashboardPage: {__import__('time').perf_counter() - _t0:.3f}s")
 
         self._splash_step(0)
-        _t1 = __import__("time").perf_counter()
-        _add_page("legion", LegionPage())
-        print(f"[splash-timing] LegionPage: {__import__('time').perf_counter() - _t1:.3f}s")
+        _add_page("legion", _legion_ph)
 
         self._splash_step(1)
-        _t2 = __import__("time").perf_counter()
-        _add_page("matrix", MatrixPage())
-        print(f"[splash-timing] MatrixPage: {__import__('time').perf_counter() - _t2:.3f}s")
+        _add_page("matrix", _matrix_ph)
 
         self._splash_step(2)
-        _t3 = __import__("time").perf_counter()
-        _add_page("sage", SagePage())
-        print(f"[splash-timing] SagePage: {__import__('time').perf_counter() - _t3:.3f}s")
-
-        _t4 = __import__("time").perf_counter()
+        _add_page("sage", _sage_ph)
         _add_page("editor", _editor_ph)
         _add_page("settings", _settings_ph)
         _add_page("bugreport", BugReportPage())
-        print(f"[splash-timing] editor+settings+bugreport: {__import__('time').perf_counter() - _t4:.3f}s")
 
         try:
             from plugin_manager import create_plugins_page as _cpp
@@ -766,41 +790,26 @@ class MainWindow(QMainWindow):
             engine = getattr(self, "_plugin_engine", None)
             if engine is None:
                 return
-            plugin_list = list(engine.enabled_plugins())
+            for rec in engine.enabled_plugins():
+                page = None
+                try:
+                    if rec.filename not in plugins_page._plugin_page_indices:
+                        api  = plugins_page._api(rec)
+                        page = rec.build_page(plugins_page, api)
+                        if page is not None:
+                            idx = plugins_page._page_stack.count()
+                            plugins_page._page_stack.addWidget(page)
+                            plugins_page._plugin_page_indices[rec.filename] = idx
+                            log.info("Plugin auto-activated", plugin=rec.name)
+                except Exception as e:
+                    log.warning("Plugin auto-activation failed",
+                                plugin=rec.name, error=str(e))
+                if page is None:
+                    log.error("Plugin activation failed completely", plugin=rec.name)
+                    continue
         except Exception as e:
             log.warning("_activate_plugins failed", error=str(e))
-            return
-        self._plugin_activation_queue = plugin_list
-        self._plugin_activation_index = 0
-        self._activate_next_plugin()
-
-    def _activate_next_plugin(self):
-        plugins_page = self._page_objs.get("plugins")
-        queue = getattr(self, "_plugin_activation_queue", [])
-        idx = getattr(self, "_plugin_activation_index", 0)
-        if idx == 0:
-            log.info("TIMING _activate_next_plugin first tick", t=time.monotonic())
-        if plugins_page is None or idx >= len(queue):
-            QTimer.singleShot(200, self._post_activate_refresh)
-            return
-        rec = queue[idx]
-        page = None
-        try:
-            if rec.filename not in plugins_page._plugin_page_indices:
-                api  = plugins_page._api(rec)
-                page = rec.build_page(plugins_page, api)
-                if page is not None:
-                    pidx = plugins_page._page_stack.count()
-                    plugins_page._page_stack.addWidget(page)
-                    plugins_page._plugin_page_indices[rec.filename] = pidx
-                    log.info("Plugin auto-activated", plugin=rec.name)
-        except Exception as e:
-            log.warning("Plugin auto-activation failed",
-                        plugin=rec.name, error=str(e))
-        if page is None:
-            log.error("Plugin activation failed completely", plugin=rec.name)
-        self._plugin_activation_index = idx + 1
-        QTimer.singleShot(0, self._activate_next_plugin)
+        QTimer.singleShot(200, self._post_activate_refresh)
 
     def _post_activate_refresh(self):
         try:
@@ -1034,24 +1043,17 @@ def main():
         pal.setColor(role, QColor(col))
     app.setPalette(pal)
 
-    splash = SplashScreen(size=(1380, 860))
-    splash.show()
-    app.processEvents()
-
     log.info("MainWindow creating")
-    win = MainWindow(splash=splash)
+    win = MainWindow()
+    win.showMaximized()  # one window, visible immediately -- splash overlay is drawn inside it
 
-    def _reveal():
-        win.show()
-        QTimer.singleShot(2000, _trigger_matrix_prewarm)
-        QTimer.singleShot(4000, win._activate_plugins)
     def _trigger_matrix_prewarm():
         log.info("TIMING _trigger_matrix_prewarm start", t=time.monotonic())
         matrix_page = win._page_objs.get("matrix") if hasattr(win, "_page_objs") else None
         if matrix_page is not None and hasattr(matrix_page, "_prewarm_webengine"):
             matrix_page._prewarm_webengine()
-    splash.dismissed.connect(_reveal)
-    splash.finish()
+    QTimer.singleShot(2000, _trigger_matrix_prewarm)
+    win._splash.finish()
 
     log.info("App event loop starting")
     code = app.exec()

@@ -15,8 +15,9 @@ setup.sh. Falls back to Qt's default serif/sans if not found — never
 raises even if the fonts are missing.
 """
 import math
+import os
 from PyQt6.QtCore import QEasingCurve, QElapsedTimer, QPointF, QRectF, Qt, QTimer, QVariantAnimation, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PyQt6.QtWidgets import QWidget
 
 # ── Palette (exact values from tailwind.config.js) ──────────────────────────
@@ -97,41 +98,37 @@ _MOTES = [
 
 class SplashScreen(QWidget):
     """
-    Frameless full-window splash shown before MainWindow.
+    Embedded loading overlay shown inside MainWindow while pages build.
 
-    Usage:
-        splash = SplashScreen(size=(app.primaryScreen().size().width(),
-                                     app.primaryScreen().size().height()))
-        splash.show()
-        app.processEvents()
-        splash.set_stage(0)
+    Usage (called from within MainWindow.__init__):
+        self._splash = SplashScreen(parent=self)
+        self._splash.setGeometry(self.rect())
+        self._splash.raise_()
+        self._splash.show()
+        self._splash.dismissed.connect(self._on_splash_dismissed)
+        self._splash.set_stage(0)
         ... build Legion ...
-        splash.set_stage(1)
+        self._splash.set_stage(1)
         ... build Matrix ...
-        splash.set_stage(2)
+        self._splash.set_stage(2)
         ... build Sage + remaining pages ...
-        splash.set_stage(3)
-        win = MainWindow(...)  # or however the real window is finalized
-        splash.finish()
-        splash.dismissed.connect(win.show)
+        self._splash.set_stage(3)
+        self._splash.finish()  # fades out, then emits dismissed
     """
 
     dismissed = pyqtSignal()
 
     def __init__(self, size=(1280, 800), parent=None):
         super().__init__(parent)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
-        )
         self.resize(*size)
 
-        # ── progress state — animated smoothly toward whatever set_stage() sets ──
+        # ── progress state — purely decorative, time-based fill. Real page
+        # construction is now fast enough (lazy-loaded pages) that tying the
+        # bar to actual milestones made it snap to 100% almost instantly and
+        # then sit idle. Instead it fills smoothly over DECORATIVE_FILL_MS,
+        # driven by the same master clock as everything else below.
         self._progress = 0.0
         self._active_line = 0
-        self._progress_anim = QVariantAnimation(self)
-        self._progress_anim.setDuration(400)
-        self._progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._progress_anim.valueChanged.connect(self._on_progress_step)
 
         # ── fade-out state ──
         self._leaving = False
@@ -151,9 +148,13 @@ class SplashScreen(QWidget):
         self._elapsed_ms = 0.0
         self._wall_clock = QElapsedTimer()
         self._wall_clock.start()
+
+        # ── cached static background (grid + gradients never change frame-to-frame) ──
+        self._bg_cache = None
+        self._bg_cache_size = None
         self._clock = QTimer(self)
         self._clock.setTimerType(Qt.TimerType.PreciseTimer)
-        self._clock.setInterval(16)  # ~60fps target; actual elapsed time is measured, not assumed
+        self._clock.setInterval(33)  # ~30fps target; halved from 60fps, imperceptible for this ambient animation
         self._clock.timeout.connect(self._on_tick)
         self._clock.start()
 
@@ -169,16 +170,30 @@ class SplashScreen(QWidget):
         self._font_status = QFont("Inter Display")
         self._font_status.setPixelSize(12)
 
+    # Progress bar fills on a scripted timeline with pauses baked in, so it
+    # reads as "working... pause... working..." rather than one smooth
+    # sweep -- independent of real construction time (see progress state
+    # comment above). Keyframes are (elapsed_ms, progress_fraction) pairs;
+    # equal consecutive fractions are a deliberate hold.
+    PROGRESS_KEYFRAMES = (
+        (0,    0.00),
+        (600,  0.20),
+        (1200, 0.20),
+        (1800, 0.45),
+        (2640, 0.45),
+        (3240, 0.65),
+        (4080, 0.65),
+        (4680, 0.85),
+        (5400, 0.85),
+        (6000, 1.00),
+    )
+
     # ── Public API ───────────────────────────────────────────────────────
     def set_stage(self, stage: int):
-        """stage: 0..3, corresponding to real construction milestones."""
-        stage = max(0, min(3, stage))
-        self._active_line = stage
-        target = (stage + 1) / 4.0
-        self._progress_anim.stop()
-        self._progress_anim.setStartValue(self._progress)
-        self._progress_anim.setEndValue(target)
-        self._progress_anim.start()
+        """Kept for compatibility with callers (e.g. MainWindow._splash_step)
+        that still report real construction milestones. The progress bar
+        itself no longer reacts to this -- see DECORATIVE_FILL_MS."""
+        pass
 
     # Minimum time the splash stays up before it's allowed to start leaving,
     # even if real construction finished faster than this. Real completion
@@ -195,10 +210,6 @@ class SplashScreen(QWidget):
         if self._leaving or getattr(self, "_finish_pending", False):
             return
         self._finish_pending = True
-        # Report real completion immediately — this is honest, not delayed.
-        self._progress_anim.stop()
-        self._progress = 1.0
-        self._active_line = 3
         self.update()
 
         remaining = self.MIN_DISPLAY_MS - self._elapsed_ms
@@ -211,17 +222,15 @@ class SplashScreen(QWidget):
         if self._leaving:
             return
         self._leaving = True
-        QTimer.singleShot(150, self._start_leave)
+        # Instant close -- no fade/zoom animation, splash just disappears
+        # once the hold time (MIN_DISPLAY_MS) has elapsed.
+        self._on_leave_finished()
 
     # ── Animation step handlers ─────────────────────────────────────────
     def _start_leave(self):
         self._leave_anim.setStartValue(0.0)
         self._leave_anim.setEndValue(1.0)
         self._leave_anim.start()
-
-    def _on_progress_step(self, value):
-        self._progress = value
-        self.update()
 
     def _on_leave_step(self, value):
         self._leave_opacity = 1.0 - value
@@ -231,11 +240,30 @@ class SplashScreen(QWidget):
     def _on_leave_finished(self):
         self._clock.stop()
         self.dismissed.emit()
-        self.close()
+        self.hide()
 
     def _on_tick(self):
         self._elapsed_ms = float(self._wall_clock.elapsed())
+        self._progress = self._progress_from_keyframes(self._elapsed_ms)
+        self._active_line = min(3, int(self._progress * 4))
         self.update()
+
+    def _progress_from_keyframes(self, elapsed_ms):
+        """Piecewise-interpolate PROGRESS_KEYFRAMES. Consecutive keyframes
+        with equal progress values produce a flat hold; different values
+        produce an eased fill between them."""
+        kf = self.PROGRESS_KEYFRAMES
+        if elapsed_ms <= kf[0][0]:
+            return kf[0][1]
+        if elapsed_ms >= kf[-1][0]:
+            return kf[-1][1]
+        for (t0, p0), (t1, p1) in zip(kf, kf[1:]):
+            if t0 <= elapsed_ms <= t1:
+                if t1 == t0 or p1 == p0:
+                    return p0
+                frac = (elapsed_ms - t0) / (t1 - t0)
+                return p0 + (p1 - p0) * _ease_out_cubic(frac)
+        return kf[-1][1]
 
     # ── Painting ─────────────────────────────────────────────────────────
     def paintEvent(self, event):
@@ -258,7 +286,7 @@ class SplashScreen(QWidget):
         emblem_cy = h * 0.38
         self._paint_logo_fade_wrapper(p, emblem_cx, emblem_cy, emblem_size, delay_ms=0)
 
-        wordmark_y = emblem_cy + emblem_size / 2 + 12
+        wordmark_y = emblem_cy + emblem_size / 2 - 10  # tightened from +12 so the emblem and wordmark read as one lockup
         self._paint_wordmark(p, w / 2, wordmark_y, delay_ms=400)
 
         bar_y = wordmark_y + 96
@@ -267,6 +295,20 @@ class SplashScreen(QWidget):
         p.setOpacity(1.0)
 
     def _paint_background(self, p, w, h):
+        if self._bg_cache is None or self._bg_cache_size != (w, h):
+            self._bg_cache = self._render_background_pixmap(w, h)
+            self._bg_cache_size = (w, h)
+        p.drawPixmap(0, 0, self._bg_cache)
+
+    def _render_background_pixmap(self, w, h):
+        """Render the static background (fill + grid + gradients) once into a
+        QPixmap. None of this changes frame-to-frame, so paintEvent just blits
+        the cached pixmap instead of redoing ~50 draw calls every tick."""
+        pm = QPixmap(w, h)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
         p.fillRect(0, 0, w, h, _qc(INK))
 
         grid_pen = QPen(_qc(SAGE_400, int(255 * 0.05)))
@@ -294,6 +336,9 @@ class SplashScreen(QWidget):
         glow2.setColorAt(0.6, _qc(GOLD_500, 0))
         p.setBrush(QBrush(glow2))
         p.drawRect(0, 0, w, h)
+
+        p.end()
+        return pm
 
     def _paint_motes(self, p, w, h):
         cycle = 8000.0
@@ -500,8 +545,12 @@ class SplashScreen(QWidget):
         p.setPen(QColor(CREAM))
         title_rect = QRectF(cx - 300, y, 600, 60)
         p.drawText(title_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, "Great Sage")
+        title_fm = p.fontMetrics()
 
-        sub_y = y + 58
+        # height() gives the font's full line height (ascent + descent), which is
+        # what actually clears the drawn glyphs -- a fixed guess here is what let
+        # the subtitle collide with "Great Sage"'s descenders before.
+        sub_y = y + title_fm.height() + 12
         p.setFont(self._font_sub)
         sub_text = "LIBRARY · WATCHLIST · ORACLE"
         fm = p.fontMetrics()
