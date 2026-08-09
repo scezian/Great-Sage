@@ -3421,7 +3421,11 @@ class MatrixPage(QWidget):
         for lst, lw in self.wl_lists.items():
             lw.clear()
             items = list(wl.get(lst, []))
-            items.sort(key=lambda e: e.get("added", 0) if isinstance(e, dict) else 0)  # oldest -> newest
+            def _sort_title(e):
+                t = e.get("title","?") if isinstance(e, dict) else str(e)
+                t = _strip_markdown(_clean_media_title(t))
+                return t.strip().lower()
+            items.sort(key=_sort_title)  # A -> Z (display only; "added" timestamp untouched)
             for idx, e in enumerate(items, start=1):
                 t  = e.get("title","?") if isinstance(e,dict) else str(e)
                 t  = _strip_markdown(_clean_media_title(t))
