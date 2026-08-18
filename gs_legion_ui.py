@@ -51,6 +51,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QComboBox, QSizePolicy,
     QStackedWidget, QTextBrowser, QTextEdit, QApplication,
     QDialog, QLayout, QListWidget, QListWidgetItem,
+    QGraphicsOpacityEffect,
 )
 
 from difflib import SequenceMatcher
@@ -1743,6 +1744,62 @@ class CoverCard(QWidget):
         self._del_btn.setVisible(enabled)
 
 
+class SkeletonCard(QWidget):
+    """
+    Placeholder card shown in the grid while trending/search results are
+    loading. Mirrors CoverCard's exact footprint (COVER_W × COVER_H + title
+    row) so the grid doesn't jump/reflow once real cards swap in, with a
+    gentle pulsing shimmer to signal "loading" rather than "empty".
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(COVER_W)
+        self._build()
+        self._start_pulse()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(5)
+
+        self._cover = QLabel()
+        self._cover.setFixedSize(COVER_W, COVER_H)
+        self._cover.setStyleSheet(
+            f"background:{BG2}; border:1px solid {BORDER}; border-radius:5px;")
+        lay.addWidget(self._cover)
+
+        # Fake title line(s) — a short bar roughly where text would sit
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        self._title_bar = QLabel()
+        self._title_bar.setFixedSize(COVER_W - 30, 12)
+        self._title_bar.setStyleSheet(
+            f"background:{BG2}; border-radius:3px;")
+        title_row.addStretch()
+        title_row.addWidget(self._title_bar)
+        title_row.addStretch()
+        lay.addLayout(title_row)
+
+    def _start_pulse(self):
+        self._effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._effect)
+        self._anim = QPropertyAnimation(self._effect, b"opacity", self)
+        self._anim.setDuration(900)
+        self._anim.setStartValue(0.35)
+        self._anim.setKeyValueAt(0.5, 0.85)
+        self._anim.setEndValue(0.35)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._anim.setLoopCount(-1)
+        self._anim.start()
+
+    def stagger(self, index: int):
+        """Offset this card's pulse phase so the grid shimmers as a wave
+        instead of every card pulsing in lockstep."""
+        offset_ms = (index * 120) % self._anim.duration()
+        self._anim.setCurrentTime(offset_ms)
+
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL PANEL
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2539,6 +2596,7 @@ class BooksGrid(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cards: list[CoverCard] = []
+        self._skeletons: list[SkeletonCard] = []
         self._pending_books: list[BookItem] = []
         self._cols = GRID_COLS      # updated dynamically on resize
         self._build()
@@ -2617,8 +2675,41 @@ class BooksGrid(QWidget):
 
     _BATCH = 12   # cards per event-loop tick — small enough to stay responsive
 
+    def set_loading(self, count: int | None = None):
+        """
+        Show skeleton placeholder cards while a fetch is in flight, instead
+        of an empty grid. Call set_books()/add_books() as usual once results
+        arrive — that clears the skeletons and swaps in real cards.
+        """
+        # Cancel any pending batch job first
+        self._pending_books: list[BookItem] = []
+
+        while self._grid.count():
+            self._grid.takeAt(0)
+        for card in self._cards:
+            card.hide()
+            card.deleteLater()
+        self._cards.clear()
+        for sk in self._skeletons:
+            sk.hide()
+            sk.deleteLater()
+        self._skeletons.clear()
+
+        self._empty_label.hide()
+        self._scroll.show()
+
+        # Fill ~3 rows worth of skeleton cards at the current column count
+        if count is None:
+            count = max(self._cols * 3, self._MIN_COLS * 3)
+        for i in range(count):
+            sk = SkeletonCard()
+            sk.stagger(i)
+            self._grid.addWidget(sk, i // self._cols, i % self._cols)
+            self._skeletons.append(sk)
+
     def set_books(self, books: list[BookItem], empty_message: str = ""):
-        """Clear existing cards and start populating asynchronously in batches."""
+        """Clear existing cards (and any skeletons) and start populating
+        asynchronously in batches."""
         # Cancel any pending batch job first
         self._pending_books: list[BookItem] = []
 
@@ -2629,6 +2720,10 @@ class BooksGrid(QWidget):
             card.hide()
             card.deleteLater()
         self._cards.clear()
+        for sk in self._skeletons:
+            sk.hide()
+            sk.deleteLater()
+        self._skeletons.clear()
 
         if not books and empty_message:
             self._empty_label.setText(empty_message)
@@ -2657,6 +2752,16 @@ class BooksGrid(QWidget):
 
     def add_books(self, books: list[BookItem]):
         """Append books to the existing grid, skipping duplicates already shown."""
+        if self._skeletons:
+            # First real batch arriving — clear placeholders so they don't
+            # overlap the incoming cards in the same grid cells.
+            while self._grid.count():
+                self._grid.takeAt(0)
+            for sk in self._skeletons:
+                sk.hide()
+                sk.deleteLater()
+            self._skeletons.clear()
+
         existing_titles = {c.book.title.strip().lower() for c in self._cards}
         existing_urls   = {c.book.url.strip().rstrip("/").lower() for c in self._cards}
         start = len(self._cards)
@@ -5246,7 +5351,7 @@ class LegionPage(QWidget):
         self._cancel_workers()
 
         self._status_bar.setText("Loading trending…")
-        self._grid.clear()
+        self._grid.set_loading()
         self._update_page_controls()
 
         p = self._current_page
@@ -5357,7 +5462,7 @@ class LegionPage(QWidget):
             return
         self._cancel_workers()
         self._status_bar.setText(f"Searching '{query}'…")
-        self._grid.clear()
+        self._grid.set_loading()
         self._section_label.setText("RESULTS FOR  " + query.upper())
         self._update_page_controls()
 

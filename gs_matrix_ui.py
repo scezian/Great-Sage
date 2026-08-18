@@ -418,7 +418,7 @@ class MatrixPage(QWidget):
         Qt main thread before touching any widgets.
         """
         QTimer.singleShot(0, self.refresh)
-        # TEMP DISABLED FOR TESTING: QTimer.singleShot(2000, self._wl_start_cover_backfill)
+        QTimer.singleShot(2000, self._wl_start_cover_backfill)
 
     def _cloud_push(self):
         """Push current progress to Supabase in the background."""
@@ -691,8 +691,7 @@ class MatrixPage(QWidget):
             # which get one from Legion's scraper) — kick off a background
             # TMDB/MetadataFetcher lookup so a cover_url gets saved+synced
             # without the user needing to open the detail panel first.
-            if anime:
-                self._wl_fetch_and_save_cover(title, lst)
+            self._wl_fetch_and_save_cover(title, lst)
         except Exception as e:
             self.wl_info.setText(f"⚠ Could not save: {e}")
 
@@ -776,8 +775,6 @@ class MatrixPage(QWidget):
                 for e in entries:
                     if not isinstance(e, dict):
                         continue
-                    if e.get("is_anime") is False:
-                        continue  # webnovel — covered separately by Legion
                     if e.get("cover_url"):
                         continue  # already has one
                     failed_at = e.get("cover_lookup_failed_at")
