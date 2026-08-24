@@ -3589,7 +3589,8 @@ class AddToWLDialog(QDialog):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _CalendarWorker(QThread):
-    done = pyqtSignal(dict, str)  # {date_str: [(time, show, ep)]}
+    done     = pyqtSignal(dict, str)  # {date_str: [(time, show, ep)]}
+    progress = pyqtSignal(int, int)   # (titles_checked, total_checks)
 
     HEADERS = {
         "Content-Type": "application/json",
@@ -3629,8 +3630,10 @@ class _CalendarWorker(QThread):
         return overlap >= 0.7
 
     def run(self):
-        import urllib.request, urllib.parse
+        import json
+        import urllib.request, urllib.parse, urllib.error
         import concurrent.futures
+        import time
 
         md = matrix_data()
         wl = md.get("watchlist", {})
@@ -3647,138 +3650,121 @@ class _CalendarWorker(QThread):
         if not all_titles:
             self.done.emit({}, "Add shows to your watchlist first."); return
 
+        tmdb_key = (md.get("settings", {}) or {}).get("tmdb_api_key") or ""
+        if not tmdb_key:
+            self.done.emit(
+                {},
+                "No TMDB API key set. Get a free key at themoviedb.org "
+                "(create an account, then Settings -> API), then add it under "
+                "Great Sage Settings -> TMDB API Key."
+            )
+            return
+
         now        = dt.datetime.now()
         week_later = now + dt.timedelta(days=7)
         by_date    = {}
         lock       = threading.Lock()
-        anilist_ok = threading.Event()
-        tvmaze_ok  = threading.Event()
+        tmdb_ok    = threading.Event()
+        progress_count = 0
+        progress_total = len(all_titles)
 
-        def fetch_anilist(title):
-            q = """query($s:String){Media(search:$s,type:ANIME,status:RELEASING){
-                title{romaji english}
-                nextAiringEpisode{airingAt episode}}}"""
-            try:
-                payload = json.dumps({"query": q, "variables": {"s": title}}).encode()
-                req = urllib.request.Request(
-                    "https://graphql.anilist.co", data=payload, headers=self.HEADERS)
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    resp = json.loads(r.read())
-                anilist_ok.set()
-                media = (resp.get("data") or {}).get("Media")
-                if not media: return
-                romaji  = (media.get("title") or {}).get("romaji","")
-                english = (media.get("title") or {}).get("english","")
-                if not (self._match_score(title, romaji) or
-                        self._match_score(title, english)): return
-                nae = media.get("nextAiringEpisode")
-                if not nae: return
-                at = dt.datetime.fromtimestamp(nae["airingAt"])
-                if now <= at <= week_later:
-                    date_key  = at.strftime("%Y-%m-%d")
-                    show_name = english or romaji or title
-                    with lock:
-                        by_date.setdefault(date_key, []).append(
-                            (at.strftime("%H:%M"), show_name, nae["episode"]))
-            except Exception:
-                pass
+        def _fetch_with_backoff(req, timeout=8, max_retries=3):
+            """urlopen with retry/backoff on 429, honoring Retry-After when present."""
+            delay = 1.0
+            for attempt in range(max_retries + 1):
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as r:
+                        return r.read()
+                except urllib.error.HTTPError as e:
+                    if e.code == 429 and attempt < max_retries:
+                        retry_after = e.headers.get("Retry-After")
+                        try:
+                            wait = float(retry_after) if retry_after else delay
+                        except ValueError:
+                            wait = delay
+                        time.sleep(wait)
+                        delay *= 2
+                        continue
+                    raise
 
-        def fetch_tvmaze(title):
+        TMDB_MAX_WORKERS    = 3
+        TMDB_DISPATCH_DELAY = 0.3
+
+        def fetch_tmdb(title):
+            nonlocal progress_count
             try:
-                search_url = (f"https://api.tvmaze.com/singlesearch/shows"
-                              f"?q={urllib.parse.quote(title)}&embed=nextepisode")
+                search_url = (f"https://api.themoviedb.org/3/search/tv"
+                              f"?api_key={tmdb_key}&query={urllib.parse.quote(title)}")
                 req = urllib.request.Request(
                     search_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    show_data = json.loads(r.read())
-                tvmaze_ok.set()
-                show_name = show_data.get("name","")
-                show_id   = show_data.get("id")
-                if not show_name or not show_id: return
-                if not self._match_score(title, show_name): return
+                raw = _fetch_with_backoff(req, timeout=8)
+                results = (json.loads(raw) or {}).get("results") or []
+                tmdb_ok.set()
+                show_id, show_name = None, None
+                for r in results[:5]:
+                    name = r.get("name") or ""
+                    orig = r.get("original_name") or ""
+                    if self._match_score(title, name) or self._match_score(title, orig):
+                        show_id, show_name = r.get("id"), (name or orig)
+                        break
+                if not show_id: return
 
-                # Try nextepisode from embedded data first (fastest path)
-                embedded = (show_data.get("_embedded") or {})
-                next_ep  = embedded.get("nextepisode")
-                if next_ep:
-                    airdate = next_ep.get("airdate","")
-                    airtime = next_ep.get("airtime","") or "00:00"
-                    ep_num  = next_ep.get("number") or 0
-                    if airdate:
-                        try:
-                            ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
-                            if now.date() <= ep_dt.date() <= week_later.date():
-                                with lock:
-                                    by_date.setdefault(airdate, []).append(
-                                        (airtime, show_name, ep_num))
-                                return
-                        except Exception:
-                            pass
-
-                # Fallback: scan last 20 episodes for upcoming ones
-                ep_url = f"https://api.tvmaze.com/shows/{show_id}/episodes?specials=0"
-                req2   = urllib.request.Request(
-                    ep_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
-                with urllib.request.urlopen(req2, timeout=8) as r2:
-                    all_eps = json.loads(r2.read())
-                for ep in all_eps[-20:]:
-                    airdate = ep.get("airdate","")
-                    if not airdate: continue
-                    try:
-                        ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
-                    except Exception: continue
-                    if not (now.date() <= ep_dt.date() <= week_later.date()): continue
-                    airtime = ep.get("airtime","") or "00:00"
-                    ep_num  = ep.get("number") or 0
+                detail_url = f"https://api.themoviedb.org/3/tv/{show_id}?api_key={tmdb_key}"
+                req2 = urllib.request.Request(
+                    detail_url, headers={"User-Agent": self.HEADERS["User-Agent"]})
+                raw2 = _fetch_with_backoff(req2, timeout=8)
+                detail = json.loads(raw2) or {}
+                nxt = detail.get("next_episode_to_air")
+                if not nxt: return
+                airdate = nxt.get("air_date","")
+                if not airdate: return
+                try:
+                    ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
+                except Exception:
+                    return
+                if now.date() <= ep_dt.date() <= week_later.date():
+                    ep_num = nxt.get("episode_number") or 0
                     with lock:
-                        by_date.setdefault(airdate, []).append(
-                            (airtime, show_name, ep_num))
-            except urllib.request.HTTPError as e:
-                if e.code == 404: return
-            except Exception:
-                pass
+                        by_date.setdefault(airdate, []).append((show_name or title, ep_num))
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    print(f"[CAL-DEBUG] tmdb auth error (bad API key) for {title!r}")
+                else:
+                    print(f"[CAL-DEBUG] tmdb HTTPError {e.code} for {title!r}")
+            except Exception as e:
+                print(f"[CAL-DEBUG] tmdb EXC for {title!r}: {e!r}")
+            finally:
+                with lock:
+                    progress_count += 1
+                    n = progress_count
+                self.progress.emit(n, progress_total)
 
-        # Fetch all titles in parallel — AniList and TVMaze simultaneously
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=TMDB_MAX_WORKERS) as pool:
             futures = []
             for title in all_titles:
-                futures.append(pool.submit(fetch_anilist, title))
-                futures.append(pool.submit(fetch_tvmaze,  title))
-            # Wait for all with a hard timeout of 25s
-            concurrent.futures.wait(futures, timeout=25)
+                futures.append(pool.submit(fetch_tmdb, title))
+                time.sleep(TMDB_DISPATCH_DELAY)
+            concurrent.futures.wait(futures, timeout=90)
 
-        # Wait for events with a short timeout to confirm services responded
-        anilist_ok.wait(0.5)
-        tvmaze_ok.wait(0.5)
+        print(f"[CAL-DEBUG] fetch phase complete. tmdb_ok={tmdb_ok.is_set()} by_date_keys={list(by_date.keys())}")
 
-        # Deduplicate and sort each day
         for k in by_date:
             seen = set()
             unique = []
             for entry in sorted(by_date[k]):
-                key = (entry[1], entry[2])  # show + ep
-                if key not in seen:
-                    seen.add(key); unique.append(entry)
+                if entry not in seen:
+                    seen.add(entry); unique.append(entry)
             by_date[k] = unique
 
         total = sum(len(v) for v in by_date.values())
-        sources = []
-        if anilist_ok.is_set(): sources.append("Anime")
-        if tvmaze_ok.is_set():  sources.append("TV")
-
         if total:
             day_word = "day" if len(by_date) == 1 else "days"
-            src_str  = " + ".join(sources) if sources else ""
-            suffix   = f"  [{src_str}]" if src_str else ""
-            msg = f"Found episodes on {len(by_date)} {day_word} this week{suffix}"
-        elif not sources:
-            msg = "Could not connect — check your internet connection"
+            msg = f"Found episodes on {len(by_date)} {day_word} this week"
+        elif not tmdb_ok.is_set():
+            msg = "Could not connect - check your internet connection"
         else:
-            msg = f"Checked {len(all_titles)} title(s) — none airing this week"
-
+            msg = f"Checked {len(all_titles)} title(s) - none airing this week"
         self.done.emit(by_date, msg)
-
-
 
 
 class HighlightsDialog(QDialog):
@@ -3871,6 +3857,7 @@ class CalendarDialog(QDialog):
         self.setWindowTitle("📅  What\'s Airing This Week")
         self.setMinimumSize(700, 460); self.setStyleSheet(QSS)
         self._data = {}  # {date_str: [(time, show, ep)]}
+        self._loaded = False
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16,16,16,16)
@@ -3889,10 +3876,10 @@ class CalendarDialog(QDialog):
             label  = day.strftime("%a") + "\n" + day.strftime("%d")
             b      = QPushButton(label)
             b.setCheckable(True)
-            b.setFixedSize(80, 54)
+            b.setFixedSize(80, 68)
             b.setStyleSheet(
                 f"QPushButton{{background:{BG3};border:1px solid {BORDER};"
-                f"border-radius:8px;color:{TEXT};font-size:14px;}}"
+                f"border-radius:8px;color:{TEXT};font-size:13px;padding:2px;}}"
                 f"QPushButton:checked{{background:{ACCENT};color:{BG};"
                 f"border-color:{ACCENT};font-weight:bold;}}"
                 f"QPushButton:hover{{border-color:{ACCENT};}}")
@@ -3913,52 +3900,90 @@ class CalendarDialog(QDialog):
 
         self._status = lbl("Fetching schedule...", MUTED, 11)
         lay.addWidget(self._status)
+
+        btn_row = QHBoxLayout()
+        self._retry_btn = QPushButton("Retry")
+        self._retry_btn.setVisible(False)
+        self._retry_btn.setStyleSheet(
+            f"QPushButton{{background:{BG3};border:1px solid {ACCENT};"
+            f"border-radius:6px;color:{ACCENT};padding:6px 14px;}}"
+            f"QPushButton:hover{{background:{ACCENT};color:{BG};}}")
+        self._retry_btn.clicked.connect(self._start_fetch)
+        btn_row.addWidget(self._retry_btn)
+        btn_row.addStretch()
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        bb.rejected.connect(self.reject); lay.addWidget(bb)
+        bb.rejected.connect(self.reject)
+        btn_row.addWidget(bb)
+        lay.addLayout(btn_row)
 
         # Select today by default, fetch data
         self._selected = self._today.strftime("%Y-%m-%d")
         self._data     = {}
-        self._worker   = _CalendarWorker()
+        self._start_fetch()
+
+    def _start_fetch(self):
+        """(Re)start the background fetch. Safe to call again after a timeout
+        or error via the Retry button."""
+        self._retry_btn.setVisible(False)
+        self._data   = {}
+        self._loaded = False
+        self._status.setText("Fetching schedule...")
+        self._list.clear()
+        # Reset any leftover badges from a previous attempt
+        for date_s, btn in self._day_btns.items():
+            base = "\n".join(btn.text().split("\n")[:2])
+            btn.setText(base)
+        if hasattr(self, "_timeout") and self._timeout.isActive():
+            self._timeout.stop()
+        if hasattr(self, "_worker") and self._worker.isRunning():
+            # Don't block the UI waiting on a stale worker; just let it finish
+            # on its own and ignore its result (its signals will be reconnected
+            # to a fresh worker below, so its emissions target the old object).
+            pass
+        self._worker = _CalendarWorker()
         self._worker.done.connect(self._on_data)
+        self._worker.progress.connect(self._on_progress)
         self._worker.start()
 
-        # Animate status while loading
-        self._dots = 0
-        self._anim = QTimer(self)
-        self._anim.timeout.connect(self._tick_loading)
-        self._anim.start(500)
-
-        # Hard timeout — if worker takes > 30s, show partial results anyway
+        # Hard timeout — worker is rate-limit-aware and can take up to ~120s
+        # worst case on large watchlists (AniList batching + throttled TVMaze).
+        # Give it a safe margin above that before showing partial results.
         self._timeout = QTimer(self)
         self._timeout.setSingleShot(True)
         self._timeout.timeout.connect(self._force_done)
-        self._timeout.start(60000)
+        self._timeout.start(150000)
+        self._select_day(self._selected)
 
-    def _tick_loading(self):
-        self._dots = (self._dots + 1) % 4
-        self._status.setText("Fetching schedule" + "." * (self._dots + 1))
+    def _on_progress(self, done, total):
+        if total:
+            self._status.setText(f"Fetching schedule... ({done}/{total})")
 
     def _force_done(self):
         """Called if worker takes too long — show whatever we have."""
+        self._loaded = True
         if not self._data:
             self._status.setText("Timed out — check your internet connection.")
             self._list.clear()
             item = QListWidgetItem("  Could not load schedule in time. Try again.")
             item.setForeground(QColor(RED)); self._list.addItem(item)
+            self._retry_btn.setVisible(True)
 
     def _on_data(self, data, status_msg):
         self._data = data
+        self._loaded = True
         # Stop loading animation and timeout guard
         if hasattr(self, "_anim"):   self._anim.stop()
         if hasattr(self, "_timeout"): self._timeout.stop()
         self._status.setText(status_msg)
-        # Mark days that have episodes with a dot indicator
+        failure_msgs = ("Could not connect", "Internal error")
+        if not data and any(status_msg.startswith(m) for m in failure_msgs):
+            self._retry_btn.setVisible(True)
+        # Badge days that have episodes with their actual episode count
         for date_s, btn in self._day_btns.items():
-            has = bool(data.get(date_s))
-            text = btn.text()
-            if has and "●" not in text:
-                btn.setText(text + "\n●")
+            eps = data.get(date_s, [])
+            if eps:
+                base = "\n".join(btn.text().split("\n")[:2])
+                btn.setText(f"{base}\n{len(eps)} ep" if len(eps) == 1 else f"{base}\n{len(eps)} eps")
         # Select today
         self._select_day(self._selected)
 
@@ -3977,16 +4002,16 @@ class CalendarDialog(QDialog):
         self._list.clear()
         eps = self._data.get(date_s, [])
         if not eps:
-            if self._data or self._status.text() != "Fetching schedule...":
+            if self._loaded:
                 item = QListWidgetItem("  Nothing airing from your watchlist on this day.")
                 item.setForeground(QColor(MUTED)); self._list.addItem(item)
             else:
                 item = QListWidgetItem("  Loading...")
                 item.setForeground(QColor(MUTED)); self._list.addItem(item)
         else:
-            for time_s, show, ep in eps:
+            for show, ep in eps:
                 ep_str = f"Ep {ep}" if ep else ""
-                item   = QListWidgetItem(f"  {time_s}   {show}   {ep_str}")
+                item   = QListWidgetItem(f"  {show}   {ep_str}")
                 item.setForeground(QColor(TEXT)); self._list.addItem(item)
 
 class WrappedDialog(QDialog):
