@@ -656,6 +656,55 @@ class MatrixPage(QWidget):
         outer_dv.addWidget(text_col, 1)
 
         rv.addWidget(self.wl_detail_w, 1)
+
+        # ── Embedded trailer panel — lives in the SAME right-hand pane as
+        # wl_placeholder / wl_detail_w (shown/hidden, never a separate
+        # QDialog/top-level window). Previously _trailer_btn_clicked opened
+        # a QDialog, which is always a genuine OS-level top-level window
+        # regardless of parenting — it could appear detached from the main
+        # window depending on timing/window manager. This panel is built
+        # once, up front, and toggled visible instead.
+        self.wl_trailer_w = QWidget()
+        self.wl_trailer_w.hide()
+        tv = QVBoxLayout(self.wl_trailer_w)
+        tv.setContentsMargins(0,0,0,0)
+        tv.setSpacing(0)
+        t_hdr = QWidget()
+        t_hdr.setStyleSheet(f"background:{BG2}; border-bottom:1px solid {BORDER};")
+        t_hdr.setFixedHeight(48)
+        t_hv = QHBoxLayout(t_hdr)
+        t_hv.setContentsMargins(20,0,12,0)
+        self.wl_trailer_title_lbl = QLabel("")
+        self.wl_trailer_title_lbl.setStyleSheet(
+            f"font-family:{FONT_DISPLAY}; font-size:17px; color:{TEXT}; letter-spacing:1px;")
+        t_badge = QLabel("▶ YouTube")
+        t_badge.setStyleSheet(
+            f"background:#FF0000; color:white; font-size:13px; font-weight:700;"
+            f"letter-spacing:1px; padding:3px 8px; border-radius:3px;")
+        t_close_btn = QPushButton("✕  CLOSE")
+        t_close_btn.setStyleSheet(
+            f"background:transparent; border:1px solid {BORDER}; color:{MUTED};"
+            f"font-size:13px; letter-spacing:1px; padding:6px 14px; border-radius:3px;")
+        t_close_btn.clicked.connect(self._close_trailer_panel)
+        t_hv.addWidget(self.wl_trailer_title_lbl); t_hv.addSpacing(12); t_hv.addWidget(t_badge)
+        t_hv.addStretch(); t_hv.addWidget(t_close_btn)
+        tv.addWidget(t_hdr)
+        self.wl_trailer_view = None
+        if WEBENGINE_OK:
+            self.wl_trailer_view = QWebEngineView()
+            self.wl_trailer_view.setPage(TrailerDialog._QuietPage(self.wl_trailer_view))
+            tv.addWidget(self.wl_trailer_view, 1)
+        t_bot = QWidget()
+        t_bot.setStyleSheet(f"background:{BG2}; border-top:1px solid {BORDER};")
+        t_bot.setFixedHeight(32)
+        t_bv = QHBoxLayout(t_bot)
+        t_bv.setContentsMargins(20,0,20,0)
+        t_hint = QLabel("Click a result to play  ·  Esc to close")
+        t_hint.setStyleSheet(f"color:{MUTED}; font-size:12px;")
+        t_bv.addWidget(t_hint)
+        tv.addWidget(t_bot)
+        rv.addWidget(self.wl_trailer_w, 1)
+
         splitter.addWidget(right)
 
         # 40% list, 60% detail
@@ -1057,13 +1106,25 @@ class MatrixPage(QWidget):
     def _trailer_btn_clicked(self):
         title = self._wl_current_title
         if not title: return
-        if WEBENGINE_OK:
-            dlg = TrailerDialog(title, None, self)
-            dlg.exec()
+        if WEBENGINE_OK and self.wl_trailer_view is not None:
+            self.wl_trailer_title_lbl.setText(title)
+            import urllib.parse
+            url = ("https://www.youtube.com/results?search_query=" +
+                   urllib.parse.quote(f"{title} official trailer"))
+            self.wl_trailer_view.load(QUrl(url))
+            self.wl_placeholder.hide()
+            self.wl_detail_w.hide()
+            self.wl_trailer_w.show()
         else:
             import urllib.parse, webbrowser
             webbrowser.open("https://www.youtube.com/results?search_query=" +
                             urllib.parse.quote(f"{title} official trailer"))
+
+    def _close_trailer_panel(self):
+        if self.wl_trailer_view is not None:
+            self.wl_trailer_view.load(QUrl("about:blank"))
+        self.wl_trailer_w.hide()
+        self.wl_detail_w.show()
 
 
     # ── Browser ────────────────────────────────────────────────────────────────
