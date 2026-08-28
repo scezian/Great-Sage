@@ -104,12 +104,13 @@ GS_TO_SUPA_STATUS = {
     "Dropped":   "dropped",
     "Completed": "completed",
     "Planning":  "plan_to_watch",
+    "On Hold":   "on_hold",
 }
 SUPA_TO_GS_STATUS = {
     "watching":      "watching",
     "reading":       "watching",
     "completed":     "completed",
-    "on_hold":       "watching",
+    "on_hold":       "on_hold",
     "dropped":       "dropped",
     "plan_to_watch": "planning",
     "plan_to_read":  "planning",
@@ -275,7 +276,7 @@ class GreatSageSync:
         # Keys must be lowercase — great_sage_core.get_matrix_data() only
         # recognises lowercase bucket names ("planning", "watching", etc.).
         watchlist: dict[str, list] = {
-            "planning": [], "watching": [], "dropped": [], "completed": []
+            "planning": [], "watching": [], "dropped": [], "completed": [], "on_hold": []
         }
         watching: dict[str, dict] = {}
 
@@ -329,6 +330,9 @@ class GreatSageSync:
             return False
 
         existing = self._load_progress()
+        pending_deletes = {
+            t.strip().lower() for t in existing.get("_pending_deletes", [])
+        }
 
         # ── Purge any webnovel/Novel entries that leaked into Matrix watchlist ──
         # These appear when Legion books were incorrectly pulled into progress.json
@@ -404,7 +408,7 @@ class GreatSageSync:
 
         # Last-write-wins merge
         merged: dict[str, list] = {
-            "planning": [], "watching": [], "dropped": [], "completed": []
+            "planning": [], "watching": [], "dropped": [], "completed": [], "on_hold": []
         }
         all_titles = set(local_index) | set(cloud_index)
 
@@ -418,6 +422,11 @@ class GreatSageSync:
                 merged.setdefault(bucket, []).append(entry)
 
             elif in_cloud and not in_local:
+                if title_key in pending_deletes:
+                    # Mid-deletion (or the last delete attempt failed) —
+                    # don't resurrect it just because the cloud row hasn't
+                    # caught up yet.
+                    continue
                 # Cloud only — always add (this is the website-add case)
                 bucket, entry = cloud_index[title_key]
                 merged.setdefault(bucket, []).append(entry)
@@ -489,7 +498,11 @@ class GreatSageSync:
         for gs_status_raw, items in watchlist.items():
             # Normalise to lowercase so push works regardless of whether the
             # user's progress.json has capitalised or lowercase bucket names.
-            gs_status = gs_status_raw.lower().capitalize()  # "planning" → "Planning", "Planning" → "Planning"
+            _gs_status_raw = gs_status_raw.strip().lower()
+            gs_status = (
+                _gs_status_raw.replace("_", " ").title()
+                if "_" in _gs_status_raw else _gs_status_raw.capitalize()
+            )  # "planning" -> "Planning", "on_hold" -> "On Hold"
             for item in items:
                 title    = item.get("title", "").strip()
                 if not title:
@@ -582,10 +595,38 @@ class GreatSageSync:
             logger.error(f"[gs_sync] push_single failed: {e}")
             return False
 
+    def _mark_pending_delete(self, title: str) -> None:
+        """Tombstone a title locally so a sync cycle that pulls in the
+        window between "removed locally" and "actually gone from Supabase"
+        doesn't treat the still-present cloud row as a website-add and
+        write it straight back into progress.json."""
+        data = self._load_progress()
+        pending = data.setdefault("_pending_deletes", [])
+        key = title.strip().lower()
+        if key not in pending:
+            pending.append(key)
+            self._save_progress(data)
+
+    def _clear_pending_delete(self, title: str) -> None:
+        data = self._load_progress()
+        pending = data.get("_pending_deletes", [])
+        key = title.strip().lower()
+        if key in pending:
+            pending.remove(key)
+            data["_pending_deletes"] = pending
+            self._save_progress(data)
+
     def delete_item(self, title: str) -> bool:
-        """Remove an item from the cloud watchlist."""
+        """Remove an item from the cloud watchlist.
+
+        Tombstones the title before the network call (see
+        _mark_pending_delete) and clears it once the delete is confirmed.
+        Left in place on failure so restore_to_disk() keeps suppressing
+        resurrection until a later delete attempt actually succeeds.
+        """
         if not self.is_logged_in():
             return False
+        self._mark_pending_delete(title)
         try:
             resp = self._session.delete(
                 f"{SUPABASE_URL}/rest/v1/watchlist",
@@ -594,6 +635,7 @@ class GreatSageSync:
                 timeout=10,
             )
             resp.raise_for_status()
+            self._clear_pending_delete(title)
             return True
         except Exception as e:
             logger.error(f"[gs_sync] delete_item failed: {e}")

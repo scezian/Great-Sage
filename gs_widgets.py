@@ -22,7 +22,7 @@ except Exception as _log_err:
 from gs_theme import *
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject
+    Qt, QThread, pyqtSignal, QTimer, QSize, QRectF, QRect, QUrl, QPoint, QObject, pyqtSlot
 )
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -1839,6 +1839,7 @@ class NotificationBell(QPushButton):
                 f"QPushButton:hover{{border-color:{ACCENT};color:{ACCENT};}}"
             )
 
+    @pyqtSlot()
     def refresh_badge(self):
         """Re-read unread count from store and repaint."""
         try:
@@ -2041,6 +2042,7 @@ class NotificationPanel(QFrame):
         is_unread = not notif.get("read", False)
         ntype     = notif.get("type", "")
         title     = notif.get("title", "Notification")
+        body      = notif.get("body", "")
         data      = notif.get("data", {})
         nid       = notif.get("id", "")
         ts        = notif.get("timestamp", "")
@@ -2110,6 +2112,14 @@ class NotificationPanel(QFrame):
                 f"background:transparent;border:none;")
             col.addWidget(sub)
 
+        elif ntype == "info" and body:
+            sub = QLabel(body)
+            sub.setStyleSheet(
+                f"color:{MUTED};font-size:12px;"
+                f"background:transparent;border:none;")
+            sub.setWordWrap(True)
+            col.addWidget(sub)
+
         # Timestamp
         if ts:
             try:
@@ -2157,6 +2167,11 @@ class NotificationPanel(QFrame):
             self.hide()
             self.closed.emit()
             self._show_rec_dialog(data)
+        elif data.get("kind") == "calendar_digest":
+            self.hide()
+            self.closed.emit()
+            from gs_matrix_ui import CalendarDialog
+            CalendarDialog(self.window()).exec()
 
     def _on_mark_all_read(self):
         try:

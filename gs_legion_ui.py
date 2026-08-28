@@ -51,7 +51,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QComboBox, QSizePolicy,
     QStackedWidget, QTextBrowser, QTextEdit, QApplication,
     QDialog, QLayout, QListWidget, QListWidgetItem,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QMessageBox,
 )
 
 from difflib import SequenceMatcher
@@ -5596,7 +5596,22 @@ class LegionPage(QWidget):
             card.set_delete_mode(True)
 
     def _on_lib_remove(self, book: BookItem):
-        """Remove button pressed on a library card — absolute removal."""
+        """Remove button pressed on a library card — absolute removal.
+
+        This deletes the book's local files, so it's confirmed before it happens.
+        """
+        reply = QMessageBox.question(
+            self,
+            "Remove from library?",
+            f'Remove "{book.title}" from your library?\n\n'
+            "This deletes any downloaded chapters/files for this title "
+            "and can't be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
         library_remove(book.title)
         jump_in_remove(book.title, delete_files=True)
         self._status_bar.setText(f'Removed "{book.title}" from library')

@@ -109,6 +109,13 @@ class _WLHoverDelegate(QStyledItemDelegate):
        super().paint(painter, option, index)
 
 
+def _bucket_label(n: str) -> str:
+    """Display label for a watchlist bucket key. Plain .capitalize() breaks
+    on multi-word keys like "on_hold" (-> "On_hold"), so route every
+    bucket label through here instead."""
+    return n.replace("_", " ").title() if "_" in n else n.capitalize()
+
+
 class _WLListWidget(QListWidget):
    """QListWidget for the Watchlist tabs — adds animated hover feedback
    (fade tint + growing left accent bar) on top of the existing QSS."""
@@ -495,11 +502,11 @@ class MatrixPage(QWidget):
 
         self.wl_tabbar = GlowTabBar(accent=BLUE, muted=MUTED, text=TEXT,
                                      text2=TEXT2, bg2=BG2, bg3=BG3)
-        for n in ("planning","watching","dropped","completed"):
-            self.wl_tabbar.addTab(n.capitalize())
+        for n in ("planning","watching","dropped","completed","on_hold"):
+            self.wl_tabbar.addTab(_bucket_label(n))
         # Each list gets its own identity color instead of sharing one accent —
         # mirrors the colors already used for these same concepts in WrappedDialog.
-        self.wl_tabbar.set_tab_colors([PURPLE, BLUE, RED, ACCENT2])
+        self.wl_tabbar.set_tab_colors([PURPLE, BLUE, RED, ACCENT2, ACCENT])
 
         # ── Tab row + add bar, side by side, full page width ───────────────────
         # This sits above the splitter (not inside its left pane) so the add
@@ -532,7 +539,7 @@ class MatrixPage(QWidget):
             f"QComboBox{{background:{BG};border:1px solid {BORDER2};"
             f"color:{TEXT2};font-size:13px;padding:5px 10px;border-radius:4px;}}"
             f"QComboBox::drop-down{{border:none;}}")
-        for n in ("planning","watching","dropped","completed"): self.wl_target.addItem(n.capitalize(),n)
+        for n in ("planning","watching","dropped","completed","on_hold"): self.wl_target.addItem(_bucket_label(n),n)
         add_row.addWidget(self.wl_input, 1)
         add_row.addWidget(self.wl_target)
         add_row.addWidget(btn("+ Add","accent",self._wl_add))
@@ -553,7 +560,7 @@ class MatrixPage(QWidget):
 
         self.wl_stack = QStackedWidget()
         self.wl_lists = {}
-        for n in ("planning","watching","dropped","completed"):
+        for n in ("planning","watching","dropped","completed","on_hold"):
             lw = _WLListWidget()
             lw.setStyleSheet(
                 f"QListWidget{{background:transparent;border:none;padding:0px;}}"
@@ -652,10 +659,22 @@ class MatrixPage(QWidget):
         splitter.addWidget(right)
 
         # 40% list, 60% detail
-        splitter.setSizes([420, 630])
+        splitter.setSizes([435, 615])
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         root.addWidget(splitter, 1)
+
+        # Align the splitter's left/right divider with the tab-bar/add-bar
+        # boundary directly above it. wl_tabbar's width comes from its
+        # sizeHint() (stretch factor 0 in tr.addWidget), which Qt only
+        # resolves correctly after the widget tree is laid out — so this
+        # is deferred with a 0ms singleShot rather than computed inline.
+        def _sync_splitter_to_tabbar():
+            w = self.wl_tabbar.sizeHint().width()
+            total = sum(splitter.sizes())
+            if w > 0 and total > 0:
+                splitter.setSizes([w, max(total - w, 100)])
+        QTimer.singleShot(0, _sync_splitter_to_tabbar)
 
         self.wl_info = QLabel(""); self.wl_info.hide()
         self._wl_current_title = ""
@@ -672,7 +691,7 @@ class MatrixPage(QWidget):
         anime = False  # Anime checkbox removed from Watchlist add bar
         try:
             md = matrix_data(); wl = md.setdefault("watchlist",{})
-            for k in ("planning","watching","dropped","completed"): wl.setdefault(k,[])
+            for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k,[])
             # Remove from all lists first (dedup)
             for k in wl:
                 wl[k] = [e for e in wl[k]
@@ -680,13 +699,13 @@ class MatrixPage(QWidget):
             wl[lst].append({"title":title,"is_anime":anime,"added":time.time(),
                             "watched":False,"notes":"Added via GUI","updated_at":_wl_now()})
             save_json(MATRIX_PROGRESS, md)
-            _sync_item_added(title, "Anime" if anime else "Novel", lst.capitalize())
+            _sync_item_added(title, "Anime" if anime else "Novel", _bucket_label(lst))
             self.wl_input.clear()
             self.refresh()
             # Switch to the tab we just added to
-            tab_idx = {"planning":0,"watching":1,"dropped":2,"completed":3}.get(lst, 0)
+            tab_idx = {"planning":0,"watching":1,"dropped":2,"completed":3,"on_hold":4}.get(lst, 0)
             self.wl_tabbar.setCurrentIndex(tab_idx)
-            self.wl_info.setText(f"✓ Added '{title}' to {lst.capitalize()}")
+            self.wl_info.setText(f"✓ Added '{title}' to {_bucket_label(lst)}")
             # Shows have no cover art source of their own (unlike webnovels,
             # which get one from Legion's scraper) — kick off a background
             # TMDB/MetadataFetcher lookup so a cover_url gets saved+synced
@@ -725,7 +744,7 @@ class MatrixPage(QWidget):
                     save_json(MATRIX_PROGRESS, md)
                 except Exception as ex:
                     log.matrix.warning("Could not persist cover_url locally", title=t, error=str(ex))
-                _sync_item_added(t, "Anime", l.capitalize(), cover_url=img_url)
+                _sync_item_added(t, "Anime", _bucket_label(l), cover_url=img_url)
             else:
                 _mark_cover_lookup_failed(t)
             if on_complete:
@@ -770,7 +789,7 @@ class MatrixPage(QWidget):
             md = matrix_data(); wl = md.get("watchlist", {})
             queue = []
             for lst, entries in wl.items():
-                if lst not in ("planning", "watching", "dropped", "completed"):
+                if lst not in ("planning","watching","dropped","completed","on_hold"):
                     continue
                 for e in entries:
                     if not isinstance(e, dict):
@@ -812,9 +831,9 @@ class MatrixPage(QWidget):
         e = item.data(Qt.ItemDataRole.UserRole)
         title = e.get("title","") if isinstance(e,dict) else str(e)
         menu = QMenu(self)
-        for target in ("planning","watching","dropped","completed"):
+        for target in ("planning","watching","dropped","completed","on_hold"):
             if target != lst_name:
-                act = menu.addAction(f"Move -> {target.capitalize()}")
+                act = menu.addAction(f"Move -> {_bucket_label(target)}")
                 act.triggered.connect(lambda _, t=target, ti=title, en=e: self._wl_move(ti,en,lst_name,t))
         menu.addSeparator()
         menu.addAction("Remove").triggered.connect(lambda: self._wl_remove(title,lst_name))
@@ -822,7 +841,7 @@ class MatrixPage(QWidget):
 
     def _wl_move(self, title, entry, from_list, to_list):
         md = matrix_data(); wl = md.setdefault("watchlist", {})
-        for k in ("planning", "watching", "dropped", "completed"): wl.setdefault(k, [])
+        for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k, [])
         for k in wl:
             wl[k] = [e for e in wl[k]
                 if (e.get("title", "") if isinstance(e, dict) else str(e)).lower() != title.lower()]
@@ -854,7 +873,7 @@ class MatrixPage(QWidget):
             def _upd(v): score_lbl.setText("Skip (no rating)" if v == 0 else f"{'★' * v}{'☆' * (10-v)}  {v}/10")
             slider.valueChanged.connect(_upd)
             sv.addWidget(slider); sv.addWidget(score_lbl)
-            ok_btn = QPushButton("Save & Complete")
+            ok_btn = QPushButton("Save && Complete")
             ok_btn.setStyleSheet(
                 f"background:{ACCENT}; color:{BG}; border:none; font-size:12px;"
                 f"letter-spacing:1px; padding:8px 16px; border-radius:3px;")
@@ -870,7 +889,7 @@ class MatrixPage(QWidget):
         _sync_item_added(
             title,
             "Anime" if e.get("is_anime", True) else "Novel",
-            to_list.capitalize(),
+            _bucket_label(to_list),
             rating=e.get("score", 0),
         )
 
@@ -878,6 +897,18 @@ class MatrixPage(QWidget):
         md = matrix_data(); wl = md.get("watchlist",{})
         wl[lst_name] = [e for e in wl.get(lst_name,[])
             if (e.get("title","") if isinstance(e,dict) else str(e)).lower() != title.lower()]
+        # Also purge any matching Continue Watching progress entry — otherwise
+        # _clean_dedupe_matrix_data's self-heal pass (which runs on every
+        # matrix_data() call) sees leftover mpv resume progress for this title,
+        # concludes it "fell out of Watching by accident", and silently
+        # re-adds it on the very next refresh().
+        watching_progress = md.get("watching", {})
+        if isinstance(watching_progress, dict):
+            for key in list(watching_progress.keys()):
+                entry = watching_progress[key]
+                stored_title = entry.get("title", key) if isinstance(entry, dict) else key
+                if stored_title.lower() == title.lower() or key.lower() == title.lower():
+                    watching_progress.pop(key, None)
         save_json(MATRIX_PROGRESS, md)
         _sync_item_removed(title)
         self.refresh()
@@ -1463,7 +1494,7 @@ class MatrixPage(QWidget):
 
             # --- 2. Watchlist lists (Planning / Watching / Dropped / Completed) ---
             wl = md.setdefault("watchlist", {})
-            for listname in ("planning", "watching", "dropped", "completed"):
+            for listname in ("planning","watching","dropped","completed","on_hold"):
                 items = wl.setdefault(listname, [])
                 if not items:
                     continue
@@ -1659,7 +1690,7 @@ class MatrixPage(QWidget):
             try:
                 md = matrix_data()
                 wl = md.setdefault("watchlist", {})
-                for k in ("planning","watching","dropped","completed"):
+                for k in ("planning","watching","dropped","completed","on_hold"):
                     wl.setdefault(k, [])
                 # Check if already in watching
                 in_watching = any(
@@ -1672,7 +1703,7 @@ class MatrixPage(QWidget):
                 # because a file happened to get played (resume/misclick/autoplay).
                 in_dropped_or_completed = any(
                     (e.get("title","") if isinstance(e,dict) else str(e)).lower() == show_name.lower()
-                    for k in ("dropped","completed") for e in wl[k]
+                    for k in ("dropped","completed","on_hold") for e in wl[k]
                 )
                 if in_dropped_or_completed: return
                 # Remove from planning (only — don't touch completed/dropped)
@@ -3558,7 +3589,7 @@ class AddToWLDialog(QDialog):
             lay.addWidget(cb); self.checks.append((cb,t))
         row = QHBoxLayout()
         self.target = QComboBox()
-        for n in ("planning","watching","dropped","completed"): self.target.addItem(n.capitalize(),n)
+        for n in ("planning","watching","dropped","completed","on_hold"): self.target.addItem(_bucket_label(n),n)
         row.addWidget(lbl("Add to:",TEXT2)); row.addWidget(self.target); row.addStretch()
         lay.addLayout(row)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
@@ -3568,7 +3599,7 @@ class AddToWLDialog(QDialog):
         lst = self.target.currentData()
         md = matrix_data()
         wl  = md.setdefault("watchlist",{})
-        for k in ("planning","watching","dropped","completed"): wl.setdefault(k,[])
+        for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k,[])
         added = 0
         for cb, title in self.checks:
             if not cb.isChecked(): continue
@@ -3578,7 +3609,7 @@ class AddToWLDialog(QDialog):
                 wl[lst].append({"title":title,"watched":False,"added":time.time(),"notes":"Added from Sage","updated_at":_wl_now()})
                 added += 1
         save_json(MATRIX_PROGRESS, md)
-        QMessageBox.information(self,"Done",f"Added {added} title(s) to {lst.capitalize()}.")
+        QMessageBox.information(self,"Done",f"Added {added} title(s) to {_bucket_label(lst)}.")
         self.accept()
 
 
@@ -3587,6 +3618,13 @@ class AddToWLDialog(QDialog):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════════════════════
+
+CALENDAR_CACHE_PATH          = os.path.expanduser("~/.gs_calendar_cache.json")
+CALENDAR_WEEKLY_MARKER_PATH  = os.path.expanduser("~/.gs_calendar_weekly_marker.json")
+# A weekly background refresh (see maybe_run_weekly_refresh) now keeps the
+# cache proactively current, so opening the dialog mid-week can safely reuse
+# it for longer without feeling stale -- one week rather than half a day.
+CALENDAR_CACHE_TTL_HOURS = 24 * 7
 
 class _CalendarWorker(QThread):
     done     = pyqtSignal(dict, str)  # {date_str: [(time, show, ep)]}
@@ -3610,8 +3648,20 @@ class _CalendarWorker(QThread):
           4. Word overlap >= 70% of watchlist words (minimum 2 words, 3+ chars each)
         Single-word titles must exact-match or be contained to avoid false positives.
         """
-        a = watchlist_title.lower().strip()
-        b = show_name.lower().strip()
+        # Normalize punctuation before comparing -- watchlist entries are
+        # very often typed without apostrophes, colons, hyphens, periods,
+        # etc. ("Beyond times gaze" for "Beyond Time's Gaze", "Re Zero" for
+        # "Re-Zero", "Attack on Titan Final Season" for "...: Final Season").
+        # Any of these otherwise turns a word into a non-match and can tank
+        # the overlap score below threshold, or break a leading-substring
+        # check, entirely. Punctuation is replaced with a space (not deleted)
+        # so word boundaries are preserved -- "Re-Zero" must still tokenize
+        # as two words ("re", "zero"), not merge into "rezero".
+        def _normalize(s):
+            s = re.sub(r"[^\w\s]", " ", s.lower())
+            return re.sub(r"\s+", " ", s).strip()
+        a = _normalize(watchlist_title)
+        b = _normalize(show_name)
         if not a or not b or len(a) < 3: return False
         # Exact
         if a == b: return True
@@ -3620,8 +3670,8 @@ class _CalendarWorker(QThread):
         # Single-word titles: only match if exact (already handled above)
         if len(words_a) <= 1: return False
         # Multi-word: watchlist title must be a leading substring of show name
-        # e.g. "Demon Slayer" matches "Demon Slayer: Kimetsu" but not the reverse loosely
-        if b.startswith(a) or b.startswith(a.rstrip(":")):
+        # e.g. "Demon Slayer" matches "Demon Slayer: Kimetsu no Yaiba"
+        if b.startswith(a):
             return True
         if a.startswith(b):
             return True
@@ -3692,6 +3742,7 @@ class _CalendarWorker(QThread):
 
         def fetch_tmdb(title):
             nonlocal progress_count
+            is_debug = "beyond" in title.lower() and "gaze" in title.lower()
             try:
                 search_url = (f"https://api.themoviedb.org/3/search/tv"
                               f"?api_key={tmdb_key}&query={urllib.parse.quote(title)}")
@@ -3700,6 +3751,9 @@ class _CalendarWorker(QThread):
                 raw = _fetch_with_backoff(req, timeout=8)
                 results = (json.loads(raw) or {}).get("results") or []
                 tmdb_ok.set()
+                if is_debug:
+                    print(f"[CAL-DEBUG] tmdb search results for {title!r}: "
+                          f"{[(r.get('id'), r.get('name'), r.get('original_name')) for r in results[:5]]}")
                 show_id, show_name = None, None
                 for r in results[:5]:
                     name = r.get("name") or ""
@@ -3707,6 +3761,8 @@ class _CalendarWorker(QThread):
                     if self._match_score(title, name) or self._match_score(title, orig):
                         show_id, show_name = r.get("id"), (name or orig)
                         break
+                if is_debug:
+                    print(f"[CAL-DEBUG] tmdb matched show_id={show_id} show_name={show_name!r} for {title!r}")
                 if not show_id: return
 
                 detail_url = f"https://api.themoviedb.org/3/tv/{show_id}?api_key={tmdb_key}"
@@ -3715,6 +3771,8 @@ class _CalendarWorker(QThread):
                 raw2 = _fetch_with_backoff(req2, timeout=8)
                 detail = json.loads(raw2) or {}
                 nxt = detail.get("next_episode_to_air")
+                if is_debug:
+                    print(f"[CAL-DEBUG] tmdb next_episode_to_air for {title!r}: {nxt}")
                 if not nxt: return
                 airdate = nxt.get("air_date","")
                 if not airdate: return
@@ -3722,7 +3780,11 @@ class _CalendarWorker(QThread):
                     ep_dt = dt.datetime.strptime(airdate, "%Y-%m-%d")
                 except Exception:
                     return
-                if now.date() <= ep_dt.date() <= week_later.date():
+                in_window = now.date() <= ep_dt.date() <= week_later.date()
+                if is_debug:
+                    print(f"[CAL-DEBUG] tmdb window check for {title!r}: airdate={airdate} "
+                          f"now={now.date()} week_later={week_later.date()} in_window={in_window}")
+                if in_window:
                     ep_num = nxt.get("episode_number") or 0
                     with lock:
                         by_date.setdefault(airdate, []).append((show_name or title, ep_num))
@@ -3764,6 +3826,21 @@ class _CalendarWorker(QThread):
             msg = "Could not connect - check your internet connection"
         else:
             msg = f"Checked {len(all_titles)} title(s) - none airing this week"
+        # Cache successful results so future opens and the startup digest
+        # can read without hitting TMDB again.
+        try:
+            import json, hashlib
+            titles_hash = hashlib.md5("|".join(sorted(all_titles)).encode()).hexdigest()
+            cache_payload = {
+                "fetched_at":  dt.datetime.now().isoformat(),
+                "titles_hash": titles_hash,
+                "by_date":     by_date,
+            }
+            with open(CALENDAR_CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(cache_payload, f)
+        except Exception as e:
+            print(f"[CAL-DEBUG] cache write failed: {e!r}")
+
         self.done.emit(by_date, msg)
 
 
@@ -3908,7 +3985,7 @@ class CalendarDialog(QDialog):
             f"QPushButton{{background:{BG3};border:1px solid {ACCENT};"
             f"border-radius:6px;color:{ACCENT};padding:6px 14px;}}"
             f"QPushButton:hover{{background:{ACCENT};color:{BG};}}")
-        self._retry_btn.clicked.connect(self._start_fetch)
+        self._retry_btn.clicked.connect(lambda: self._start_fetch(force_refresh=True))
         btn_row.addWidget(self._retry_btn)
         btn_row.addStretch()
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -3921,9 +3998,55 @@ class CalendarDialog(QDialog):
         self._data     = {}
         self._start_fetch()
 
-    def _start_fetch(self):
+    def _load_fresh_cache(self):
+        """
+        Return (by_date, msg) loaded from disk cache if it exists, was built
+        from the exact same watchlist titles as right now, and is not older
+        than CALENDAR_CACHE_TTL_HOURS. Returns None if no usable cache exists,
+        so the caller falls back to a live fetch.
+        """
+        try:
+            import json, hashlib
+            if not os.path.exists(CALENDAR_CACHE_PATH):
+                return None
+            with open(CALENDAR_CACHE_PATH, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            fetched_at = dt.datetime.fromisoformat(payload["fetched_at"])
+            age_hours  = (dt.datetime.now() - fetched_at).total_seconds() / 3600
+            if age_hours > CALENDAR_CACHE_TTL_HOURS:
+                return None
+
+            md = matrix_data()
+            wl = md.get("watchlist", {})
+            all_titles = []
+            for lst in wl.values():
+                for e in lst:
+                    t = e.get("title","") if isinstance(e,dict) else str(e)
+                    if t: all_titles.append(t)
+            for info in md.get("watching",{}).values():
+                if isinstance(info,dict):
+                    t = info.get("title","")
+                    if t and t not in all_titles: all_titles.append(t)
+            titles_hash = hashlib.md5("|".join(sorted(all_titles)).encode()).hexdigest()
+            if titles_hash != payload.get("titles_hash"):
+                return None
+
+            by_date = payload.get("by_date", {})
+            total = sum(len(v) for v in by_date.values())
+            if total:
+                day_word = "day" if len(by_date) == 1 else "days"
+                msg = f"Found episodes on {len(by_date)} {day_word} this week"
+            else:
+                msg = f"Checked {len(all_titles)} title(s) - none airing this week"
+            return by_date, msg
+        except Exception as e:
+            print(f"[CAL-DEBUG] cache read failed: {e!r}")
+            return None
+
+    def _start_fetch(self, force_refresh=False):
         """(Re)start the background fetch. Safe to call again after a timeout
-        or error via the Retry button."""
+        or error via the Retry button (pass force_refresh=True to skip the
+        cache and always hit TMDB live)."""
         self._retry_btn.setVisible(False)
         self._data   = {}
         self._loaded = False
@@ -3933,6 +4056,14 @@ class CalendarDialog(QDialog):
         for date_s, btn in self._day_btns.items():
             base = "\n".join(btn.text().split("\n")[:2])
             btn.setText(base)
+
+        if not force_refresh:
+            cached = self._load_fresh_cache()
+            if cached is not None:
+                by_date, msg = cached
+                self._on_data(by_date, msg + "  (cached)")
+                return
+
         if hasattr(self, "_timeout") and self._timeout.isActive():
             self._timeout.stop()
         if hasattr(self, "_worker") and self._worker.isRunning():
@@ -3945,9 +4076,6 @@ class CalendarDialog(QDialog):
         self._worker.progress.connect(self._on_progress)
         self._worker.start()
 
-        # Hard timeout — worker is rate-limit-aware and can take up to ~120s
-        # worst case on large watchlists (AniList batching + throttled TVMaze).
-        # Give it a safe margin above that before showing partial results.
         self._timeout = QTimer(self)
         self._timeout.setSingleShot(True)
         self._timeout.timeout.connect(self._force_done)
@@ -4013,6 +4141,104 @@ class CalendarDialog(QDialog):
                 ep_str = f"Ep {ep}" if ep else ""
                 item   = QListWidgetItem(f"  {show}   {ep_str}")
                 item.setForeground(QColor(TEXT)); self._list.addItem(item)
+
+def check_calendar_digest():
+    """
+    Startup helper: if a calendar cache exists and today has any airing
+    episodes, push a persistent bell notification. Purely read-only --
+    never triggers a live fetch, and safe to call even if no cache exists
+    yet (silently does nothing until the calendar dialog has been opened
+    at least once).
+    """
+    try:
+        import json
+        if not os.path.exists(CALENDAR_CACHE_PATH):
+            return
+        with open(CALENDAR_CACHE_PATH, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        by_date   = payload.get("by_date", {})
+        today_key = dt.datetime.now().strftime("%Y-%m-%d")
+        todays    = by_date.get(today_key, [])
+        if not todays:
+            return
+
+        from gs_notifications import push_notification, get_notification_store
+
+        digest_id = f"calendar_digest-{today_key}"
+        # Only push once per calendar day, ever -- not just while unread.
+        # push_notification's own dedup only blocks re-adding while the
+        # existing entry is still unread; once read, add() intentionally
+        # replaces it (that's the right behavior for e.g. login warnings
+        # that should re-fire after being dismissed and recurring). A daily
+        # digest should never come back after being read, so we check for
+        # any existing entry with today's id -- read or not -- ourselves.
+        already_shown = any(
+            n.get("id") == digest_id for n in get_notification_store().all_items()
+        )
+        if already_shown:
+            return
+
+        if len(todays) == 1:
+            show, ep = todays[0]
+            title = "1 episode airing today"
+            body  = f"{show}  Ep {ep}" if ep else show
+        else:
+            title = f"{len(todays)} episodes airing today"
+            body  = ", ".join(f"{s} Ep {e}" if e else s for s, e in todays)
+
+        push_notification(
+            title=title,
+            body=body,
+            notif_type="info",
+            notif_id=f"calendar_digest-{today_key}",
+            data={"kind": "calendar_digest", "date": today_key},
+            cooldown=False,
+        )
+    except Exception as e:
+        print(f"[CAL-DEBUG] check_calendar_digest failed: {e!r}")
+
+
+def maybe_run_weekly_refresh():
+    """
+    Startup helper: if today is Sunday and a weekly refresh hasn't already
+    run today, kick off a headless (no dialog) TMDB fetch in the background
+    so the cache -- and therefore the daily digest -- stays current without
+    the user needing to open the Calendar dialog manually. Runs at most
+    once per calendar Sunday.
+    """
+    try:
+        import json
+        today = dt.datetime.now()
+        if today.weekday() != 6:  # Monday=0 ... Sunday=6
+            return
+        today_key = today.strftime("%Y-%m-%d")
+        if os.path.exists(CALENDAR_WEEKLY_MARKER_PATH):
+            try:
+                with open(CALENDAR_WEEKLY_MARKER_PATH, "r", encoding="utf-8") as f:
+                    marker = json.load(f)
+                if marker.get("last_run") == today_key:
+                    return  # already ran today
+            except Exception:
+                pass
+
+        def _run():
+            try:
+                # Call run() directly rather than start() -- we're already
+                # off the main thread via this daemon Thread, so there's no
+                # need for a second (Qt) thread. run() is pure network/file
+                # I/O with no widget access, so this is safe headlessly; it
+                # writes the disk cache itself as a side effect.
+                _CalendarWorker().run()
+                with open(CALENDAR_WEEKLY_MARKER_PATH, "w", encoding="utf-8") as f:
+                    json.dump({"last_run": today_key}, f)
+                check_calendar_digest()
+            except Exception as e:
+                print(f"[CAL-DEBUG] weekly refresh run failed: {e!r}")
+
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as e:
+        print(f"[CAL-DEBUG] maybe_run_weekly_refresh failed: {e!r}")
+
 
 class WrappedDialog(QDialog):
     """Stats & Wrapped — year or all-time."""

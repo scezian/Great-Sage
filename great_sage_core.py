@@ -178,7 +178,7 @@ def _clean_dedupe_matrix_data(data: dict) -> dict:
     """
     changed = False
     wl = data.setdefault("watchlist", {})
-    for k in ("planning", "watching", "dropped", "completed"):
+    for k in ("planning", "watching", "dropped", "completed", "on_hold"):
         wl.setdefault(k, [])
 
     # --- Continue Watching progress dict ---
@@ -218,7 +218,7 @@ def _clean_dedupe_matrix_data(data: dict) -> dict:
         watching_progress = new_progress
 
     # --- Clean + dedupe each Watchlist sub-list independently ---
-    for listname in ("planning", "watching", "dropped", "completed"):
+    for listname in ("planning", "watching", "dropped", "completed", "on_hold"):
         items = wl.get(listname, [])
         if not items:
             continue
@@ -258,7 +258,7 @@ def _clean_dedupe_matrix_data(data: dict) -> dict:
     }
     existing_any_norms = {
         norm_show_title(e.get("title", ""))
-        for lst in ("planning", "watching", "dropped", "completed")
+        for lst in ("planning", "watching", "dropped", "completed", "on_hold")
         for e in wl.get(lst, []) if isinstance(e, dict)
     }
     for title in (watching_progress.keys() if isinstance(watching_progress, dict) else []):

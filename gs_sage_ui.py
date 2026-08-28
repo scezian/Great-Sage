@@ -110,7 +110,10 @@ class SagePage(QWidget):
             return bv
 
         def _nav_item(layout, key, num, icon_char, label_text, desc_text, section):
-            b = QPushButton(f"{int(num)}  {label_text}")
+            # QPushButton interprets a lone "&" as a mnemonic accelerator and
+            # strips it, underlining the next letter instead — double it up
+            # so labels like "Show & Anime Recs" render as literal text.
+            b = QPushButton(f"{int(num)}  {label_text}".replace("&", "&&"))
             b.setToolTip(desc_text)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"""

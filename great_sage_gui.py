@@ -1056,6 +1056,20 @@ def main():
         if matrix_page is not None and hasattr(matrix_page, "_prewarm_webengine"):
             matrix_page._prewarm_webengine()
     QTimer.singleShot(2000, _trigger_matrix_prewarm)
+    def _trigger_calendar_digest():
+        try:
+            from gs_matrix_ui import check_calendar_digest
+            check_calendar_digest()
+        except Exception as e:
+            print(f"[CAL-DEBUG] startup digest check failed: {e!r}")
+    QTimer.singleShot(2500, _trigger_calendar_digest)
+    def _trigger_weekly_refresh():
+        try:
+            from gs_matrix_ui import maybe_run_weekly_refresh
+            maybe_run_weekly_refresh()
+        except Exception as e:
+            print(f"[CAL-DEBUG] weekly refresh trigger failed: {e!r}")
+    QTimer.singleShot(3000, _trigger_weekly_refresh)
     win._splash.finish()
 
     log.info("App event loop starting")
