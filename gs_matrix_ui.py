@@ -132,13 +132,58 @@ class _WLListWidget(QListWidget):
 
 
 def _sync_item_added(title: str, media_type: str, status: str = "Planning", **kw) -> None:
-    pass  # replaced at runtime by SettingsPage.__init__
+    """Immediately push a single added/updated watchlist item to the cloud.
+
+    Previously this was a no-op stub meant to be replaced at runtime by
+    SettingsPage.__init__ — but SettingsPage is never instantiated anywhere
+    in this codebase, so the replacement never happened and every add/move
+    silently failed to push instantly (falling back on whatever the next
+    full _cloud_push() happened to catch). Calling the shared sync singleton
+    directly (same pattern MatrixPage._cloud_push already uses) removes
+    that dependency entirely.
+    """
+    try:
+        from gs_sync import GreatSageSync
+        s = GreatSageSync.get()
+        if not s.is_logged_in():
+            return
+        def _do():
+            ok = s.push_single(
+                title, media_type, status,
+                episode=kw.get("episode", 0),
+                notes=kw.get("notes", ""),
+                rating=kw.get("rating", 0),
+                cover_url=kw.get("cover_url", ""),
+            )
+            if ok:
+                log.sync.info(f"[cloud] Instant push: '{title}' -> {status}")
+            else:
+                log.sync.warning(f"[cloud] Instant push failed for '{title}'")
+        threading.Thread(target=_do, daemon=True, name="gs_sync_add").start()
+    except Exception as e:
+        log.sync.warning("[cloud] _sync_item_added failed", title=title, error=str(e))
 
 # Sync hook — registered by SettingsPage after it constructs GreatSageSync.
 # Calling _sync_item_removed(title) fires an immediate delete_item on the cloud
 # without any coupling between MatrixPage and SettingsPage.
 def _sync_item_removed(title: str) -> None:
-    pass  # replaced at runtime by SettingsPage.__init__
+    """Fire an immediate delete_item on the cloud watchlist so a removed
+    title doesn't get resurrected by a later pull's last-write-wins merge.
+
+    Previously this was a no-op stub meant to be replaced at runtime by
+    SettingsPage.__init__ — but SettingsPage is never instantiated anywhere
+    in this codebase, so the replacement never happened and every local
+    removal silently failed to delete the row on the server. Calling the
+    shared sync singleton directly (same pattern MatrixPage._cloud_push
+    already uses) removes that dependency entirely.
+    """
+    try:
+        from gs_sync import GreatSageSync
+        s = GreatSageSync.get()
+        if s.is_logged_in():
+            s.delete_item(title)
+    except Exception as e:
+        log.sync.warning("[cloud] delete_item failed", title=title, error=str(e))
 
 
 class TrailerPickerDialog(QDialog):
