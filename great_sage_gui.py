@@ -487,6 +487,30 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Great Sage")
         self.setMinimumSize(1080, 700)
         self.resize(1380, 860)  # fallback size if maximize isn't available
+        # Force this window's backing store to be OpenGL/RHI-backed from
+        # birth, before it's ever shown. Root-caused via QT_LOGGING_RULES=
+        # qt.qpa.backingstore=true: the main window runs on a plain raster
+        # backing store the entire time UNTIL the first QWebEngineView paint
+        # — at that exact moment Qt logs "Setting up RHI support ... for
+        # QWidgetWindow(name='MainWindowClassWindow')" and promotes the
+        # window from raster to OpenGL RHI. That promotion destroys and
+        # recreates the native platform window (visible under Wayland as
+        # xdg_toplevel/wl_surface destroy+recreate), which is what causes
+        # the observed un-maximize/re-maximize flicker — confirmed to
+        # happen exactly once, exactly at that moment, via the debug log
+        # (no earlier "Setting up RHI support" line exists anywhere before
+        # it, even though the QQuickWidget-based Ambient background is
+        # already active by then — it manages its own separate surface and
+        # doesn't force this promotion on the parent window).
+        # A trivial, permanent QOpenGLWidget child forces this promotion to
+        # happen right here, at construction, before the splash even shows
+        # — so by the time WebEngine paints anything later, the window is
+        # already RHI-backed and the promotion/recreate never needs to fire.
+        from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+        self._gl_prewarm = QOpenGLWidget(self)
+        self._gl_prewarm.setFixedSize(1, 1)
+        self._gl_prewarm.move(-100, -100)
+        self._gl_prewarm.show()
         # ── loading overlay -- lives inside this window, never a second
         # window, so tiling window managers (Hyprland etc.) never see two
         # top-level surfaces competing for screen space during launch.
@@ -1055,7 +1079,14 @@ def main():
         matrix_page = win._page_objs.get("matrix") if hasattr(win, "_page_objs") else None
         if matrix_page is not None and hasattr(matrix_page, "_prewarm_webengine"):
             matrix_page._prewarm_webengine()
-    QTimer.singleShot(2000, _trigger_matrix_prewarm)
+    # TEMPORARILY DISABLED for testing: STREAM tab used to just have a brief
+    # freeze on first open (before this prewarm chain existed). The prewarm
+    # was added to fix that freeze, but appears to have introduced a window
+    # un-maximize/re-maximize glitch on Hyprland instead (both on first
+    # STREAM open and on first trailer-panel open, which shares the same
+    # QWebEngineView machinery). Testing whether disabling this trigger
+    # removes the glitch and reverts to the original brief-freeze behavior.
+    # QTimer.singleShot(2000, _trigger_matrix_prewarm)
     def _trigger_calendar_digest():
         try:
             from gs_matrix_ui import check_calendar_digest

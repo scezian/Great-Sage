@@ -28,8 +28,8 @@ _save_locks_lock = threading.Lock()
 # the lifetime of this session only. None means "use whatever is in settings".
 _session_groq_model: str | None = None
 
-GROQ_MODEL_VERSATILE = "llama-3.3-70b-versatile"
-GROQ_MODEL_INSTANT   = "llama-3.1-8b-instant"
+GROQ_MODEL_VERSATILE = "openai/gpt-oss-120b"
+GROQ_MODEL_INSTANT   = "openai/gpt-oss-20b"
 
 def set_session_groq_model(model: str | None):
     """Override the active Groq model for this session only."""

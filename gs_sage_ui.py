@@ -196,10 +196,10 @@ class SagePage(QWidget):
         self.groq_lbl = QLabel("● GROQ CONNECTED")
         self.groq_lbl.setStyleSheet(
             f"font-family:{FONT_UI}; font-size:12px; letter-spacing:1.5px; color:#236050; border:none;")
-        model_lbl = QLabel("llama-3.3-70b")
-        model_lbl.setStyleSheet(
+        self.model_lbl = QLabel("")
+        self.model_lbl.setStyleSheet(
             f"font-family:{FONT_UI}; font-size:12px; color:#404058; border:none;")
-        fl.addWidget(self.groq_lbl, 1); fl.addWidget(model_lbl)
+        fl.addWidget(self.groq_lbl, 1); fl.addWidget(self.model_lbl)
         sv.addWidget(footer)
         root.addWidget(sidebar)
 
@@ -390,6 +390,12 @@ class SagePage(QWidget):
                     mod.GROQ_API_KEY = _s["groq_api_key"]
                 if _s.get("groq_model") and hasattr(mod, "GROQ_MODEL"):
                     mod.GROQ_MODEL = _s["groq_model"]
+                # model_lbl was previously a hardcoded "llama-3.3-70b" literal
+                # that never reflected the real active model. Show whatever
+                # mod.GROQ_MODEL actually resolves to (session override, saved
+                # setting, or the module default) so it stays accurate.
+                active_model = getattr(mod, "GROQ_MODEL", "") or ""
+                QTimer.singleShot(0, lambda m=active_model: self.model_lbl.setText(m))
             if err:
                 QTimer.singleShot(0, lambda e=err: (
                     self.groq_lbl.setText(f"○ SAGE.PY ERR"),

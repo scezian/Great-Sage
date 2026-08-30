@@ -35,9 +35,9 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QStackedWidget, QLabel, QPushButton, QLineEdit, QTextEdit, QSlider,
     QFrame, QListWidget, QListWidgetItem, QTabWidget, QComboBox,
-    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QMessageBox, QAbstractItemView,
+    QCheckBox, QDialog, QDialogButtonBox, QInputDialog, QFileDialog, QMessageBox, QAbstractItemView,
     QProgressBar, QGroupBox, QFormLayout, QStatusBar, QMenu, QSplitter, QScrollArea,
-    QGraphicsOpacityEffect, QRadioButton, QStyledItemDelegate, QStyle,
+    QGraphicsOpacityEffect, QRadioButton, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 from great_sage_core import (
     SCRIPT_DIR, LEGION_PROGRESS, MATRIX_PROGRESS, LEGION_BOOKMARKS, SAGE_MEMORY_PATH,
@@ -63,6 +63,18 @@ from great_sage_core import (
 # Calling _sync_item_added(title, media_type, status, ...) fires an immediate
 # push_single to the cloud without any coupling between MatrixPage and SettingsPage.
 # ── Watchlist row hover animation ────────────────────────────────────────────
+_WL_DOTS_W = 28  # px reserved at a watchlist row's right edge for the "..." menu button
+
+
+def _wl_dots_rect(rect):
+    """Rect for a row's "..." menu button, in the row's local (option.rect)
+    coordinate space. Shared by _WLHoverDelegate.paint() (drawing) and
+    _WLListWidget's mouse handlers (hit-testing) so the paint area and the
+    clickable area can never drift apart.
+    """
+    return QRect(rect.right() - _WL_DOTS_W, rect.top(), _WL_DOTS_W, rect.height())
+
+
 class _WLHoverDelegate(QStyledItemDelegate):
    """Paints an animated hover sweep (fade-in tint + growing accent bar) on
    Watchlist rows. Plain QSS can't animate a transition, so this drives a
@@ -106,7 +118,25 @@ class _WLHoverDelegate(QStyledItemDelegate):
            bar_y = rect.top() + (rect.height() - bar_h) // 2
            painter.fillRect(QRect(rect.left(), bar_y, bar_w, bar_h), QColor(BLUE))
            painter.restore()
-       super().paint(painter, option, index)
+
+       # Reserve space at the row's right edge for the row-menu "..." button
+       # so long titles never run underneath it.
+       opt = QStyleOptionViewItem(option)
+       opt.rect = QRect(option.rect.left(), option.rect.top(),
+                         option.rect.width() - _WL_DOTS_W, option.rect.height())
+       super().paint(painter, opt, index)
+
+       painter.save()
+       painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+       dots_rect = _wl_dots_rect(option.rect)
+       dot_color = QColor(TEXT if row == self._hover_row else MUTED)
+       painter.setPen(Qt.PenStyle.NoPen)
+       painter.setBrush(dot_color)
+       cx = dots_rect.center().x()
+       cy = dots_rect.center().y()
+       for dy in (-6, 0, 6):
+           painter.drawEllipse(QPoint(cx, cy + dy), 2, 2)
+       painter.restore()
 
 
 def _bucket_label(n: str) -> str:
@@ -119,12 +149,41 @@ def _bucket_label(n: str) -> str:
 class _WLListWidget(QListWidget):
    """QListWidget for the Watchlist tabs — adds animated hover feedback
    (fade tint + growing left accent bar) on top of the existing QSS."""
+   dotsClicked = pyqtSignal(QPoint)
+
    def __init__(self, parent=None):
        super().__init__(parent)
        self.setMouseTracking(True)
        self._wl_delegate = _WLHoverDelegate(self)
        self.setItemDelegate(self._wl_delegate)
        self.entered.connect(lambda idx: self._wl_delegate.set_hover(idx.row()))
+       self._dots_pressed = False
+
+   def _in_dots(self, pos):
+       idx = self.indexAt(pos)
+       if not idx.isValid():
+           return False
+       return _wl_dots_rect(self.visualRect(idx)).contains(pos)
+
+   def mousePressEvent(self, event):
+       pos = event.position().toPoint()
+       if event.button() == Qt.MouseButton.LeftButton and self._in_dots(pos):
+           self._dots_pressed = True
+           self.dotsClicked.emit(pos)
+           return
+       self._dots_pressed = False
+       super().mousePressEvent(event)
+
+   def mouseReleaseEvent(self, event):
+       if self._dots_pressed:
+           self._dots_pressed = False
+           return
+       super().mouseReleaseEvent(event)
+
+   def mouseDoubleClickEvent(self, event):
+       if self._in_dots(event.position().toPoint()):
+           return
+       super().mouseDoubleClickEvent(event)
 
    def leaveEvent(self, event):
        self._wl_delegate.set_hover(-1)
@@ -620,6 +679,7 @@ class MatrixPage(QWidget):
                 f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}")
             lw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             lw.customContextMenuRequested.connect(lambda pos, lw=lw, n=n: self._wl_ctx(pos,lw,n))
+            lw.dotsClicked.connect(lambda pos, lw=lw, n=n: self._wl_ctx(pos,lw,n))
             lw.itemDoubleClicked.connect(lambda item, n=n: self._wl_meta(item,n))
             lw.itemClicked.connect(lambda item, n=n: self._wl_meta(item,n))
             self.wl_lists[n] = lw
@@ -648,6 +708,11 @@ class MatrixPage(QWidget):
 
         # Poster — fixed width, left side. Hidden until an image loads so
         # layout doesn't reserve empty space for titles with no artwork.
+        poster_col_w = QWidget()
+        poster_col = QVBoxLayout(poster_col_w)
+        poster_col.setContentsMargins(0,0,0,0)
+        poster_col.setSpacing(12)
+
         self.wl_d_poster = QLabel("")
         self.wl_d_poster.setFixedSize(180, 260)
         self.wl_d_poster.setScaledContents(False)
@@ -655,8 +720,28 @@ class MatrixPage(QWidget):
         self.wl_d_poster.setStyleSheet(
             f"background:{BG2};border:1px solid {BORDER};border-radius:6px;")
         self.wl_d_poster.hide()
-        outer_dv.addWidget(self.wl_d_poster, 0, Qt.AlignmentFlag.AlignTop)
+        # Reserve the poster's layout space even while hidden, so a poster
+        # arriving asynchronously (or a title with no artwork) never changes
+        # this pane's minimum width -- that width change was what forced the
+        # splitter to steal room from the watchlist column on the left.
+        _poster_sp = self.wl_d_poster.sizePolicy()
+        _poster_sp.setRetainSizeWhenHidden(True)
+        self.wl_d_poster.setSizePolicy(_poster_sp)
+        poster_col.addWidget(self.wl_d_poster)
         self._poster_worker = None
+
+        self.wl_d_trailer_btn = QPushButton("▶  WATCH TRAILER")
+        self.wl_d_trailer_btn.setFixedWidth(180)
+        self.wl_d_trailer_btn.setStyleSheet(
+            f"background:{BLUE};color:{BG};border:none;font-size:12px;font-weight:700;"
+            f"letter-spacing:1.5px;padding:10px 20px;border-radius:3px;")
+        self.wl_d_trailer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.wl_d_trailer_btn.clicked.connect(self._trailer_btn_clicked)
+        self.wl_d_trailer_btn.hide()
+        poster_col.addWidget(self.wl_d_trailer_btn)
+        poster_col.addStretch(1)
+
+        outer_dv.addWidget(poster_col_w, 0, Qt.AlignmentFlag.AlignTop)
 
         text_col = QWidget()
         dv = QVBoxLayout(text_col)
@@ -671,6 +756,7 @@ class MatrixPage(QWidget):
 
         self.wl_d_meta = QLabel("")
         self.wl_d_meta.setStyleSheet(f"color:{MUTED};font-size:14px;letter-spacing:.5px;")
+        self.wl_d_meta.setWordWrap(True)
         dv.addWidget(self.wl_d_meta); dv.addSpacing(16)
 
         div = QFrame()
@@ -684,19 +770,11 @@ class MatrixPage(QWidget):
         self.wl_d_synopsis.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         dv.addWidget(self.wl_d_synopsis, 1); dv.addSpacing(20)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        self.wl_d_trailer_btn = QPushButton("▶  WATCH TRAILER")
-        self.wl_d_trailer_btn.setStyleSheet(
-            f"background:{BLUE};color:{BG};border:none;font-size:12px;font-weight:700;"
-            f"letter-spacing:1.5px;padding:10px 20px;border-radius:3px;")
-        self.wl_d_trailer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.wl_d_trailer_btn.clicked.connect(self._trailer_btn_clicked)
-        self.wl_d_trailer_btn.hide()
+        src_row = QHBoxLayout()
         self.wl_d_src_lbl = QLabel("")
         self.wl_d_src_lbl.setStyleSheet(f"color:{MUTED};font-size:12px;letter-spacing:.5px;")
-        btn_row.addWidget(self.wl_d_trailer_btn); btn_row.addStretch(); btn_row.addWidget(self.wl_d_src_lbl)
-        dv.addLayout(btn_row)
+        src_row.addStretch(); src_row.addWidget(self.wl_d_src_lbl)
+        dv.addLayout(src_row)
 
         outer_dv.addWidget(text_col, 1)
 
@@ -930,8 +1008,28 @@ class MatrixPage(QWidget):
                 act = menu.addAction(f"Move -> {_bucket_label(target)}")
                 act.triggered.connect(lambda _, t=target, ti=title, en=e: self._wl_move(ti,en,lst_name,t))
         menu.addSeparator()
+        menu.addAction("Rename").triggered.connect(lambda: self._wl_rename(title,e,lst_name))
         menu.addAction("Remove").triggered.connect(lambda: self._wl_remove(title,lst_name))
         menu.exec(lw.mapToGlobal(pos))
+
+    def _wl_rename(self, title, entry, lst_name):
+        new_title, ok = QInputDialog.getText(self, "Rename", "Title:", text=title)
+        if not ok:
+            return
+        new_title = new_title.strip()
+        if not new_title or new_title == title:
+            return
+        md = matrix_data(); wl = md.setdefault("watchlist", {})
+        for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k, [])
+        for e in wl.get(lst_name, []):
+            e_title = e.get("title","") if isinstance(e,dict) else str(e)
+            if e_title.lower() == title.lower():
+                if isinstance(e, dict):
+                    e["title"] = new_title
+                    e["updated_at"] = _wl_now()
+                break
+        save_json(MATRIX_PROGRESS, md)
+        self.refresh()
 
     def _wl_move(self, title, entry, from_list, to_list):
         md = matrix_data(); wl = md.setdefault("watchlist", {})

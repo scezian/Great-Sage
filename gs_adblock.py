@@ -686,6 +686,7 @@ if _WEBENGINE_OK:
             self.fullScreenRequested.connect(self._handle_fullscreen)
 
         def _handle_fullscreen(self, request):
+            print(f"\n@@@@ AdBlockPage._handle_fullscreen FIRED toggleOn={request.toggleOn()} @@@@\n")
             request.accept()
             view = self.parent()
             if not view:
