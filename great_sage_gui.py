@@ -14,7 +14,10 @@ from pathlib import Path
 
 # Software rendering — avoids Mesa/EGL seg faults on stylesheet parse
 os.environ["QT_XCB_GL_INTEGRATION"] = "none"
-os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+# TEST: LIBGL_ALWAYS_SOFTWARE disabled to check if real GPU accel fixes
+# choppy trailer/STREAM video now that the main window is RHI/OpenGL-backed
+# (see MainWindow.__init__'s _gl_prewarm). Revert immediately if unstable.
+# os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
 # Qt WebEngine ICU data fix — must be set BEFORE any WebEngine imports
 # Try to find PyQt6 resources in various locations
