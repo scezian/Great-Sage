@@ -1197,8 +1197,18 @@ class MetadataWorker(QThread):
             r   = _req.get("https://api.themoviedb.org/3/search/multi",
                 params={"api_key": "a58e553cfec69c54b7fd360041870216", "query": self.clean}, timeout=60)
             res = r.json().get("results", [])
+            x = None
             if res:
-                x  = res[0]
+                # /search/multi ranks by popularity, not relevance — blindly
+                # taking res[0] can return a completely unrelated title.
+                # Only accept a result whose title actually matches the query.
+                matcher = getattr(getattr(mod, "MetadataFetcher", None), "title_matches", None)
+                for candidate in res:
+                    cand_title = candidate.get("title") or candidate.get("name", "")
+                    if matcher and matcher(self.clean, cand_title):
+                        x = candidate
+                        break
+            if x:
                 ov = _strip_markdown(x.get("overview", ""))
                 poster_path = x.get("poster_path", "")
                 img_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""

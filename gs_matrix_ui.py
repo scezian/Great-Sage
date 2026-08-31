@@ -923,7 +923,7 @@ class MatrixPage(QWidget):
                 on_complete()
 
         def _mark_cover_lookup_failed(t):
-            # No point re-hitting Jikan/TMDB for the same unresolvable title
+            # No point re-hitting TMDB for the same unresolvable title
             # every single launch. Record when this failed so
             # _wl_start_cover_backfill can skip it for a while.
             try:
@@ -970,7 +970,7 @@ class MatrixPage(QWidget):
                         continue  # already has one
                     failed_at = e.get("cover_lookup_failed_at")
                     if failed_at and (time.time() - failed_at) < 7 * 86400:
-                        continue  # tried within the last 7 days, don't hammer Jikan/TMDB again
+                        continue  # tried within the last 7 days, don't hammer TMDB again
                     title = e.get("title", "").strip()
                     if title:
                         queue.append((title, lst))

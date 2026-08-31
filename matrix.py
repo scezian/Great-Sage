@@ -53,7 +53,6 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
 
 # API endpoints
-JIKAN_API = "https://api.jikan.moe/v4"
 TVMAZE_API = "https://api.tvmaze.com"
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")  # Set via Settings > TMDB API Key
@@ -686,37 +685,12 @@ class MediaPlayer:
     @staticmethod
     def fetch_total_episodes(title: str, is_anime: bool = False) -> int:
         """
-        Fetch total episode count for a series from TMDB or Jikan.
-        Always tries both sources and picks the best result:
-        - If is_anime=True, Jikan result wins outright.
-        - Otherwise, if Jikan finds a confident match it overrides a low TMDB count.
+        Fetch total episode count for a series from TMDB.
         Returns 0 if unknown or it's a movie.
         """
         import urllib.request, urllib.parse
-
-        jikan_count = 0
-        tmdb_count  = 0
-
-        # ── Jikan (MyAnimeList) ───────────────────────────────────────────────
-        try:
-            query = urllib.parse.quote(title)
-            url   = f"https://api.jikan.moe/v4/anime?q={query}&limit=1"
-            req   = urllib.request.Request(url, headers={"User-Agent": "GreatSage/1.0"})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = json.loads(r.read())
-            results = data.get("data", [])
-            if results:
-                ep = results[0].get("episodes")
-                if ep:
-                    jikan_count = int(ep)
-        except Exception:
-            pass
-
-        # If explicitly marked as anime and Jikan found something, trust it fully
-        if is_anime and jikan_count:
-            return jikan_count
-
-        # ── TMDB (TV shows) ──────────────────────────────────────────────────
+        tmdb_count = 0
+        # TMDB (TV shows)
         if TMDB_API_KEY:
             try:
                 query  = urllib.parse.quote(title)
@@ -737,17 +711,7 @@ class MediaPlayer:
                         tmdb_count = int(ep)
             except Exception:
                 pass
-
-        # ── Pick the best result ─────────────────────────────────────────────
-        # If Jikan found something and TMDB returned a suspiciously low number
-        # (or nothing), prefer Jikan — it's likely an anime misidentified by TMDB.
-        if jikan_count and (tmdb_count == 0 or tmdb_count < jikan_count):
-            return jikan_count
-
-        if tmdb_count:
-            return tmdb_count
-
-        return 0
+        return tmdb_count
 
     @staticmethod
     def count_episodes_in_folder(file_path: str) -> int:
@@ -1237,24 +1201,36 @@ def normalize_title(title: str) -> str:
     """Normalize title for comparison"""
     return re.sub(r'[^a-z0-9]', '', title.lower())
 
+def _contains_whole_token(needle: str, haystack: str) -> bool:
+    """
+    True if `needle` appears in `haystack` as a standalone word/token,
+    not as a fragment of a larger word (e.g. "mortal" must NOT match
+    inside "immortal").
+    """
+    if not needle or not haystack:
+        return False
+    return re.search(r'(?<![a-z0-9])' + re.escape(needle) + r'(?![a-z0-9])',
+                      haystack) is not None
+
+
 def correct_title(title: str) -> str:
     """Apply title corrections"""
     normalized = normalize_title(title)
-    
+
     # Direct match first
     for bad, good in TITLE_CORRECTIONS.items():
         if normalized == normalize_title(bad):
             return good
-    
-    # Fuzzy matching
+
+    # Fuzzy matching — whole-word/token containment only.
+    # (No length-proximity heuristic: two titles being similar in length
+    # says nothing about whether they're actually related.)
     for bad, good in TITLE_CORRECTIONS.items():
         bad_norm = normalize_title(bad)
-        if (bad_norm in normalized or normalized in bad_norm or
-            abs(len(bad_norm) - len(normalized)) <= 2):
-            if (bad_norm in normalized or normalized in bad_norm or
-                (len(bad_norm) >= 3 and normalized.startswith(bad_norm[:3]))):
-                return good
-    
+        if (_contains_whole_token(bad_norm, normalized) or
+                _contains_whole_token(normalized, bad_norm)):
+            return good
+
     return title
 
 def extract_show_title(filename: str) -> str:
@@ -1312,10 +1288,9 @@ def extract_show_title(filename: str) -> str:
 
 class MetadataFetcher:
     """
-    Fetch metadata from three sources in order:
-      1. Jikan (MyAnimeList) — best for anime
-      2. TMDB  — best for movies and most TV shows
-      3. TVMaze — fallback for TV shows TMDB misses
+    Fetch metadata from two sources in order:
+      1. TMDB  — best for movies and most TV shows
+      2. TVMaze — fallback for TV shows TMDB misses
     Title matching is fuzzy so abbreviations, alternate titles and
     transliterations all have a chance of hitting.
     """
@@ -1324,8 +1299,14 @@ class MetadataFetcher:
 
     @staticmethod
     def _norm(s: str) -> str:
-        """Lowercase, strip punctuation, collapse spaces."""
-        return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9 ]', '', s.lower())).strip()
+        """
+        Lowercase, normalize common symbol/word equivalents (so titles that
+        differ only cosmetically still match — e.g. "Sweetness & Lightning"
+        vs "Sweetness And Lightning"), strip remaining punctuation, collapse
+        spaces.
+        """
+        s = s.lower().replace('&', ' and ')
+        return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9 ]', '', s)).strip()
 
     @staticmethod
     def title_matches(query: str, result_title: str,
@@ -1345,7 +1326,7 @@ class MetadataFetcher:
             return True
 
         # Containment — only allow if the shorter string is substantial (≥5 chars)
-        # Prevents "Temple" matching "28 Years Later: The Bone Temple" via Jikan
+        # Prevents "Temple" matching "28 Years Later: The Bone Temple"
         shorter, longer = (q, r) if len(q) <= len(r) else (r, q)
         if len(shorter) >= 5 and shorter in longer:
             # Extra guard: shorter must cover at least 60% of the longer title's length
@@ -1383,8 +1364,7 @@ class MetadataFetcher:
     @staticmethod
     def fetch_movie_info(title: str, is_anime: bool = False) -> Optional[Dict]:
         """
-        Try Jikan → TMDB → TVMaze in order.
-        Always tries all three regardless of is_anime flag so nothing slips through.
+        Try TMDB → TVMaze in order.
         """
         # Refresh TMDB key from settings at call-time (user may have set it since startup)
         global TMDB_API_KEY
@@ -1401,75 +1381,16 @@ class MetadataFetcher:
 
         t = correct_title(title)
 
-        # 1. Jikan — only for anime, skipped for movies/live-action
-        #    Avoids false matches like "Temple" → random anime
-        if is_anime:
-            info = MetadataFetcher._fetch_jikan(t)
-            if info:
-                return info
-
-        # 2. TMDB — best for movies and mainstream TV
+        # 1. TMDB — best for movies and mainstream TV
         info = MetadataFetcher._fetch_tmdb(t)
         if info:
             return info
 
-        # 3. TVMaze — fallback for TV shows
+        # 2. TVMaze — fallback for TV shows
         info = MetadataFetcher._fetch_tvmaze(t)
         if info:
             return info
 
-        # 4. Last resort: try Jikan even for non-anime (some shows are on MAL)
-        if not is_anime:
-            info = MetadataFetcher._fetch_jikan(t)
-            if info:
-                return info
-
-        return None
-
-    # ── Jikan ────────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _fetch_jikan(title: str) -> Optional[Dict]:
-        """Jikan v4 (MyAnimeList). Returns first match across main + alt titles."""
-        try:
-            resp = _session.get(
-                f"{JIKAN_API}/anime",
-                params={'q': title, 'limit': 8},
-                timeout=10
-            )
-            resp.raise_for_status()
-            entries = resp.json().get('data', [])
-
-            for entry in entries:
-                # Collect all title variants
-                alts = [t2.get('title', '') for t2 in entry.get('titles', [])]
-                alts += [entry.get('title_english', ''), entry.get('title_japanese', '')]
-
-                if MetadataFetcher.title_matches(title, entry['title'], alts):
-                    genres = [g['name'] for g in entry.get('genres', [])]
-                    themes = [t2['name'] for t2 in entry.get('themes', [])]
-                    images = entry.get('images', {}) or {}
-                    img_url = (images.get('jpg', {}) or {}).get('large_image_url') \
-                        or (images.get('jpg', {}) or {}).get('image_url', '')
-                    return {
-                        'source':       'Jikan / MAL',
-                        'title':        entry.get('title_english') or entry['title'],
-                        'original_title': entry['title'],
-                        'synopsis':     entry.get('synopsis', ''),
-                        'episodes':     entry.get('episodes') or 'Unknown',
-                        'score':        entry.get('score') or 'N/A',
-                        'year':         entry.get('year') or 'Unknown',
-                        'release_date': entry.get('aired', {}).get('string', 'Unknown'),
-                        'genres':       genres + themes,
-                        'type':         entry.get('type', 'Unknown'),
-                        'status':       entry.get('status', 'Unknown'),
-                        'rating':       entry.get('rating', 'Unknown'),
-                        'studios':      [s['name'] for s in entry.get('studios', [])],
-                        'image_url':    img_url,
-                    }
-        except Exception as e:
-            log.warning(f"Jikan error: {e}")
-            log.warning("Jikan metadata fetch failed", title=title, error=str(e))
         return None
 
     @staticmethod
@@ -1490,6 +1411,34 @@ class MetadataFetcher:
             )
             resp.raise_for_status()
             results = resp.json().get('results', [])
+            if not results:
+                # TMDB's search API is strict about articles ("a"/"an"/"the")
+                # ANYWHERE in the query, not just at the start — e.g. "The
+                # Daily Life of an Immortal King" finds nothing, but "The
+                # Daily Life of the Immortal King" and "...of Immortal King"
+                # both find it. Their website search is more forgiving about
+                # this; the raw API is not. Try a couple of variants before
+                # giving up: strip all articles entirely, then try swapping
+                # "an"/"a" for "the" (a common phrasing TMDB does seem to index).
+                variants = []
+                no_articles = re.sub(r'\b(a|an|the)\b', '', title, flags=re.IGNORECASE)
+                no_articles = re.sub(r'\s+', ' ', no_articles).strip()
+                if no_articles and no_articles != title:
+                    variants.append(no_articles)
+                swapped = re.sub(r'\b(a|an)\b', 'the', title, flags=re.IGNORECASE)
+                if swapped != title and swapped not in variants:
+                    variants.append(swapped)
+
+                for variant in variants:
+                    resp = _session.get(
+                        f"{TMDB_API}/search/multi",
+                        params={**base_params, 'query': variant, 'include_adult': False},
+                        timeout=10
+                    )
+                    resp.raise_for_status()
+                    results = resp.json().get('results', [])
+                    if results:
+                        break
 
             for r in results:
                 media_type = r.get('media_type', '')
