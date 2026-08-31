@@ -7,6 +7,7 @@ Matrix — Media Manager
 import os
 import sys
 import re
+import difflib
 import json
 import tempfile
 from great_sage_core import sage_mod, matrix_data, save_json, MATRIX_PROGRESS
@@ -1325,6 +1326,11 @@ class MetadataFetcher:
         if q == r:
             return True
 
+        # Space-insensitive exact — catches compound-word splits like
+        # "House Husband" vs "Househusband"
+        if q.replace(' ', '') == r.replace(' ', ''):
+            return True
+
         # Containment — only allow if the shorter string is substantial (≥5 chars)
         # Prevents "Temple" matching "28 Years Later: The Bone Temple"
         shorter, longer = (q, r) if len(q) <= len(r) else (r, q)
@@ -1353,9 +1359,17 @@ class MetadataFetcher:
                     continue
                 if q == a:
                     return True
+                if q.replace(' ', '') == a.replace(' ', ''):
+                    return True
                 s2, l2 = (q, a) if len(q) <= len(a) else (a, q)
                 if len(s2) >= 5 and s2 in l2 and len(s2) >= len(l2) * 0.6:
                     return True
+
+        # Fuzzy-distance fallback — last resort, length-guarded to avoid
+        # short-title false positives (see correct_title() lesson)
+        if len(q) >= 8 and len(r) >= 8:
+            if difflib.SequenceMatcher(None, q, r).ratio() >= 0.88:
+                return True
 
         return False
 
