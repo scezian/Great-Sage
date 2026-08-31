@@ -87,7 +87,8 @@ def _find_webengine_resources():
             os.environ.setdefault("QTWEBENGINE_LOCALES_PATH", str(p / "translations"))
 _find_webengine_resources()
 # Suppress GPU/blacklist errors
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --no-sandbox --disable-features=IsolateOrigins,site-per-process")
+# TEST: --disable-gpu removed to check if real GPU-accelerated video
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-features=IsolateOrigins,site-per-process")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 try:
