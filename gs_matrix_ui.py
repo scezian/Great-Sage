@@ -3,8 +3,9 @@ gs_matrix_ui.py — Great Sage
 ==============================
 Matrix module UI: media tracker page and related dialogs.
 """
-import os, re, subprocess, sys, threading, time, datetime as dt
+import os, re, subprocess, sys, tempfile, threading, time, uuid, datetime as dt
 from pathlib import Path
+from ytstream import YouTubeExtractWorker
 
 try:
     from gs_logger import log
@@ -1879,6 +1880,67 @@ class MatrixPage(QWidget):
         )
         self._play_thread = t
         t.start()
+
+    def _play_youtube_via_mpv(self, youtube_url: str):
+        """
+        Entry point called by AdBlockPage.acceptNavigationRequest when the
+        Stream tab's embedded browser is about to navigate to a YouTube
+        video URL. Cancels that navigation (handled by the caller) and
+        instead extracts a direct stream URL via yt-dlp, then spawns mpv
+        as a standalone window pointed at it -- so YouTube's page JS and
+        ad-serving pipeline never load at all.
+        """
+        if hasattr(self, "_stream_view") and self._stream_view.history().canGoBack():
+            self._stream_view.back()
+        if getattr(self, "_yt_worker", None) is not None:
+            try:
+                self._yt_worker.stream_ready.disconnect()
+                self._yt_worker.error.disconnect()
+            except Exception:
+                pass
+        self._yt_worker = YouTubeExtractWorker(youtube_url, target_height=1080)
+        self._yt_worker.stream_ready.connect(self._on_yt_stream_ready)
+        self._yt_worker.error.connect(self._on_yt_stream_error)
+        self._yt_worker.finished.connect(self._yt_worker.deleteLater)
+        self._yt_worker.start()
+
+    def _on_yt_stream_ready(self, result: dict):
+        stream_url = result.get("url")
+        audio_url  = result.get("audio_url")
+        if not stream_url:
+            self._on_yt_stream_error("No stream URL returned from extractor.")
+            return
+        socket_path = os.path.join(
+            tempfile.gettempdir(), f"mpv_yt_{uuid.uuid4().hex[:8]}.sock"
+        )
+        cmd = [
+            "mpv",
+            f"--input-ipc-server={socket_path}",
+            "--really-quiet",
+            f"--force-media-title={result.get('title') or 'YouTube'}",
+            stream_url,
+        ]
+        try:
+            subprocess.Popen(cmd)
+        except Exception as e:
+            self._on_yt_stream_error(f"Failed to launch mpv: {e}")
+            return
+        if audio_url:
+            def _attach_audio():
+                mod, _ = matrix_mod()
+                for _ in range(30):
+                    if os.path.exists(socket_path):
+                        break
+                    time.sleep(0.1)
+                else:
+                    log.warning("mpv IPC socket never appeared for YouTube audio-add")
+                    return
+                time.sleep(0.3)
+                mod.MediaPlayer._mpv_command(socket_path, "audio-add", audio_url, "select")
+            threading.Thread(target=_attach_audio, daemon=True).start()
+
+    def _on_yt_stream_error(self, msg: str):
+        QMessageBox.warning(self, "YouTube Playback Failed", msg)
 
     def _play_loop(self, path, start, show):
         import socket as _socket, json as _json

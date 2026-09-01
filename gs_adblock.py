@@ -704,6 +704,27 @@ if _WEBENGINE_OK:
             # inherit javaScriptConfirm/Alert overrides. Never attached to a
             # view so it stays invisible; Qt GCs it when nothing references it.
             return AdBlockPage(self.profile(), self.parent())
+        _YOUTUBE_HOSTS = ()  # Disabled 2026-09-01: YouTube PO-token requirements make direct mpv playback unreliable. Restore the tuple to re-enable.
+        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+            # Intercept direct top-level navigation to a YouTube *video* URL
+            # (not search/browse/channel pages) and hand it off to the
+            # yt-dlp -> mpv playback path instead of loading YouTube's page
+            # (and its ad pipeline) at all. Embeds/iframes are left alone.
+            if is_main_frame:
+                host = url.host().lower()
+                if host in self._YOUTUBE_HOSTS:
+                    path = url.path()
+                    is_video = (host == "youtu.be" and len(path) > 1) or \
+                               (host != "youtu.be" and path.startswith("/watch"))
+                    if is_video:
+                        view = self.parent()
+                        host_widget = view
+                        while host_widget and not hasattr(host_widget, "_play_youtube_via_mpv"):
+                            host_widget = host_widget.parent()
+                        if host_widget:
+                            host_widget._play_youtube_via_mpv(url.toString())
+                            return False
+            return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
         def javaScriptAlert(self, url, msg):     pass
         def javaScriptConfirm(self, url, msg):   return False
