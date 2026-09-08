@@ -1215,6 +1215,7 @@ class MetadataWorker(QThread):
                 log.matrix.info("Metadata fetched via TMDB fallback", title=self.clean)
                 self.done.emit({
                     "title":   x.get("title") or x.get("name", self.clean),
+                    "original_title": x.get("original_title") or x.get("original_name", ""),
                     "year":    (x.get("release_date") or x.get("first_air_date", ""))[:4],
                     "synopsis": ov,
                     "score":   round(x.get("vote_average", 0), 1),

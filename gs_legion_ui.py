@@ -29,6 +29,7 @@ import os
 import re
 import json
 import threading
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -1356,6 +1357,23 @@ def fetch_libread_popular(page: int = 1) -> list[BookItem]:
     return items
 
 
+def _gutendex_get(s, url, params=None, timeout=10, retries=1, backoff=1.5):
+    """
+    GET against the Gutendex API with one short retry on timeout/connection
+    errors. Gutendex occasionally has brief upstream hiccups where the first
+    request hangs but a near-immediate retry succeeds.
+    """
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return s.get(url, params=params, timeout=timeout)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff)
+    raise last_exc
+
+
 def _parse_gutendex_results(results: list) -> list[BookItem]:
     """Convert a list of Gutendex book dicts into BookItems."""
     items = []
@@ -1390,7 +1408,7 @@ def _parse_gutendex_results(results: list) -> list[BookItem]:
 def fetch_gutenberg_popular(page: int = 1) -> list[BookItem]:
     """Fetch a page of popular Gutenberg books."""
     s = _session()
-    r = s.get(f"{GX_BASE}/books/", params={"sort": "popular", "languages": "en", "page": page}, timeout=10)
+    r = _gutendex_get(s, f"{GX_BASE}/books/", params={"sort": "popular", "languages": "en", "page": page})
     r.raise_for_status()
     data = r.json()
     return _parse_gutendex_results(data.get("results", []))
@@ -1399,7 +1417,7 @@ def fetch_gutenberg_popular(page: int = 1) -> list[BookItem]:
 def search_gutenberg(query: str, page: int = 1) -> list[BookItem]:
     """Search Project Gutenberg via the Gutendex API."""
     s = _session()
-    r = s.get(f"{GX_BASE}/books/", params={"search": query, "languages": "en", "page": page}, timeout=10)
+    r = _gutendex_get(s, f"{GX_BASE}/books/", params={"search": query, "languages": "en", "page": page})
     r.raise_for_status()
     data = r.json()
     return _parse_gutendex_results(data.get("results", []))
@@ -1412,7 +1430,7 @@ def fetch_gutenberg_detail(url: str) -> dict:
     """
     try:
         s = _session()
-        r = s.get(url, timeout=10)
+        r = _gutendex_get(s, url)
         r.raise_for_status()
         data     = r.json()
         subjects = data.get("subjects", [])
@@ -1452,14 +1470,16 @@ def search_royalroad(query: str, page: int = 1) -> list[BookItem]:
 
 def search_libread(query: str, page: int = 1) -> list[BookItem]:
     """Search FreeWebNovel (the live backend for LibRead content)."""
-    # libread.com/search is a dead redirect. fwn /search?searchkey= works
-    # and was confirmed returning 50 results in test_scraper.py.
+    # fwn changed their search form: it now expects POST with a "keyword"
+    # field (form action="/search" method="post"), not GET ?searchkey=.
+    # Confirmed against the live site 2026-09-05 — the old GET/searchkey
+    # combo silently returns the empty search shell with zero results.
     s = _fwn_session()
-    params = {"searchkey": query}
+    data = {"keyword": query}
     if page > 1:
-        params["page"] = page
+        data["page"] = page
     try:
-        r = s.get(f"{FWN_BASE}/search", params=params, timeout=12)
+        r = s.post(f"{FWN_BASE}/search", data=data, timeout=12)
     except Exception:
         return []
     if r.status_code != 200:

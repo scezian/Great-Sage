@@ -905,7 +905,8 @@ class MatrixPage(QWidget):
 
         def _on_done(info, t=title, l=lst):
             _cleanup()
-            img_url = (info or {}).get("image_url", "")
+            img_url    = (info or {}).get("image_url", "")
+            orig_title = (info or {}).get("original_title", "")
             if img_url:
                 try:
                     md = matrix_data(); wl = md.setdefault("watchlist", {})
@@ -914,6 +915,8 @@ class MatrixPage(QWidget):
                             if isinstance(e, dict) and e.get("title", "").lower() == t.lower():
                                 e["cover_url"] = img_url
                                 e.pop("cover_lookup_failed_at", None)
+                                if orig_title and orig_title.strip().lower() != t.strip().lower():
+                                    e["original_title"] = orig_title
                     save_json(MATRIX_PROGRESS, md)
                 except Exception as ex:
                     log.matrix.warning("Could not persist cover_url locally", title=t, error=str(ex))
@@ -1010,6 +1013,9 @@ class MatrixPage(QWidget):
                 act.triggered.connect(lambda _, t=target, ti=title, en=e: self._wl_move(ti,en,lst_name,t))
         menu.addSeparator()
         menu.addAction("Rename").triggered.connect(lambda: self._wl_rename(title,e,lst_name))
+        if isinstance(e, dict) and e.get("original_title"):
+            _label = "Show English Title" if e.get("use_original_title") else "Show Original Title"
+            menu.addAction(_label).triggered.connect(lambda: self._wl_toggle_title(title,e,lst_name))
         menu.addAction("Remove").triggered.connect(lambda: self._wl_remove(title,lst_name))
         menu.exec(lw.mapToGlobal(pos))
 
@@ -1022,12 +1028,37 @@ class MatrixPage(QWidget):
             return
         md = matrix_data(); wl = md.setdefault("watchlist", {})
         for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k, [])
+        renamed_entry = None
         for e in wl.get(lst_name, []):
             e_title = e.get("title","") if isinstance(e,dict) else str(e)
             if e_title.lower() == title.lower():
                 if isinstance(e, dict):
                     e["title"] = new_title
                     e["updated_at"] = _wl_now()
+                    renamed_entry = e
+                break
+        save_json(MATRIX_PROGRESS, md)
+        self.refresh()
+        # Push the rename to the cloud as remove(old) + add(new) -- otherwise
+        # the pre-rename row survives in Supabase and gets pulled back down
+        # on the next sync, resurrecting the old-titled entry alongside the
+        # corrected one.
+        _sync_item_removed(title)
+        _sync_item_added(
+            new_title,
+            "Anime" if (renamed_entry or {}).get("is_anime", True) else "Novel",
+            _bucket_label(lst_name),
+            rating=(renamed_entry or {}).get("score", 0),
+        )
+
+    def _wl_toggle_title(self, title, entry, lst_name):
+        md = matrix_data(); wl = md.setdefault("watchlist", {})
+        for k in ("planning","watching","dropped","completed","on_hold"): wl.setdefault(k, [])
+        for e in wl.get(lst_name, []):
+            e_title = e.get("title","") if isinstance(e,dict) else str(e)
+            if e_title.lower() == title.lower():
+                if isinstance(e, dict):
+                    e["use_original_title"] = not e.get("use_original_title", False)
                 break
         save_json(MATRIX_PROGRESS, md)
         self.refresh()
@@ -3721,7 +3752,10 @@ class MatrixPage(QWidget):
                 return t.strip().lower()
             items.sort(key=_sort_title)  # A -> Z (display only; "added" timestamp untouched)
             for idx, e in enumerate(items, start=1):
-                t  = e.get("title","?") if isinstance(e,dict) else str(e)
+                if isinstance(e,dict) and e.get("use_original_title") and e.get("original_title"):
+                    t = e.get("original_title","?")
+                else:
+                    t = e.get("title","?") if isinstance(e,dict) else str(e)
                 t  = _strip_markdown(_clean_media_title(t))
                 an = " [Anime]" if isinstance(e,dict) and e.get("is_anime") else ""
                 item = QListWidgetItem(f"  {idx}.  {t}{an}")

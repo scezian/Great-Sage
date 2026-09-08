@@ -135,7 +135,7 @@ _FALLBACK_PATTERNS = [
 _ALLOWLIST = (
     "youtube.com", "googlevideo.com", "ytimg.com", "ggpht.com",
     "google.com", "gstatic.com", "googleapis.com",
-    "animekai.be", "animekai.to", "animetsu.to", "gogoanime",
+    "animekai.be", "animekai.to", "animetsu.to", "gogoanime", "megaplay.buzz",
     "cloudflare.com", "cloudflare.net", "fastly.net",
     "akamaized.net", "akamai.net",
     "jwpcdn.com", "jwplatform.com", "bitmovin.com",
@@ -794,7 +794,7 @@ def _build_cosmetic_injection(extra_css: str = "") -> str:
     return (
         "(function(){"
         "var _h=window.location.hostname;"
-        "if(_h.includes('youtube.com')||_h.includes('ytimg.com')||_h.includes('googlevideo.com'))return;"
+        "if(_h.includes('youtube.com')||_h.includes('ytimg.com')||_h.includes('googlevideo.com')||_h.includes('animekai.be')||_h.includes('animekai.to')||_h.includes('animetsu.to'))return;"
         "window.open=function(){return null;};"
         "window.alert=function(){};"
         "window.confirm=function(){return false;};"
@@ -833,7 +833,9 @@ def popup_killer_js() -> str:
 
 // ── Skip trusted sites ────────────────────────────────────────────────────
 var _h = window.location.hostname;
-if (_h.includes('youtube.com') || _h.includes('ytimg.com') || _h.includes('googlevideo.com')) return;
+var _SKIP_HOSTS = ['youtube.com', 'ytimg.com', 'googlevideo.com',
+    'animekai.be', 'animekai.to', 'animetsu.to', 'megaplay.buzz'];
+if (_SKIP_HOSTS.some(function(s) { return _h.includes(s); })) return;
 
 // ── Block ad JS APIs ──────────────────────────────────────────────────────
 try {
@@ -1202,11 +1204,10 @@ class AdBlockManager:
         for profile in self._profiles:
             try:
                 scripts = profile.scripts()
-                existing = scripts.find("gs_adblock_cosmetic")
-                if not existing.isNull():
+                for existing in scripts.find("gs_adblock_cosmetic"):
                     scripts.remove(existing)
                 self._inject_cosmetic(profile)
-                if scripts.find("gs_adblock_popup_killer").isNull():
+                if not scripts.find("gs_adblock_popup_killer"):
                     self._inject_popup_killer(profile)
             except Exception as e:
                 log.warning("adblock: profile cosmetic refresh failed — %s", e)
