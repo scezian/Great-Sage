@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from PyQt6.QtCore import QObject, QTimer
+    from PyQt6.QtCore import QObject, QTimer, pyqtSignal
     from PyQt6.QtWebEngineCore import (
         QWebEngineProfile,
         QWebEnginePage,
@@ -1074,6 +1074,24 @@ obs.observe(document.documentElement, { childList: true, subtree: true });
 # AdBlockManager — top-level orchestrator
 # ──────────────────────────────────────────────────────────────────────────────
 
+if _WEBENGINE_OK:
+    class _AdBlockSwapSignal(QObject):
+        """
+        Tiny QObject whose sole purpose is to marshal filter-engine swap-ins
+        from the background 'adblock_fetch' thread onto the Qt main thread.
+
+        profile.scripts() (QWebEngineScriptCollection) must only be touched
+        from the thread that owns the profile (the Qt main/GUI thread).
+        Calling it directly from a plain threading.Thread violates that
+        invariant and can trigger a DCHECK-triggered SIGTRAP deep inside
+        libQt6WebEngineCore with no readable Python traceback. Emitting a
+        signal here and letting Qt's auto queued-connection deliver it on
+        the main thread's event loop keeps every profile.scripts() call
+        correctly thread-affine.
+        """
+        fire = pyqtSignal(object, object)  # (FilterEngine, CosmeticEngine)
+
+
 class AdBlockManager:
     """
     Manages filter list lifecycle and wires everything into a QWebEngineProfile.
@@ -1092,6 +1110,11 @@ class AdBlockManager:
         self._interceptor: Optional[_AdBlockInterceptor] = None
         self._profiles: list = []
         self._lock = threading.Lock()
+
+        self._swap_signal = None
+        if _WEBENGINE_OK:
+            self._swap_signal = _AdBlockSwapSignal()
+            self._swap_signal.fire.connect(self._apply_swap)
 
         # NOTE: we deliberately do NOT load the on-disk cache here. Even a
         # warm cache means reconstructing tens of thousands of FilterRule
@@ -1193,9 +1216,24 @@ class AdBlockManager:
         t.start()
 
     def _swap_in(self, engine: FilterEngine, cosmetic: CosmeticEngine) -> None:
+        """
+        Called from the background fetch thread. Marshals onto the Qt main
+        thread via a queued signal when WebEngine is available; falls back
+        to a direct call otherwise (no Qt profile objects exist to violate
+        thread-affinity on in that case).
+        """
+        if self._swap_signal is not None:
+            self._swap_signal.fire.emit(engine, cosmetic)
+        else:
+            self._apply_swap(engine, cosmetic)
+
+    def _apply_swap(self, engine: FilterEngine, cosmetic: CosmeticEngine) -> None:
         """Make a newly loaded/downloaded engine live: update internal state,
         the running interceptor, and re-inject cosmetic scripts into every
-        profile that's already had install() called on it."""
+        profile that's already had install() called on it.
+
+        IMPORTANT: only ever call this on the Qt main thread — see _swap_in.
+        """
         with self._lock:
             self._engine   = engine
             self._cosmetic = cosmetic
