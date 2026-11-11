@@ -294,6 +294,7 @@ class MediaPlayer:
 
         cmd = [
             "mpv",
+            "--hwdec=auto-safe",
             f"--input-ipc-server={socket_path}",
             "--really-quiet",
         ]
@@ -427,6 +428,7 @@ class MediaPlayer:
 
             cmd = [
                 "mpv",
+                "--hwdec=auto-safe",
                 f"--input-ipc-server={socket_path}",
                 "--really-quiet",
                 "--keep-open=no",

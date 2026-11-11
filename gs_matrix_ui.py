@@ -1190,7 +1190,7 @@ class MatrixPage(QWidget):
             def _launch():
                 if trailer_url:
                     self.wl_info.setText(f"Playing trailer: {title}")
-                    try: subprocess.Popen(["mpv","--really-quiet",
+                    try: subprocess.Popen(["mpv","--hwdec=auto-safe","--really-quiet",
                                            f"--title=Trailer — {title}", trailer_url])
                     except Exception as ex: self.wl_info.setText(f"mpv error: {ex}")
                 else:
@@ -1946,6 +1946,7 @@ class MatrixPage(QWidget):
         )
         cmd = [
             "mpv",
+            "--hwdec=auto-safe",
             f"--input-ipc-server={socket_path}",
             "--really-quiet",
             f"--force-media-title={result.get('title') or 'YouTube'}",
@@ -2043,6 +2044,7 @@ class MatrixPage(QWidget):
 
             cmd = [
                 "mpv",
+                "--hwdec=auto-safe",
                 f"--input-ipc-server={MPV_SOCKET_PATH}",
                 "--really-quiet",
                 "--fullscreen",
